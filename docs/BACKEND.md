@@ -1,0 +1,214 @@
+# AIGM Backend Design
+
+Implementation plan for the v0.1 backend described in [API.md](API.md). No code yet; this document defines structure, responsibilities, and key decisions.
+
+## Goals / Non-goals
+
+**Goals (v0.1)**
+- FastAPI server with `POST /chat` streaming SSE (markdown text + custom events).
+- Forwards conversation to a Claude model, streaming tokens through.
+- Server-side tool loop with one tool, `roll_dice`, backed by the `d20` library.
+- In-memory per-session chat history plus named saved histories (list / show / save / restore / delete).
+
+**Non-goals (later)**
+- History truncation, summarization, long-term memory.
+- Auth, multi-user isolation, database storage.
+- Game state (characters, maps, rules), prompt caching tuning, additional tools.
+
+## Stack
+
+- Python 3.13, managed with `uv`. The server is its own uv project in `server/`, independent of the client in `client/` (separate `pyproject.toml`, `.venv`, and `uv.lock`).
+- Dependencies: `fastapi`, `uvicorn[standard]`, `anthropic` (async SDK), `d20`, `pydantic` (via FastAPI), `pydantic-settings`. SSE is produced with `fastapi.responses.StreamingResponse` (or `sse-starlette` if its disconnect handling proves easier; start without it).
+- Dev: `pytest`, `pytest-asyncio`, `httpx` (ASGI test client).
+- Run (from `server/`): `uv run uvicorn aigm.app:app --reload`.
+
+## Project Layout
+
+Convert the placeholder `main.py` into a package:
+
+```
+server/              # (inside the repo root; docs live in ../docs)
+  pyproject.toml
+  src/aigm/
+    __init__.py
+    app.py            # FastAPI app factory, router wiring, lifespan
+    config.py         # Settings (env-driven)
+    models.py         # Pydantic request/response models, SSE event models
+    sse.py            # SSE event encoding helpers
+    routes/
+      chat.py         # POST /chat, POST /chat/new, GET /chat/history
+      history.py      # /history/* endpoints (saved histories) and GET /chat/history
+      health.py       # GET /health
+    llm/
+      client.py       # Thin wrapper around anthropic.AsyncAnthropic
+      loop.py         # Streaming + tool-use loop (the core)
+    tools/
+      __init__.py     # Registry: name -> (schema, handler)
+      roll_dice.py    # roll_dice tool
+    session/
+      store.py        # In-memory SessionStore + per-session lock
+      persistence.py  # Save/restore snapshots to disk
+    prompts/
+      gm_system.md    # System prompt for the GM
+  tests/
+    test_roll_dice.py
+    test_sse.py
+    test_history_api.py
+    test_chat_loop.py  # uses a fake LLM client
+  saves/               # runtime snapshots (gitignored; server/saves/)
+```
+
+## Configuration (`config.py`)
+
+Environment variables (via `pydantic-settings`, optional `.env`):
+
+| Var                    | Default               | Purpose                              |
+|------------------------|-----------------------|--------------------------------------|
+| `ANTHROPIC_API_KEY`    | (required)            | API credential                       |
+| `AIGM_MODEL`           | `claude-sonnet-5-5`   | Model id                             |
+| `AIGM_MAX_TOKENS`      | `4096`                | Per-response output cap              |
+| `AIGM_MAX_TOOL_ITERS`  | `8`                   | Tool-loop safety limit per turn      |
+| `AIGM_STREAM_THINKING` | `true`               | Forward reasoning text as `thinking` `delta` events; `false` sends only `start`/`end` |
+| `AIGM_THINKING_BUDGET` | `0` (disabled)        | Extended-thinking token budget; `>0` enables thinking (must be < `AIGM_MAX_TOKENS`, and the model must support it) |
+| `AIGM_SAVE_DIR`        | `./saves`             | Snapshot directory                   |
+| `AIGM_CORS_ORIGINS`    | `http://localhost:*`  | Allowed front-end origins            |
+
+## Core Components
+
+### 1. Data model (`models.py`)
+
+- `ChatRequest { message: str, session_id: str = "default" }` with validators (non-empty, session-id regex).
+- `SaveRequest { name: str | None }`.
+- SSE event models: `MessageStart`, `Thinking`, `TextDelta`, `ToolCall`, `DiceRoll`, `MessageEnd`, `ErrorEvent`, all subclasses of a base with an `event: ClassVar[str]` name, so serialization is uniform.
+- History is stored as raw Anthropic message dicts (`{"role", "content": [blocks]}`), not custom types, so it passes straight back to the API and serializes trivially to JSON.
+
+### 2. SSE encoding (`sse.py`)
+
+- `encode(event) -> str`: renders `event: <name>\ndata: <json>\n\n`; JSON is single-line (no embedded newlines).
+- Response headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`, `Connection: keep-alive`.
+- Optional periodic comment heartbeat (`: ping\n\n`) during long tool/LLM waits.
+
+### 3. Session store (`session/store.py`)
+
+- `Session { id, messages: list[dict], lock: asyncio.Lock }`.
+- `SessionStore`: `get_or_create(id)`, `replace_messages(id, msgs)` (used by restore and `/chat/new`, which replaces with `[]`). Backed by a plain dict; single process only in v0.1.
+- Concurrency rule: `/chat`, `/chat/new`, save, and restore acquire the session lock non-blockingly; if already held, return `409`. The lock is held for the whole streamed turn.
+
+### 4. Persistence (`session/persistence.py`)
+
+A saved history is a "named history", like a saved game file. `HistoryRepository` exposes:
+
+| Method                          | Backs endpoint                      | Notes                                              |
+|---------------------------------|-------------------------------------|----------------------------------------------------|
+| `list() -> list[HistoryInfo]`   | `GET /history`                      | Reads each file's metadata, newest first           |
+| `info(name, include_messages)`  | `GET /history/{name}`               | Never touches a live session                       |
+| `save(name, messages, model, overwrite)` | `PUT /history/{name}/save` | Raises `AlreadyExists` if the file exists and `overwrite` is false; returns `overwritten` flag |
+| `load(name) -> messages`        | `POST /history/{name}/restore`      | Validates fully before returning                   |
+| `delete(name)`                  | `DELETE /history/{name}`            | Single file only; no delete-all                    |
+
+- Snapshot file: `{AIGM_SAVE_DIR}/{name}.json`:
+  ```json
+  { "version": 1, "name": "...", "saved_at": "...", "model": "...", "messages": [...] }
+  ```
+- Write atomically (temp file + `os.replace`). Names are validated by regex, which also prevents path traversal.
+- Restore validates `version` and message structure (role in {user, assistant}, content is list of blocks, and tool_use/tool_result pairing is intact) and raises a typed error mapped to `422`.
+- `list()` and `info()` must not need to parse huge message arrays unnecessarily in future; v0.1 just loads the JSON, but `message_count`, `saved_at`, and `model` live at the top level so a sidecar/index could be added later.
+- Restore ordering: validate the snapshot **first**, then (holding the session lock) swap the messages in. A failed restore must leave live history unchanged.
+- File I/O is wrapped in `asyncio.to_thread`.
+
+### 5. LLM client (`llm/client.py`)
+
+- Single `AsyncAnthropic` instance created in app lifespan and kept on `app.state`.
+- Defined as a small protocol (`stream(messages, system, tools) -> async context manager`) so tests can inject a fake that replays scripted events.
+
+### 6. Streaming tool loop (`llm/loop.py`) — the heart of the system
+
+`async def run_turn(session, user_text, llm, tools) -> AsyncIterator[SSEEvent]`
+
+Algorithm:
+
+1. Append `{"role":"user","content":[{"type":"text","text":user_text}]}` to `session.messages`. Yield `message_start`.
+2. Loop up to `MAX_TOOL_ITERS`:
+   1. Open `llm.stream(model, system, messages, tools, max_tokens)`.
+   2. For each SDK stream event: on a `thinking` content block start, yield `thinking(start)` and record the time; on that block's stop, yield `thinking(end, duration_ms)`; each thinking delta is forwarded as `thinking(delta)` when `AIGM_STREAM_THINKING` is true (otherwise dropped); redacted thinking blocks emit only `start`/`end`. For each text delta, yield a `text` event immediately. If the stream errors or is cancelled mid-block, no `end` is emitted (the terminal `error` event, or the disconnect, ends the stream).
+   3. When the stream completes, get the final message. Append it to `session.messages` as an assistant message (all blocks, including `tool_use` and, when thinking is enabled, `thinking` blocks with their signatures — the API requires thinking blocks to be passed back unmodified alongside tool results within a turn, so never strip or reorder them).
+   4. If `stop_reason != "tool_use"`: yield `message_end` (with accumulated usage) and return.
+   5. Otherwise, for each `tool_use` block, in order:
+      - yield `tool_call`;
+      - dispatch to the tool registry (handler runs in `to_thread` if blocking);
+      - build a `tool_result` block (`is_error` set on failure);
+      - if the tool is `roll_dice` and succeeded, yield `dice_roll`.
+   6. Append one user message containing all `tool_result` blocks, then continue the loop.
+3. If the iteration cap is hit: yield `error(tool_loop_limit)`.
+
+Error handling:
+- Anthropic exceptions → `error(upstream_error, retryable=<bool>)`. History rollback rule: on any failure, truncate `session.messages` back to the state at turn start *plus* the user message? Decision for v0.1: **roll back to the state before the turn entirely** so a failed turn leaves no dangling `tool_use` without `tool_result` (which the API rejects). The client can simply resend.
+- Client disconnect (`asyncio.CancelledError`): same rollback, in a `finally` block, then re-raise.
+- Tool handler exceptions are caught and converted to `is_error` tool results; they never abort the turn.
+
+Mid-turn history consistency: messages are staged in a local list during the turn and committed to the session only on successful completion (or equivalently, rolled back on failure). This makes the rollback rule trivial.
+
+### 7. Tools (`tools/`)
+
+Registry shape:
+
+```
+Tool = (schema: dict, handler: Callable[[dict], ToolOutcome])
+ToolOutcome = { content: str, is_error: bool, event: SSEEvent | None }
+```
+
+The optional `event` lets a tool emit a custom front-end event (e.g. `dice_roll`) without the loop knowing tool specifics. The loop just yields `outcome.event` if present — adding future tools with custom events requires no loop change.
+
+**`roll_dice`**
+- Input: `{"expression": str}`.
+- Validate: string, non-empty, ≤ 200 chars.
+- Call `d20.roll(expression)`; build content from `str(result)` (the same markdown string as the event's `result`), total from `result.total`.
+- Build the structured `dice_roll` payload from the `RollResult`: `crit` from `result.crit` (`CritType`: NONE/CRIT/FAIL → `"none"`/`"crit"`/`"fail"`), `comment` from `result.comment`, then walk the AST (`result.expr`, recursing via `.children`) collecting every `d20.Dice` node. For each: `count=num`, `sides=size`, `total`, `annotation`, and `notation` rebuilt from `num`, `size` and `operations` (d20's `str(Dice)` is a debug repr, not the source text; each `SetOperator` has `op` and `sels` with `cat`/`num`, e.g. `k`+`h`+`3` → `kh3`); for each `Die` in `dice.values`: `kept=die.kept`, `values=[v.total for v in die.values]`, `value=values[-1]`. Note d20 attaches `[annotation]` text to the adjacent `Literal` rather than the `Dice`, so `annotation` is often null. Keep this in one pure function (`build_roll_payload`) so it can be unit tested against fixed expressions without randomness assumptions (assert structure and invariants, e.g. sum of kept dice equals term total).
+- Only `result` (the string) goes back to the model; the structured payload is only in the SSE event.
+- Catch `d20.RollError` (and its subclasses `RollSyntaxError`, `TooManyRolls`, `RollValueError`, etc.) plus generic `Exception` → `is_error` outcome with the message format in API.md.
+- Emits `DiceRoll` event (with the structured payload) on success.
+- Pure and synchronous; cheap enough to run inline, but dispatch is uniform via the registry.
+
+### 8. System prompt (`prompts/gm_system.md`)
+
+Static markdown loaded at startup. v0.1 content: role as a tabletop RPG Game Master; narrate vividly but concisely; always use `roll_dice` for random outcomes rather than inventing numbers; state the check being made before rolling; respond in markdown; keep the player in control of their character. Passed via the API's `system` parameter, not stored in history.
+
+### 9. Routes
+
+- `POST /chat` → validate, get session, try-acquire lock (409 on fail), return `StreamingResponse(generator)` where the generator wraps `run_turn`, encodes events, and releases the lock in `finally`.
+- `POST /chat/new`, `GET /chat/history`, `GET /history`, `GET /history/{name}`, `PUT /history/{name}/save`, `POST /history/{name}/restore`, `DELETE /history/{name}`, `GET /health` per API.md. `{name}` is validated by a shared path-param dependency (regex) so every route rejects bad names with `400`. Handlers are thin; logic lives in the store/persistence modules.
+- Exception handlers map domain errors (`NotFound`, `Conflict`, `InvalidName`, `CorruptSave`) to the JSON error format.
+
+### 10. App wiring (`app.py`)
+
+- `create_app()` factory; lifespan creates the Anthropic client, `SessionStore`, tool registry, and loads the system prompt, placing them on `app.state` (accessed via FastAPI dependencies for easy test override).
+- CORS middleware for the front-end origin(s).
+- Structured logging (request id, session id, tool calls, token usage); never log API keys, and log message bodies only at DEBUG.
+
+## Testing Strategy
+
+- **roll_dice**: valid expressions (`1d20+5`, `4d6kh3`, advantage), malformed (`2x20`, empty, too long, absurd roll counts) → expected content / `is_error`.
+- **SSE encoding**: golden-string tests for each event type.
+- **Loop**: fake LLM client scripted to produce (a) plain text, (b) text → tool_use → text, (c) multiple tool calls in one response, (d) tool error then retry, (e) infinite tool_use (hits cap), (f) upstream exception. Assert event order and final history, including rollback behavior.
+- **History API**: save → mutate → restore round-trip; list ordering; info without loading (live history untouched); `overwrite=true` required to replace an existing save (409 `already_exists` otherwise, existing file untouched); delete one leaves others; failed restore leaves live history intact; 404/409/422 cases; path-traversal names rejected; atomic write.
+- **Chat route**: ASGI client reads the SSE stream end to end; concurrent request returns 409.
+- No live API calls in the default test run; one optional `@pytest.mark.live` smoke test gated on `ANTHROPIC_API_KEY`.
+
+## Build Order
+
+1. Project scaffolding: package layout, dependencies, config, `/health`.
+2. `roll_dice` tool + tests (no network needed).
+3. Session store + persistence + history endpoints + tests.
+4. SSE encoding + event models.
+5. LLM client wrapper + fake + streaming tool loop + tests.
+6. `/chat` route and wiring; manual end-to-end with `curl -N`.
+7. System prompt iteration; live smoke test.
+
+## Known Limitations / Future Work
+
+- History grows without bound (memory/summarization is the next milestone).
+- Single process: the in-memory store and locks don't survive restarts or scale across workers; saves are manual.
+- Rolled-back turns lose partial text a client already displayed; a future version might persist partial turns with synthetic tool results.
+- Prompt caching (cache breakpoint on system prompt + tools) is a cheap later optimization once history is long.
+- Thinking text is streamed to the client in `thinking` deltas but only the `thinking` blocks in history are authoritative; the raw text may be large, so consider stripping it from `/chat/history` responses later.
+- With thinking enabled, `/chat/history` will include `thinking` blocks (and redacted-thinking blocks) because they must round-trip to the API; front ends should skip rendering them.

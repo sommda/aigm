@@ -1,0 +1,25 @@
+[project]
+name = "aigm-client"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { email = "sommda@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "textual>=8.2.8",
+]
+
+[project.scripts]
+aigm-client = "aigm_client:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
