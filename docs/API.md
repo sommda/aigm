@@ -2,7 +2,7 @@
 
 HTTP API for the AI Game Master backend (v0.1). The server is a FastAPI app. Clients send chat messages by `POST` and receive the GM's reply as a Server-Sent Events (SSE) stream of markdown text interleaved with custom events (e.g. die rolls) that a front end may render specially.
 
-- Base URL (dev): `http://localhost:8000`
+- Base URL (dev): `http://127.0.0.1:8000` (the default address of `uvicorn aigm.app:app`)
 - All request bodies are JSON (`Content-Type: application/json`).
 - Non-streaming responses are JSON.
 - No authentication in v0.1. Single global conversation (see "Sessions").

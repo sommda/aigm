@@ -1,0 +1,71 @@
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
+
+from aigm.deps import get_session
+from aigm.errors import Conflict
+from aigm.llm.loop import run_turn
+from aigm.models import ChatRequest
+from aigm.session.store import Session
+from aigm.sse import SSE_HEADERS, encode
+from aigm.tools import dispatch
+
+router = APIRouter()
+SessionDep = Annotated[Session, Depends(get_session)]
+
+
+@router.post("/chat")
+async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
+    app = request.app
+    session = app.state.sessions.get(body.session_id)
+    if not session.try_begin():
+        raise Conflict("A turn is already in progress for this session")
+
+    released = False
+
+    def release() -> None:  # idempotent: runs from the generator and from the response
+        nonlocal released
+        if not released:
+            released = True
+            session.end()
+
+    settings = app.state.settings
+
+    async def event_stream():
+        try:
+            async for event in run_turn(
+                session=session,
+                user_text=body.message,
+                llm=app.state.llm,
+                system=app.state.system_prompt,
+                tools=app.state.tools,
+                dispatch=dispatch,
+                max_iters=settings.max_tool_iters,
+                stream_thinking=settings.stream_thinking,
+            ):
+                yield encode(event)
+        finally:
+            release()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+        background=BackgroundTask(release),
+    )
+
+
+@router.get("/chat/history")
+async def chat_history(session: SessionDep) -> dict[str, Any]:
+    return {"session_id": session.id, "messages": session.messages}
+
+
+@router.post("/chat/new")
+async def new_game(session: SessionDep) -> dict[str, Any]:
+    if session.busy:
+        raise Conflict("A turn is in progress for this session")
+    discarded = len(session.messages)
+    session.messages = []
+    return {"session_id": session.id, "message_count": 0, "discarded_message_count": discarded}

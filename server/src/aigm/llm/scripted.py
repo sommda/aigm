@@ -1,0 +1,247 @@
+"""A scripted stand-in for the LLM, used by `--test` mode.
+
+The user's chat message selects a canned "plan" (a list of steps). Plans exercise the real
+server pipeline (SSE framing, tool loop, real `roll_dice`, history) with no network access.
+Send `help` to list the commands.
+"""
+
+import asyncio
+import uuid
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
+from typing import Any
+
+from aigm.llm.base import (
+    Completed,
+    LLMError,
+    LLMEvent,
+    TextChunk,
+    ThinkingChunk,
+    ThinkingStarted,
+    ThinkingStopped,
+)
+
+
+# ---- plan steps ------------------------------------------------------------------------
+
+
+@dataclass
+class Think:
+    text: str
+
+
+@dataclass
+class Say:
+    text: str
+
+
+@dataclass
+class UseTool:
+    name: str
+    input: dict[str, Any]
+
+
+@dataclass
+class Fail:
+    message: str
+    retryable: bool = True
+
+
+@dataclass
+class Pause:
+    seconds: float
+
+
+Step = Think | Say | UseTool | Fail | Pause
+
+HELP = """\
+## Test mode commands
+
+The server is running with `--test`: replies are scripted, not from a model. Try:
+
+- `roll <expr>`: roll dice via the real `roll_dice` tool, e.g. `roll 4d6kh3+2 # strength`
+- `multiroll`: two dice rolls in one response
+- `badroll [expr]`: a malformed roll (shows the tool-error path)
+- `markdown`: a sampler of every markup form below
+- `bold`, `italic`, `strike`, `code`, `codeblock`, `list`, `numbered`, `heading`, `quote`, `table`, `link`
+- `think [n]`: a thinking phase of *n* sentences, then an answer
+- `long [n]`: *n* paragraphs of text (to test paging)
+- `slow`: a 2 second pause before replying
+- `error`: text, then a simulated upstream failure
+- `loop`: endless tool calls (hits the tool-loop limit)
+- `echo <text>`: repeat your text back (markdown allowed)
+
+Anything else is echoed back."""
+
+SAMPLES: dict[str, str] = {
+    "bold": "The door **splinters** inward and the goblin lets out a **very loud** shriek.",
+    "italic": "The torchlight flickers; *something* moves in the *dark* ahead.",
+    "strike": "You thought it was ~~a friendly innkeeper~~ a disguised assassin.",
+    "code": "Inscribed on the blade: `Ignis Mortem`. Use the `search` action to look closer.",
+    "codeblock": "The scroll reads:\n\n```python\ndef fireball(level):\n    return f\"{level + 2}d6 fire damage\"  # **not bold**\n```\n\nIt crumbles to dust.",
+    "list": "You find in the chest:\n\n- a **rusty** key\n- a *glowing* gem\n- 3 gold coins\n  - one of them is cursed\n\nWhat do you take?",
+    "numbered": "Your options:\n\n1. Fight the goblin\n2. Sneak past it\n3. **Bribe** it with the gem\n\nChoose wisely.",
+    "heading": "# The Sunken Temple\n\nWater drips from the ceiling.\n\n## The First Chamber\n\nA statue stares back at you.\n\n### Inscription\n\nIt reads: *beware*.",
+    "quote": "The old hermit rasps:\n\n> Seek the key beneath the *weeping stone*,\n> and **never** look back.\n\nHe vanishes into the mist.",
+    "table": "Your party:\n\n| Name   | Class   | HP |\n|--------|---------|----|\n| Aria   | Rogue   | 18 |\n| Brom   | Fighter | 31 |\n| Cael   | Wizard  | 12 |\n\nAll alive, for now.",
+    "link": "See the [Adventurer's Guide](https://example.com/guide) for the rules, or visit [the map](https://example.com/map).",
+}
+
+
+def markdown_sampler() -> str:
+    return "\n\n".join(SAMPLES[k] for k in ("heading", "bold", "italic", "strike", "code", "list", "numbered", "quote", "table", "link", "codeblock"))
+
+
+def long_text(n: int) -> str:
+    words = "the party presses onward through mist and shadow while distant bells toll".split()
+    paras = []
+    for i in range(1, n + 1):
+        body = " ".join(words[(i + j) % len(words)] for j in range(36))
+        paras.append(f"**Paragraph {i}.** {body.capitalize()}.")
+    return "\n\n".join(paras)
+
+
+# ---- planning --------------------------------------------------------------------------
+
+
+def _int(arg: str, default: int, lo: int = 1, hi: int = 200) -> int:
+    try:
+        return max(lo, min(hi, int(arg.split()[0])))
+    except (ValueError, IndexError):
+        return default
+
+
+def plan_for(text: str) -> list[Step]:
+    cmd, _, rest = text.strip().partition(" ")
+    cmd, arg = cmd.lower(), rest.strip()
+    if cmd == "help":
+        return [Say(HELP)]
+    if cmd == "echo":
+        return [Say(arg or "Echo what?")]
+    if cmd == "roll":
+        expr = arg or "1d20"
+        return [Say(f"You reach for the dice and roll **{expr.split('#')[0].strip()}**... "), UseTool("roll_dice", {"expression": expr})]
+    if cmd == "multiroll":
+        return [
+            Say("Attack and damage, coming up. "),
+            UseTool("roll_dice", {"expression": "1d20+5 # attack"}),
+            UseTool("roll_dice", {"expression": "2d6+3 # damage"}),
+        ]
+    if cmd == "badroll":
+        return [Say("Trying a strange roll... "), UseTool("roll_dice", {"expression": arg or "2x20"})]
+    if cmd == "markdown":
+        return [Say(markdown_sampler())]
+    if cmd in SAMPLES:
+        return [Say(SAMPLES[cmd])]
+    if cmd == "think":
+        n = _int(arg, 3, 1, 30)
+        thoughts = " ".join(f"Consideration {i}: weigh the risks and the rewards." for i in range(1, n + 1))
+        return [Think(thoughts), Say("After careful thought, the **best** course is to proceed.")]
+    if cmd == "long":
+        return [Say(long_text(_int(arg, 8, 1, 100)))]
+    if cmd == "slow":
+        return [Pause(2.0), Say("That took a while, but here I am.")]
+    if cmd == "error":
+        return [Say("Starting to answer, and then "), Fail("Simulated upstream failure")]
+    if cmd == "loop":
+        return [UseTool("roll_dice", {"expression": "1d6"})]
+    return [Say(f"[test mode] You said: {text.strip()}\n\nType `help` to see the test commands.")]
+
+
+# ---- the client ------------------------------------------------------------------------
+
+
+def _user_text(message: dict[str, Any]) -> str | None:
+    blocks = message.get("content", [])
+    texts = [b.get("text", "") for b in blocks if b.get("type") == "text"]
+    return "\n".join(texts) if texts else None
+
+
+def _last_command_text(messages: list[dict[str, Any]]) -> str:
+    for msg in reversed(messages):
+        if msg["role"] == "user":
+            text = _user_text(msg)
+            if text is not None:
+                return text
+    return ""
+
+
+def narrate_tool_results(messages: list[dict[str, Any]]) -> list[Step]:
+    """The follow-up after tool results: describe each roll (or its error)."""
+    uses = {}
+    if len(messages) >= 2:
+        for b in messages[-2].get("content", []):
+            if b.get("type") == "tool_use":
+                uses[b["id"]] = b.get("input", {}).get("expression", "?")
+    lines = []
+    for b in messages[-1].get("content", []):
+        if b.get("type") != "tool_result":
+            continue
+        expr = uses.get(b.get("tool_use_id"), "?")
+        if b.get("is_error"):
+            lines.append(f"- The dice refused `{expr}`: {b.get('content')}")
+        else:
+            lines.append(f"- `{expr}` came up: {b.get('content')}")
+    return [Say("\n\n" + "\n".join(lines) + "\n\nThe die is cast.")]
+
+
+class ScriptedLLM:
+    def __init__(self, delay: float = 0.02, chunk_size: int = 4) -> None:
+        self.delay = delay
+        self.chunk_size = max(1, chunk_size)
+
+    async def _sleep(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
+
+    async def stream(
+        self, *, system: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> AsyncIterator[LLMEvent]:
+        last = messages[-1]
+        after_tools = last["role"] == "user" and any(
+            b.get("type") == "tool_result" for b in last.get("content", [])
+        )
+        command = _last_command_text(messages)
+        if after_tools and command.strip().lower().startswith("loop"):
+            plan: list[Step] = [UseTool("roll_dice", {"expression": "1d6"})]
+        elif after_tools:
+            plan = narrate_tool_results(messages)
+        else:
+            plan = plan_for(command)
+
+        content: list[dict[str, Any]] = []
+        out_chars = 0
+        for step in plan:
+            if isinstance(step, Pause):
+                await self._sleep(step.seconds)
+            elif isinstance(step, Think):
+                yield ThinkingStarted()
+                for chunk in self._chunks(step.text):
+                    yield ThinkingChunk(chunk)
+                    await self._sleep(self.delay)
+                yield ThinkingStopped()
+                content.append({"type": "thinking", "thinking": step.text, "signature": "test-signature"})
+            elif isinstance(step, Say):
+                for chunk in self._chunks(step.text):
+                    yield TextChunk(chunk)
+                    out_chars += len(chunk)
+                    await self._sleep(self.delay)
+                if content and content[-1]["type"] == "text":
+                    content[-1]["text"] += step.text
+                else:
+                    content.append({"type": "text", "text": step.text})
+            elif isinstance(step, UseTool):
+                content.append(
+                    {"type": "tool_use", "id": f"toolu_test_{uuid.uuid4().hex[:10]}", "name": step.name, "input": step.input}
+                )
+            elif isinstance(step, Fail):
+                raise LLMError(step.message, retryable=step.retryable)
+        has_tool = any(b["type"] == "tool_use" for b in content)
+        yield Completed(
+            content=content,
+            stop_reason="tool_use" if has_tool else "end_turn",
+            usage={"input_tokens": sum(len(str(m)) for m in messages) // 4, "output_tokens": max(out_chars // 4, 1)},
+        )
+
+    def _chunks(self, text: str):
+        for i in range(0, len(text), self.chunk_size):
+            yield text[i : i + self.chunk_size]

@@ -31,7 +31,7 @@ It is a terminal "thick client" in Python, as preferred. The client is its own u
 Declared in `client/pyproject.toml`, entirely separate from the server's dependencies:
 `textual`, `rich` (comes with Textual), `httpx`. SSE parsing is hand-written (about 30 lines) rather than adding `httpx-sse`. Dev: `pytest`, `pytest-asyncio`, plus Textual's `Pilot` test driver.
 
-Run (from `client/`): `uv run aigm-client` (or `uv run python -m aigm_client`). Config: `AIGM_URL` (default `http://localhost:8000`), `--session NAME` (default `default`).
+Run (from `client/`): `uv run aigm-client` (or `uv run python -m aigm_client`). Config: `AIGM_URL` (default `http://127.0.0.1:8000`, where `uvicorn aigm.app:app` listens by default), `--session NAME` (default `default`).
 
 ## Screen Layout
 
@@ -223,7 +223,7 @@ Streaming chunks arrive mid-word and mid-construct (`**bo`, `` ``` ``, `[link](h
    - Dangling trailing marker characters that can't yet be classified (a lone final `*`, `` ` ``, `#`, `>`, `-`, or digits followed by `.`) are **held back** from display until the next chunk disambiguates them (they are still in the raw text).
    - Headings, lists, blockquotes need no healing; line-level constructs parse correctly on the partial line.
 
-3. **Only the tail is volatile.** Split a segment into top-level blocks (paragraphs, lists, fences, tables) separated by blank lines outside fences. All blocks except the last are *settled*: rendered once per terminal width and cached. Only the last block is re-parsed per update, keeping long replies cheap.
+3. **Only the tail is volatile (optimization deferred in v0.1).** Split a segment into top-level blocks (paragraphs, lists, fences, tables) separated by blank lines outside fences. All blocks except the last are *settled*: rendered once per terminal width and cached. Only the last block would be re-parsed per update, keeping long replies cheap. *v0.1 simply re-renders the whole segment on each (30 fps-coalesced) update, which is fast enough for narrative-length replies; per-block caching is deferred because splitting a list or numbered list across blocks changes how it renders.*
 
 4. **Known, accepted wrinkles.** A table appears as plain text until its header-delimiter row arrives, then reflows to a table. Setext headings (`Title` then `===`) reflow when the underline arrives. These are inherent to streaming markdown and are minor for narrative GM output.
 
@@ -267,7 +267,7 @@ Streaming chunks arrive mid-word and mid-construct (`**bo`, `` ``` ``, `[link](h
 1. **Continuous flow.** The conversation is one unbroken stream: the user's own message is echoed into the transcript (styled distinctly, with a blank line before and after) **between** GM replies, and the next reply continues directly below it. Nothing is cleared when a message is sent. The pager does not reset on send: new lines fill whatever room is left on the current page, and only when the page is full does the pager hold the rest. (If the page happens to be exactly full when the user sends, sending counts as the user's page turn: `page_start` moves to the echoed message.)
 2. As events arrive, lines are appended and reveal up to `revealed_end`; the view shows the page top-down (anchored at `page_start`), so text visibly fills the page.
 3. When `held > 0`, the pager bar shows **MORE**. Incoming events keep being applied to the model; nothing is dropped or delayed on the network side.
-4. **Advance** (Space, Enter, PageDown, or a mouse click on the transcript): `page_start = revealed_end` so the first unseen line becomes the top of a new page and the next `page_height` lines are revealed. Repeats until `held == 0`.
+4. **Advance** (Space, Enter, PageDown, or a mouse click on the transcript): the new page starts **three lines before** the end of the old one (`page_start = revealed_end - 3`, fewer on tiny screens), so the last three lines you read lead the new page for continuity. The view does a quick 150 ms ease-out slide from the old page to the new one rather than jumping; the sliding window never extends past the new page, so held lines are not revealed early. Repeats until `held == 0`.
 5. When `held == 0`, the stream is finished (`message_end`/`error`), and the user has paged through everything, the input prompt is shown and focused.
 6. The last, partial line of the stream is revealed as it grows. Only the tail block can change, so earlier lines never move. If a tail reflow pushes a line past the page boundary, that line becomes held again; since the user is still on the same page, nothing they have already read is retracted.
 7. Resize: re-render lines at the new width, then recompute `page_start` by keeping the same *source block and offset* so the user does not lose their place.
@@ -284,11 +284,11 @@ Streaming chunks arrive mid-word and mid-construct (`**bo`, `` ``` ``, `[link](h
 | Key | Action |
 |---|---|
 | `Space`, `Enter`, `PageDown` (when held lines exist), click | Advance one page (while held text exists; the input is hidden then, so these keys never type) |
-| `↑` `↓` `PageUp` `PageDown` `Home` `End`, mouse wheel | Scrollback |
+| `↑` `↓` `PageUp` `PageDown` `Home` `End`, mouse wheel | Scrollback. While scrolled back the prompt is disabled so `End`/`Space`/`Enter` act as page keys; `End` or `Space` returns to the current page |
 | `Esc` | Cancel the in-flight turn (or cancel a confirmation) |
 | `Ctrl+S` / `F2`, `Ctrl+O` / `F3`, `Ctrl+N` / `F4` | Save, Load, New game dialogs |
 | `Ctrl+T` | Toggle display of reasoning text (hidden by default) |
-| `Ctrl+C` / `/quit` | Quit |
+| `Ctrl+Q` / `/quit` | Quit |
 
 ### Input gating
 

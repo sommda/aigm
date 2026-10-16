@@ -8,18 +8,16 @@ from aigm.tools.base import Tool, ToolOutcome
 MAX_EXPRESSION_LENGTH = 200
 SYNTAX_HINT = "Expected syntax like '1d20+5' or '4d6kh3'."
 
+# The tool description is a prompt: it lives in prompts/tools/roll_dice.md and is added by
+# `aigm.tools.tool_schemas()`.
 SCHEMA: dict[str, Any] = {
     "name": "roll_dice",
-    "description": (
-        "Roll dice using d20 expression syntax (e.g. '1d20+5', '4d6kh3', '2d8+1d4+3'; "
-        "use '2d20kh1' for advantage and '2d20kl1' for disadvantage). Use for any random outcome: attacks, checks, saves, damage, random tables."
-    ),
     "input_schema": {
         "type": "object",
         "properties": {
             "expression": {
                 "type": "string",
-                "description": "A dice expression supported by the Python d20 library.",
+                "description": "A dice expression in d20 syntax, e.g. '1d20+5' or '4d6kh3'.",
             }
         },
         "required": ["expression"],

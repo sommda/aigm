@@ -20,7 +20,7 @@ Implementation plan for the v0.1 backend described in [API.md](API.md). No code 
 - Python 3.13, managed with `uv`. The server is its own uv project in `server/`, independent of the client in `client/` (separate `pyproject.toml`, `.venv`, and `uv.lock`).
 - Dependencies: `fastapi`, `uvicorn[standard]`, `anthropic` (async SDK), `d20`, `pydantic` (via FastAPI), `pydantic-settings`. SSE is produced with `fastapi.responses.StreamingResponse` (or `sse-starlette` if its disconnect handling proves easier; start without it).
 - Dev: `pytest`, `pytest-asyncio`, `httpx` (ASGI test client).
-- Run (from `server/`): `uv run uvicorn aigm.app:app --reload`.
+- Run (from `server/`): `uv run aigm` (or `uv run aigm --test`, see "Test mode"), or directly `uv run uvicorn aigm.app:app --reload`.
 
 ## Project Layout
 
@@ -49,7 +49,6 @@ server/              # (inside the repo root; docs live in ../docs)
       store.py        # In-memory SessionStore + per-session lock
       persistence.py  # Save/restore snapshots to disk
     prompts/
-      gm_system.md    # System prompt for the GM
   tests/
     test_roll_dice.py
     test_sse.py
@@ -66,10 +65,12 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 |------------------------|-----------------------|--------------------------------------|
 | `ANTHROPIC_API_KEY`    | (required)            | API credential                       |
 | `AIGM_MODEL`           | `claude-sonnet-5-5`   | Model id                             |
-| `AIGM_MAX_TOKENS`      | `4096`                | Per-response output cap              |
+| `AIGM_MAX_TOKENS`      | `16000`               | Per-response output cap (includes thinking)  |
 | `AIGM_MAX_TOOL_ITERS`  | `8`                   | Tool-loop safety limit per turn      |
 | `AIGM_STREAM_THINKING` | `true`               | Forward reasoning text as `thinking` `delta` events; `false` sends only `start`/`end` |
-| `AIGM_THINKING_BUDGET` | `0` (disabled)        | Extended-thinking token budget; `>0` enables thinking (must be < `AIGM_MAX_TOKENS`, and the model must support it) |
+| `AIGM_THINKING_SUMMARIES` | `true`            | Request adaptive thinking with summaries (`false` for models without adaptive thinking) |
+| `AIGM_EFFORT`          | (model default)       | `low` to `max`; maps to `output_config.effort` |
+| `AIGM_PROMPT_DIR`      | (none)                | Directory overriding/extending the packaged prompt files |
 | `AIGM_SAVE_DIR`        | `./saves`             | Snapshot directory                   |
 | `AIGM_CORS_ORIGINS`    | `http://localhost:*`  | Allowed front-end origins            |
 
@@ -90,9 +91,9 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 
 ### 3. Session store (`session/store.py`)
 
-- `Session { id, messages: list[dict], lock: asyncio.Lock }`.
+- `Session { id, messages: list[dict], busy: bool }` with `try_begin()` / `end()`. (A plain flag rather than an `asyncio.Lock`: everything runs on one event loop, so check-and-set is atomic, and the route can reject with 409 without awaiting.)
 - `SessionStore`: `get_or_create(id)`, `replace_messages(id, msgs)` (used by restore and `/chat/new`, which replaces with `[]`). Backed by a plain dict; single process only in v0.1.
-- Concurrency rule: `/chat`, `/chat/new`, save, and restore acquire the session lock non-blockingly; if already held, return `409`. The lock is held for the whole streamed turn.
+- Concurrency rule: `/chat` sets `busy` for the whole streamed turn; `/chat`, `/chat/new`, save, and restore return `409` if the session is busy. The flag is released from the stream generator's `finally` and again (idempotently) from a response background task, so it is cleared even if the client disconnects before the generator starts.
 
 ### 4. Persistence (`session/persistence.py`)
 
@@ -169,9 +170,19 @@ The optional `event` lets a tool emit a custom front-end event (e.g. `dice_roll`
 - Emits `DiceRoll` event (with the structured payload) on success.
 - Pure and synchronous; cheap enough to run inline, but dispatch is uniform via the registry.
 
-### 8. System prompt (`prompts/gm_system.md`)
+### 8. Prompts (`prompts/`)
 
-Static markdown loaded at startup. v0.1 content: role as a tabletop RPG Game Master; narrate vividly but concisely; always use `roll_dice` for random outcomes rather than inventing numbers; state the check being made before rolling; respond in markdown; keep the player in control of their character. Passed via the API's `system` parameter, not stored in history.
+All prompt text lives in Markdown files, never in Python. `aigm.prompts.PromptLibrary` loads them:
+
+```
+prompts/system/01_role.md  02_rules.md  03_dice.md  04_style.md   # joined in filename order
+prompts/tools/roll_dice.md                                         # tool description, one file per tool
+```
+
+- Add a section by adding a file; its filename number decides where it lands. HTML comments are stripped, so files can carry authoring notes.
+- `AIGM_PROMPT_DIR` points at an override directory with the same layout: same-named files replace packaged ones, new files are added. This is the intended way to iterate on prompts without editing the package.
+- The system prompt and tool schemas are built once at startup (`app.state.system_prompt`, `app.state.tools`); restart or use `--reload` to pick up edits. The system prompt goes in the API's `system` parameter and is never stored in history.
+- v0.1 content: GM role and how a game starts; light d20 rules (DCs, AC, HP); dice discipline (always `roll_dice`, never invent numbers, narrate after seeing the result); style (second person, 1-3 short paragraphs, Markdown, end on the player's turn). It is deliberately small; grow it by adding files.
 
 ### 9. Routes
 
@@ -185,11 +196,44 @@ Static markdown loaded at startup. v0.1 content: role as a tabletop RPG Game Mas
 - CORS middleware for the front-end origin(s).
 - Structured logging (request id, session id, tool calls, token usage); never log API keys, and log message bodies only at DEBUG.
 
+## LLM abstraction
+
+The tool loop does not talk to the Anthropic SDK directly. `llm/base.py` defines a small `LLMClient` protocol whose `stream(system, messages, tools)` yields normalized events: `ThinkingStarted`, `ThinkingChunk`, `ThinkingStopped`, `TextChunk`, and a final `Completed(content, stop_reason, usage)` carrying the assistant message as Anthropic-format blocks (exactly what is stored in history). Implementations:
+
+- `llm/scripted.py`: `ScriptedLLM`, used by `--test` mode (below).
+- `llm/anthropic_client.py`: `AnthropicLLM`, the real client. It calls `messages.stream()` on `AsyncAnthropic` and translates SDK events: a `thinking` content block becomes `ThinkingStarted` / `ThinkingChunk`s / `ThinkingStopped` (an omitted-thinking block yields start/stop with no chunks); `text_delta`s become `TextChunk`s; and the SDK's accumulated final message becomes `Completed`, with content stored verbatim (`model_dump`), so thinking blocks keep their signatures and tool_use blocks keep their parsed input.
+  - Requests send: `system` (the assembled prompt), the tool schemas, top-level `cache_control` (prompt caching of the growing prefix), `thinking={"type": "adaptive", "display": "summarized"}` unless `AIGM_THINKING_SUMMARIES=false`, and `output_config.effort` if `AIGM_EFFORT` is set. No sampling parameters and no forced `tool_choice` (both are rejected by current models). Default model: `claude-sonnet-5-5`.
+  - `stop_reason: "refusal"` becomes a non-retryable `LLMError`; SDK exceptions map to `LLMError` with `retryable` set for rate limits, connection failures and 5xx. Missing credentials give a clear "set ANTHROPIC_API_KEY" error. The SDK client is created lazily, so the server starts (and `/health` works) without a key.
+  - The loop also rejects malformed completions before they reach history: an empty response, or a `tool_use` block with a stop reason other than `tool_use` (e.g. `max_tokens` mid tool call), both become retryable errors.
+  - Not implemented (yet): server-side refusal `fallbacks` (a beta that changes the request path), `eager_input_streaming` for tool inputs (dice expressions are tiny), and the 1h cache TTL.
+
+## Test mode (`--test`)
+
+`uv run aigm --test` (equivalently `AIGM_TEST_MODE=true`) swaps the LLM for `ScriptedLLM`. Everything else is the real server: `/chat` SSE framing, the tool loop (with the **real** `roll_dice`), sessions, history, save/restore. `GET /health` reports `"model": "scripted-test"`. No API key or network is needed.
+
+The user's chat message selects a canned plan (a list of `Think`/`Say`/`UseTool`/`Fail`/`Pause` steps; `plan_for()` is pure data and easy to extend). Text is streamed in small chunks (default 4 characters, `AIGM_TEST_CHUNK_SIZE`; `AIGM_TEST_DELAY` seconds between chunks, default 0.02) so partially received markdown actually occurs. After tool results the scripted model narrates them, so the full request -> tool -> follow-up loop is exercised.
+
+| Message | Behavior |
+|---|---|
+| `help` | List the commands (markdown) |
+| `roll <expr>` | Text, then a real `roll_dice` call (`roll 4d6kh3+2 # strength`; default `1d20`), then narration of the result |
+| `multiroll` | Two `roll_dice` calls in one response |
+| `badroll [expr]` | A malformed roll (default `2x20`): tool error is returned to the model, no `dice_roll` event |
+| `markdown` | Sampler of every markup form below |
+| `bold` `italic` `strike` `code` `codeblock` `list` `numbered` `heading` `quote` `table` `link` | One markup form each |
+| `think [n]` | Thinking phase (start, deltas, end) then an answer; history gets a `thinking` block |
+| `long [n]` | *n* paragraphs (for testing paging) |
+| `slow` | 2 second pause, then a reply |
+| `error` | Some text, then a simulated upstream failure (`error` event, `retryable: true`; turn rolled back) |
+| `loop` | Endless tool calls, ending in `tool_loop_limit` |
+| `echo <text>` | Streams your text back (any markdown) |
+| anything else | Echoed back with a hint to type `help` |
+
 ## Testing Strategy
 
 - **roll_dice**: valid expressions (`1d20+5`, `4d6kh3`, advantage), malformed (`2x20`, empty, too long, absurd roll counts) → expected content / `is_error`.
 - **SSE encoding**: golden-string tests for each event type.
-- **Loop**: fake LLM client scripted to produce (a) plain text, (b) text → tool_use → text, (c) multiple tool calls in one response, (d) tool error then retry, (e) infinite tool_use (hits cap), (f) upstream exception. Assert event order and final history, including rollback behavior.
+- **Loop and chat route** (implemented; `tests/test_chat_api.py` drives the real app in test mode): scripted LLM producing (a) plain text, (b) text → tool_use → text, (c) multiple tool calls in one response, (d) tool error then retry, (e) infinite tool_use (hits cap), (f) upstream exception. Assert event order and final history, including rollback behavior.
 - **History API**: save → mutate → restore round-trip; list ordering; info without loading (live history untouched); `overwrite=true` required to replace an existing save (409 `already_exists` otherwise, existing file untouched); delete one leaves others; failed restore leaves live history intact; 404/409/422 cases; path-traversal names rejected; atomic write.
 - **Chat route**: ASGI client reads the SSE stream end to end; concurrent request returns 409.
 - No live API calls in the default test run; one optional `@pytest.mark.live` smoke test gated on `ANTHROPIC_API_KEY`.

@@ -21,19 +21,34 @@ cp server/.env.example server/.env   # then edit it
 |---|---|---|
 | `ANTHROPIC_API_KEY` | (required for chat) | Your Anthropic API key |
 | `AIGM_MODEL` | `claude-sonnet-5-5` | Claude model id to use |
-| `AIGM_MAX_TOKENS` | `4096` | Max output tokens per response |
-| `AIGM_THINKING_BUDGET` | `0` (off) | Extended-thinking token budget; `>0` enables it |
+| `AIGM_MAX_TOKENS` | `16000` | Max output tokens per response (includes thinking) |
+| `AIGM_THINKING_SUMMARIES` | `true` | Ask the model for adaptive thinking with readable summaries. Set `false` for models without adaptive thinking (e.g. Haiku 4.5) |
+| `AIGM_EFFORT` | (model default) | Thinking depth: `low`, `medium`, `high`, `xhigh`, `max` |
 | `AIGM_STREAM_THINKING` | `true` | Forward reasoning text to the client |
+| `AIGM_PROMPT_DIR` | (none) | Directory of prompt files that override or extend the packaged ones (see Prompts) |
 
 Or inline: `ANTHROPIC_API_KEY=sk-ant-... AIGM_MODEL=claude-opus-5-5 uv run uvicorn aigm.app:app`. The active model is shown by `GET /health`. The full list of settings is in [docs/BACKEND.md](docs/BACKEND.md).
+
+## Prompts
+
+Prompts are Markdown files, not Python strings, so they are easy to edit and diff:
+
+```
+server/src/aigm/prompts/
+  system/01_role.md  02_rules.md  03_dice.md  04_style.md   # joined in filename order
+  tools/roll_dice.md                                         # one tool description per file
+```
+
+Add a file to `system/` to add a section (its number sets where it goes). HTML comments in prompt files are stripped, so they can hold notes. To experiment without touching the package, point `AIGM_PROMPT_DIR` at a folder with the same layout: files there replace packaged files of the same name, and extra files are added. Prompts are read at startup, so restart the server (or use `--reload`) after editing.
 
 ## Running
 
 ```sh
 # server (see Configuration above)
-cd server && uv sync && uv run uvicorn aigm.app:app --reload
+cd server && uv sync && uv run aigm            # real Claude model (needs ANTHROPIC_API_KEY)
+cd server && uv run aigm --test     # scripted replies, no LLM/API key needed (try: help, roll 2d6, markdown)
 
-# client
+# client (default server URL http://127.0.0.1:8000; options: --url http://host:8000, --session NAME, --ascii; or AIGM_URL)
 cd client && uv sync && uv run aigm-client
 ```
 
