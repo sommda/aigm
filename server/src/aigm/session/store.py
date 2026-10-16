@@ -1,5 +1,7 @@
 from typing import Any
 
+from aigm.session.state import GameState
+
 
 class Session:
     """One live conversation. `busy` is set for the whole duration of a streamed turn
@@ -8,6 +10,7 @@ class Session:
     def __init__(self, session_id: str) -> None:
         self.id = session_id
         self.messages: list[dict[str, Any]] = []
+        self.state = GameState()  # a new game starts in Session 0
         self.busy = False
 
     def try_begin(self) -> bool:

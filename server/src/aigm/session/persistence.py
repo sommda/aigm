@@ -11,9 +11,11 @@ from typing import Any
 
 from aigm.errors import AlreadyExists, BadRequest, CorruptSave, NotFound
 from aigm.models import ID_RE
+from aigm.session.state import GameState
 
 log = logging.getLogger(__name__)
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2  # 1: messages only (read as mid-adventure); 2: adds game state
+READABLE_VERSIONS = (1, 2)
 
 
 def validate_name(name: str) -> str:
@@ -75,9 +77,10 @@ class HistoryRepository:
             raise NotFound(f"No saved history named '{name}'") from None
         except (OSError, ValueError) as exc:
             raise CorruptSave(f"Saved history '{name}' is unreadable: {exc}") from None
-        if not isinstance(data, dict) or data.get("version") != FORMAT_VERSION:
+        if not isinstance(data, dict) or data.get("version") not in READABLE_VERSIONS:
             raise CorruptSave(f"Saved history '{name}' has an unsupported format")
         validate_messages(data.get("messages"))
+        data["state"] = GameState.from_dict(data)
         return data
 
     def _info(self, data: dict[str, Any], include_messages: bool) -> dict[str, Any]:
@@ -87,6 +90,7 @@ class HistoryRepository:
             "message_count": len(messages),
             "saved_at": data.get("saved_at"),
             "model": data.get("model"),
+            "phase": data["state"].phase.value,
         }
         preview = last_assistant_preview(messages)
         if preview:
@@ -109,7 +113,9 @@ class HistoryRepository:
             infos.append(info)
         return sorted(infos, key=lambda i: i.get("saved_at") or "", reverse=True)
 
-    def _save(self, name: str, messages: list[dict[str, Any]], model: str, overwrite: bool) -> dict[str, Any]:
+    def _save(
+        self, name: str, messages: list[dict[str, Any]], state: GameState, model: str, overwrite: bool
+    ) -> dict[str, Any]:
         path = self._path(name)
         existed = path.exists()
         if existed and not overwrite:
@@ -121,6 +127,7 @@ class HistoryRepository:
             "saved_at": saved_at,
             "model": model,
             "message_count": len(messages),
+            **state.to_dict(),
             "messages": messages,
         }
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -132,7 +139,13 @@ class HistoryRepository:
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
-        return {"name": name, "message_count": len(messages), "saved_at": saved_at, "overwritten": existed}
+        return {
+            "name": name,
+            "phase": state.phase.value,
+            "message_count": len(messages),
+            "saved_at": saved_at,
+            "overwritten": existed,
+        }
 
     def _delete(self, name: str) -> None:
         try:
@@ -149,13 +162,15 @@ class HistoryRepository:
         data = await asyncio.to_thread(self._read, name)
         return self._info(data, include_messages)
 
-    async def save(self, name: str, messages: list[dict[str, Any]], model: str, overwrite: bool = False) -> dict[str, Any]:
+    async def save(
+        self, name: str, messages: list[dict[str, Any]], state: GameState, model: str, overwrite: bool = False
+    ) -> dict[str, Any]:
         validate_name(name)
-        return await asyncio.to_thread(self._save, name, messages, model, overwrite)
+        return await asyncio.to_thread(self._save, name, messages, state.copy(), model, overwrite)
 
-    async def load(self, name: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    async def load(self, name: str) -> tuple[list[dict[str, Any]], GameState, dict[str, Any]]:
         data = await asyncio.to_thread(self._read, name)
-        return data["messages"], self._info(data, False)
+        return data["messages"], data["state"], self._info(data, False)
 
     async def delete(self, name: str) -> None:
         await asyncio.to_thread(self._delete, name)

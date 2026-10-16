@@ -10,9 +10,9 @@ from aigm_client.api import ApiClient, ApiError
 from aigm_client.blocks import MarkdownBlock, UserBlock
 from aigm_client.commands import Command, parse_command
 from aigm_client.dialogs import ConfirmDialog, LoadDialog, NewGameDialog, SaveDialog, suggest_name
-from aigm_client.session import ChatSession
+from aigm_client.session import ChatSession, intro_text
 from aigm_client.transcript import Transcript
-from aigm_client.widgets import TranscriptView
+from aigm_client.widgets import PromptInput, TranscriptView, decode_prompt
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 HELP = """Commands:
@@ -66,7 +66,7 @@ class AigmApp(App):
         yield self.view
         yield Static("", id="pager")
         yield Static("", id="status")
-        yield Input(id="prompt", placeholder="What do you do?")
+        yield PromptInput(id="prompt", placeholder="What do you do?")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -83,16 +83,17 @@ class AigmApp(App):
         s = self.session
         try:
             await self.api.health()
-            messages = await self.api.chat_history()
+            state = await self.api.chat_state()
         except ApiError as e:
             self.connected = False
             s.add_system(f"{e.message}\nStart the server, then type /reconnect.", "red")
             return
         self.connected = True
-        s.load_history(messages)
+        messages = state["messages"]
+        s.load_history(messages, state.get("phase", ""))
         s.dirty = bool(messages)
         if not messages:
-            s.add_system("Welcome, adventurer. Describe what you do. Type /help for commands.")
+            s.add_system(intro_text(s.phase))
 
     # ---- UI refresh ---------------------------------------------------------------------
 
@@ -133,20 +134,22 @@ class AigmApp(App):
             left = "Ready"
         game = (s.game_name or "unsaved") + ("*" if s.dirty and s.game_name else "")
         conn = {True: "● connected", False: "○ offline", None: "… connecting"}[self.connected]
-        self.query_one("#status", Static).update(f"{left}   game: {game}   {conn}")
+        mode = f"   mode: {s.phase_label}" if s.phase_label else ""
+        self.query_one("#status", Static).update(f"{left}{mode}   game: {game}   {conn}")
 
     def _sync_input(self) -> None:
         prompt = self.query_one("#prompt", Input)
         modal = len(self.screen_stack) > 1
         back = self.transcript.scrolled_back
         enabled = self.session.can_input and not modal and not back
-        gate = (enabled, self.session.busy, self.transcript.held > 0, back)
+        gate = (enabled, self.session.busy, self.transcript.held > 0, back, self.session.phase)
         if gate == self._last_gate:
             return
         self._last_gate = gate
         prompt.disabled = not enabled
         if enabled:
-            prompt.placeholder = "What do you do?  (/help for commands)"
+            ask = "Tell the GM..." if self.session.phase == "session_zero" else "What do you do?"
+            prompt.placeholder = f"{ask}  (/help for commands)"
             prompt.focus()
         else:
             if back:
@@ -221,7 +224,7 @@ class AigmApp(App):
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "prompt":
             return
-        text = event.value.strip()
+        text = decode_prompt(event.value)
         event.input.value = ""
         if not text:
             return
@@ -308,14 +311,14 @@ class AigmApp(App):
             return
         try:
             await self.api.restore(name)
-            messages = await self.api.chat_history()
+            state = await self.api.chat_state()
         except ApiError as e:
             s.add_system(f"Load failed: {e.message}", "red")
             self._kick()
             return
-        s.load_history(messages)
+        s.load_history(state["messages"], state.get("phase", ""))
         s.mark_loaded(name)
-        s.add_system(f"Loaded '{name}'.")
+        s.add_system(f"Loaded '{name}'." + (f" ({s.phase_label})" if s.phase_label else ""))
         self._kick()
 
     async def _new_flow(self) -> None:
@@ -331,13 +334,13 @@ class AigmApp(App):
             elif choice != "discard":
                 return
         try:
-            await self.api.new_game()
+            result = await self.api.new_game()
         except ApiError as e:
             s.add_system(f"New game failed: {e.message}", "red")
             self._kick()
             return
-        s.new_game()
-        s.add_system("New game started. Describe what you do.")
+        s.new_game(result.get("phase", ""))
+        s.add_system("New game started. " + intro_text(s.phase))
         self._kick()
 
     # ---- slash commands -----------------------------------------------------------------

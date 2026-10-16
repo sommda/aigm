@@ -160,7 +160,11 @@ def history_to_blocks(messages: list[dict[str, Any]]) -> list[Block]:
         if msg.get("role") == "user":
             texts = [b.get("text", "") for b in content if b.get("type") == "text"]
             if texts:
-                blocks.append(UserBlock("\n".join(texts)))
+                text = "\n".join(texts)
+                if text.startswith("[System:"):  # a note the server inserted, not something the player typed
+                    blocks.append(SystemBlock(text.strip("[]").removeprefix("System: "), "dim"))
+                else:
+                    blocks.append(UserBlock(text))
             for b in content:
                 if b.get("type") != "tool_result":
                     continue

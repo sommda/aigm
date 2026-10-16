@@ -1,8 +1,9 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from aigm.models import SSEEvent
+from aigm.session.state import GameState, Phase
 
 
 @dataclass
@@ -15,5 +16,7 @@ class ToolOutcome:
 @dataclass
 class Tool:
     schema: dict[str, Any]
-    # handler(tool_use_id, tool_input) -> ToolOutcome
-    handler: Callable[[str, dict[str, Any]], ToolOutcome]
+    # handler(tool_use_id, tool_input, state) -> ToolOutcome. `state` is the turn's working
+    # copy of the game state; a tool may change it (it only becomes real if the turn succeeds).
+    handler: Callable[[str, dict[str, Any], GameState], ToolOutcome]
+    phases: frozenset[Phase] = field(default_factory=lambda: frozenset(Phase))  # where it is offered

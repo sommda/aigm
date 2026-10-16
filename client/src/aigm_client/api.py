@@ -71,8 +71,12 @@ class ApiClient:
     async def health(self) -> dict[str, Any]:
         return await self._request("GET", "/health")
 
+    async def chat_state(self) -> dict[str, Any]:
+        """The live session: `messages`, plus `phase` and `campaign` on servers that have them."""
+        return await self._request("GET", "/chat/history", params=self._session())
+
     async def chat_history(self) -> list[dict[str, Any]]:
-        return (await self._request("GET", "/chat/history", params=self._session()))["messages"]
+        return (await self.chat_state())["messages"]
 
     async def new_game(self) -> dict[str, Any]:
         return await self._request("POST", "/chat/new", params=self._session())

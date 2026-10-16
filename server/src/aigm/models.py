@@ -38,6 +38,7 @@ class MessageStart(SSEEvent):
     event: ClassVar[str] = "message_start"
     message_id: str
     session_id: str
+    phase: str
 
 
 class Thinking(SSEEvent):
@@ -88,11 +89,18 @@ class DiceRoll(SSEEvent):
     dice: list[DiceTerm]
 
 
+class PhaseChange(SSEEvent):
+    event: ClassVar[str] = "phase_change"
+    previous: str
+    phase: str
+
+
 class MessageEnd(SSEEvent):
     event: ClassVar[str] = "message_end"
     message_id: str
     stop_reason: str
     usage: dict[str, int]
+    phase: str
 
 
 class ErrorEvent(SSEEvent):

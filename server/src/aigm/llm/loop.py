@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from typing import Any
 
 from aigm.llm.base import (
@@ -16,21 +16,20 @@ from aigm.llm.base import (
     ThinkingStarted,
     ThinkingStopped,
 )
+from aigm.game import Game
 from aigm.models import (
     ErrorEvent,
     MessageEnd,
     MessageStart,
+    PhaseChange,
     SSEEvent,
     TextDelta,
     Thinking,
     ToolCall,
 )
 from aigm.session.store import Session
-from aigm.tools.base import ToolOutcome
 
 log = logging.getLogger(__name__)
-
-Dispatch = Callable[[str, str, dict[str, Any]], ToolOutcome]
 
 
 async def run_turn(
@@ -38,26 +37,27 @@ async def run_turn(
     session: Session,
     user_text: str,
     llm: LLMClient,
-    system: str,
-    tools: list[dict[str, Any]],
-    dispatch: Dispatch,
+    game: Game,
     max_iters: int,
     stream_thinking: bool = True,
 ) -> AsyncIterator[SSEEvent]:
     """Run one user turn, yielding SSE events.
 
-    Messages are staged in a local list and committed to the session only when the turn
-    completes. A failed or cancelled turn therefore leaves history untouched (and never
-    leaves a tool_use without its tool_result, which the API would reject)."""
+    Messages and game state are staged in local copies and committed to the session only when
+    the turn completes. A failed or cancelled turn therefore leaves history and state untouched
+    (and never leaves a tool_use without its tool_result, which the API would reject). A tool
+    may change the state mid-turn, for example `begin_adventure` switches the phase; the next
+    request in the same turn then uses the new phase's system prompt and tools."""
     message_id = f"msg_{uuid.uuid4().hex[:12]}"
     staged = [*session.messages, {"role": "user", "content": [{"type": "text", "text": user_text}]}]
+    state = session.state.copy()
     usage = {"input_tokens": 0, "output_tokens": 0}
-    yield MessageStart(message_id=message_id, session_id=session.id)
+    yield MessageStart(message_id=message_id, session_id=session.id, phase=state.phase.value)
     try:
         for _ in range(max_iters):
             completed: Completed | None = None
             think_started: float | None = None
-            async for ev in llm.stream(system=system, messages=staged, tools=tools):
+            async for ev in llm.stream(system=game.system(state), messages=staged, tools=game.tools(state)):
                 if isinstance(ev, ThinkingStarted):
                     think_started = time.monotonic()
                     yield Thinking(status="start")
@@ -89,15 +89,20 @@ async def run_turn(
                     f"The model's response was cut off mid tool call ({completed.stop_reason})", retryable=True
                 )
             if completed.stop_reason != "tool_use" or not tool_uses:
-                session.messages[:] = staged
-                yield MessageEnd(message_id=message_id, stop_reason=completed.stop_reason, usage=usage)
+                previous, session.messages[:], session.state = session.state.phase, staged, state
+                if state.phase != previous:  # announced only once committed, so it is never rolled back
+                    yield PhaseChange(previous=previous.value, phase=state.phase.value)
+                yield MessageEnd(
+                    message_id=message_id, stop_reason=completed.stop_reason, usage=usage, phase=state.phase.value
+                )
                 return
 
+            phase_before = state.phase
             results = []
             for block in tool_uses:
                 tool_input = block.get("input") or {}
                 yield ToolCall(tool_use_id=block["id"], name=block["name"], input=tool_input)
-                outcome = dispatch(block["name"], block["id"], tool_input)
+                outcome = game.dispatch(state, block["name"], block["id"], tool_input)
                 if outcome.event is not None:
                     yield outcome.event
                 results.append(
@@ -108,7 +113,11 @@ async def run_turn(
                         "is_error": outcome.is_error,
                     }
                 )
-            staged.append({"role": "user", "content": results})
+            if state.phase != phase_before:
+                # Session 0 just ended: its history is replaced by the campaign record
+                staged = game.history_after_begin(state)
+            else:
+                staged.append({"role": "user", "content": results})
         yield ErrorEvent(
             code="tool_loop_limit",
             message=f"The model used tools more than {max_iters} times in one turn",

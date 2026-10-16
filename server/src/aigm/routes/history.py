@@ -32,7 +32,7 @@ async def save_history(
 ) -> dict[str, Any]:
     if session.busy:
         raise Conflict("A turn is in progress for this session; wait for it to finish before saving")
-    result = await repo.save(name, list(session.messages), request.app.state.model_name, overwrite)
+    result = await repo.save(name, list(session.messages), session.state, request.app.state.model_name, overwrite)
     return {**result, "session_id": session.id}
 
 
@@ -40,14 +40,16 @@ async def save_history(
 async def restore_history(name: str, repo: RepoDep, session: SessionDep) -> dict[str, Any]:
     if session.busy:
         raise Conflict("A turn is in progress for this session; wait for it to finish before restoring")
-    messages, info = await repo.load(name)  # fully validated before anything is replaced
+    messages, state, info = await repo.load(name)  # fully validated before anything is replaced
     if session.busy:  # re-check: a turn may have started while the file was being read
         raise Conflict("A turn started while restoring; try again")
     replaced = len(session.messages)
     session.messages = messages
+    session.state = state
     return {
         "name": name,
         "session_id": session.id,
+        "phase": state.phase.value,
         "message_count": len(messages),
         "saved_at": info["saved_at"],
         "replaced_message_count": replaced,

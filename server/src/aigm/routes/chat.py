@@ -8,9 +8,9 @@ from aigm.deps import get_session
 from aigm.errors import Conflict
 from aigm.llm.loop import run_turn
 from aigm.models import ChatRequest
+from aigm.session.state import GameState
 from aigm.session.store import Session
 from aigm.sse import SSE_HEADERS, encode
-from aigm.tools import dispatch
 
 router = APIRouter()
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -39,9 +39,7 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
                 session=session,
                 user_text=body.message,
                 llm=app.state.llm,
-                system=app.state.system_prompt,
-                tools=app.state.tools,
-                dispatch=dispatch,
+                game=app.state.game,
                 max_iters=settings.max_tool_iters,
                 stream_thinking=settings.stream_thinking,
             ):
@@ -59,7 +57,12 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
 
 @router.get("/chat/history")
 async def chat_history(session: SessionDep) -> dict[str, Any]:
-    return {"session_id": session.id, "messages": session.messages}
+    return {
+        "session_id": session.id,
+        "phase": session.state.phase.value,
+        "campaign": session.state.campaign,
+        "messages": session.messages,
+    }
 
 
 @router.post("/chat/new")
@@ -68,4 +71,10 @@ async def new_game(session: SessionDep) -> dict[str, Any]:
         raise Conflict("A turn is in progress for this session")
     discarded = len(session.messages)
     session.messages = []
-    return {"session_id": session.id, "message_count": 0, "discarded_message_count": discarded}
+    session.state = GameState()  # back to Session 0
+    return {
+        "session_id": session.id,
+        "phase": session.state.phase.value,
+        "message_count": 0,
+        "discarded_message_count": discarded,
+    }

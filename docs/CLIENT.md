@@ -54,9 +54,9 @@ Run (from `client/`): `uv run aigm-client` (or `uv run python -m aigm_client`). 
 
 - **Transcript**: a custom `ScrollView` subclass that draws pre-rendered terminal lines (see "Pager").
 - **Pager bar**: one row, shown only while content is being held back.
-- **Status line**: spinner while thinking or streaming, the current game name (the name last saved or loaded; `*` suffix means unsaved changes), and connection state.
+- **Status line**: spinner while thinking or streaming, the game mode (`Session 0` or `Adventure`, from the server's `phase`), the current game name (the name last saved or loaded; `*` suffix means unsaved changes), and connection state.
 - **Footer**: key hints that double as clickable buttons for Save / Load / New game.
-- **Input**: single-line prompt. It is **hidden/disabled** while a page is held back or a turn is in flight (see Input Gating), so Space/Enter advance the page rather than type.
+- **Input**: single-line prompt. A multi-line paste is kept whole: each line break shows as a `⏎` marker in the prompt and is sent as a real newline. It is **hidden/disabled** while a page is held back or a turn is in flight (see Input Gating), so Space/Enter advance the page rather than type.
 
 ## Architecture
 
@@ -106,6 +106,7 @@ The client implements exactly the contract in API.md.
 | `text` | Append `delta` to the current markdown segment (see Streaming Markdown). |
 | `tool_call` | No visible output by itself (the `dice_roll` event follows for dice). Closes the current markdown segment. |
 | `dice_roll` | Render a dice block (see Dice Rendering). Closes the current markdown segment. |
+| `phase_change` | (When history is reloaded after the switch it is three server-inserted messages plus the new play; user messages starting `[System:` are shown as dim system lines, not as player speech.) Update the mode shown in the status line and add a line "Session 0 is over. The adventure begins!" to the transcript. The status line also follows `phase` on `message_start`/`message_end`. After a startup, load or new game, the phase comes from `GET /chat/history` and `POST /chat/new`; the welcome line and prompt placeholder differ in Session 0. Servers that send no phase are tolerated (no mode is shown). |
 | `message_end` | Finalize the segment (final un-healed render), stop spinner, re-enable input once all held text has been paged through. |
 | `error` | Show a red error block with `message`; clear spinner; note the turn was discarded server-side (the user's message needs resending). |
 | Unknown event types / unknown fields | Ignored (forward compatibility, as API.md requires). |

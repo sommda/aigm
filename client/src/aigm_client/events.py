@@ -10,6 +10,7 @@ from typing import Any
 class MessageStart:
     message_id: str = ""
     session_id: str = ""
+    phase: str = ""  # "session_zero" | "adventure" ("" from servers that do not report it)
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,13 @@ class MessageEnd:
     message_id: str = ""
     stop_reason: str = ""
     usage: dict[str, Any] = field(default_factory=dict)
+    phase: str = ""
+
+
+@dataclass(frozen=True)
+class PhaseChange:
+    previous: str = ""
+    phase: str = ""
 
 
 @dataclass(frozen=True)
@@ -79,7 +87,7 @@ class Unknown:
     data: Any = None
 
 
-Event = MessageStart | Thinking | Text | ToolCall | DiceRoll | MessageEnd | ErrorEvent | Unknown
+Event = MessageStart | Thinking | Text | ToolCall | DiceRoll | MessageEnd | PhaseChange | ErrorEvent | Unknown
 
 
 def _die(d: dict[str, Any]) -> DieRoll:
@@ -112,7 +120,7 @@ def parse_event(name: str, data: str) -> Event | None:
     try:
         match name:
             case "message_start":
-                return MessageStart(d.get("message_id", ""), d.get("session_id", ""))
+                return MessageStart(d.get("message_id", ""), d.get("session_id", ""), d.get("phase", ""))
             case "thinking":
                 return Thinking(d.get("status", "start"), d.get("delta", ""), d.get("duration_ms"))
             case "text":
@@ -130,7 +138,9 @@ def parse_event(name: str, data: str) -> Event | None:
                     dice=tuple(_term(t) for t in d.get("dice", [])),
                 )
             case "message_end":
-                return MessageEnd(d.get("message_id", ""), d.get("stop_reason", ""), d.get("usage") or {})
+                return MessageEnd(d.get("message_id", ""), d.get("stop_reason", ""), d.get("usage") or {}, d.get("phase", ""))
+            case "phase_change":
+                return PhaseChange(d.get("previous", ""), d.get("phase", ""))
             case "error":
                 return ErrorEvent(
                     d.get("code", "internal_error"), d.get("message", ""), bool(d.get("retryable", False))

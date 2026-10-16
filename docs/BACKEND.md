@@ -91,7 +91,7 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 
 ### 3. Session store (`session/store.py`)
 
-- `Session { id, messages: list[dict], busy: bool }` with `try_begin()` / `end()`. (A plain flag rather than an `asyncio.Lock`: everything runs on one event loop, so check-and-set is atomic, and the route can reject with 409 without awaiting.)
+- `Session { id, messages: list[dict], state: GameState, busy: bool }`, where `GameState { phase, campaign }` lives in `session/state.py` (`Phase`: `session_zero` | `adventure`; new sessions start in `session_zero`) with `try_begin()` / `end()`. (A plain flag rather than an `asyncio.Lock`: everything runs on one event loop, so check-and-set is atomic, and the route can reject with 409 without awaiting.)
 - `SessionStore`: `get_or_create(id)`, `replace_messages(id, msgs)` (used by restore and `/chat/new`, which replaces with `[]`). Backed by a plain dict; single process only in v0.1.
 - Concurrency rule: `/chat` sets `busy` for the whole streamed turn; `/chat`, `/chat/new`, save, and restore return `409` if the session is busy. The flag is released from the stream generator's `finally` and again (idempotently) from a response background task, so it is cleared even if the client disconnects before the generator starts.
 
@@ -103,14 +103,15 @@ A saved history is a "named history", like a saved game file. `HistoryRepository
 |---------------------------------|-------------------------------------|----------------------------------------------------|
 | `list() -> list[HistoryInfo]`   | `GET /history`                      | Reads each file's metadata, newest first           |
 | `info(name, include_messages)`  | `GET /history/{name}`               | Never touches a live session                       |
-| `save(name, messages, model, overwrite)` | `PUT /history/{name}/save` | Raises `AlreadyExists` if the file exists and `overwrite` is false; returns `overwritten` flag |
-| `load(name) -> messages`        | `POST /history/{name}/restore`      | Validates fully before returning                   |
+| `save(name, messages, state, model, overwrite)` | `PUT /history/{name}/save` | Raises `AlreadyExists` if the file exists and `overwrite` is false; returns `overwritten` flag |
+| `load(name) -> (messages, state, info)` | `POST /history/{name}/restore`      | Validates fully before returning                   |
 | `delete(name)`                  | `DELETE /history/{name}`            | Single file only; no delete-all                    |
 
 - Snapshot file: `{AIGM_SAVE_DIR}/{name}.json`:
   ```json
-  { "version": 1, "name": "...", "saved_at": "...", "model": "...", "messages": [...] }
+  { "version": 2, "name": "...", "saved_at": "...", "model": "...", "phase": "session_zero", "campaign": null, "messages": [...] }
   ```
+  Version 1 files (messages only, from before game state) still load, as `adventure` with no campaign record. Restore also validates the state (known phase, `campaign` an object or null, none in `session_zero`).
 - Write atomically (temp file + `os.replace`). Names are validated by regex, which also prevents path traversal.
 - Restore validates `version` and message structure (role in {user, assistant}, content is list of blocks, and tool_use/tool_result pairing is intact) and raises a typed error mapped to `422`.
 - `list()` and `info()` must not need to parse huge message arrays unnecessarily in future; v0.1 just loads the JSON, but `message_count`, `saved_at`, and `model` live at the top level so a sidecar/index could be added later.
@@ -124,7 +125,9 @@ A saved history is a "named history", like a saved game file. `HistoryRepository
 
 ### 6. Streaming tool loop (`llm/loop.py`) — the heart of the system
 
-`async def run_turn(session, user_text, llm, tools) -> AsyncIterator[SSEEvent]`
+`async def run_turn(session, user_text, llm, game, ...) -> AsyncIterator[SSEEvent]`
+
+`game` (`game.py`) supplies the system prompt and tool list for a given `GameState` and dispatches tool calls. The loop works on a staged copy of the state, and asks `game` for the system prompt and tools on **every** request, so a tool that changes the phase (`begin_adventure`) takes effect for the very next request in the same turn: the model that called it continues, now seeing the adventure prompt, the campaign record and no `begin_adventure` tool. When the phase changes during tool handling, the loop replaces the staged history with `game.history_after_begin(state)` (a system note, one GM entry holding the campaign record, a begin cue) instead of appending the tool result, so the adventure's first request never sees Session 0. Messages and state are committed together on success; on failure both are discarded. `phase_change` is yielded at commit time, just before `message_end`, so it is never announced for a turn that is then rolled back.
 
 Algorithm:
 
@@ -154,11 +157,15 @@ Mid-turn history consistency: messages are staged in a local list during the tur
 Registry shape:
 
 ```
-Tool = (schema: dict, handler: Callable[[dict], ToolOutcome])
+Tool = (schema: dict, handler: Callable[[tool_use_id, dict, GameState], ToolOutcome], phases: set[Phase])
 ToolOutcome = { content: str, is_error: bool, event: SSEEvent | None }
 ```
 
+`phases` says where a tool is offered (`roll_dice` everywhere; `begin_adventure` only in `session_zero`); dispatching a tool outside its phases is an unknown-tool error. A handler may change the `GameState` it is given (the turn's working copy).
+
 The optional `event` lets a tool emit a custom front-end event (e.g. `dice_roll`) without the loop knowing tool specifics. The loop just yields `outcome.event` if present — adding future tools with custom events requires no loop change.
+
+**`begin_adventure`** (`session_zero` only): the model must put its whole summary of Session 0 into the arguments, because everything else is discarded on success. The handler therefore validates sufficiency, collecting *all* problems into one error result so the model can fix them in a single retry: `confirmed is true`; `setting` >= 300 chars; `opening` >= 100 chars; `level` 1-20; `party` 1-6 members, each a player character with a unique name and a `sheet` >= 150 chars (the party is the player's whole party: there is no main character and no GM-run party members; NPCs live in the setting); optional `gm_notes`; total <= 30,000 chars. Thresholds are constants at the top of `tools/begin_adventure.py`; they are only a floor against empty or hand-wavy summaries, not a quality check. On success it sets `phase = adventure` and stores the fields as `campaign`; the loop then rewrites the history (above). Nothing on the server verifies the player's confirmation beyond the `confirmed` flag; that rule lives in the Session 0 prompt.
 
 **`roll_dice`**
 - Input: `{"expression": str}`.
@@ -175,14 +182,19 @@ The optional `event` lets a tool emit a custom front-end event (e.g. `dice_roll`
 All prompt text lives in Markdown files, never in Python. `aigm.prompts.PromptLibrary` loads them:
 
 ```
-prompts/system/01_role.md  02_rules.md  03_dice.md  04_style.md   # joined in filename order
-prompts/tools/roll_dice.md                                         # tool description, one file per tool
+prompts/system/common/      01_role 02_rules 03_dice 04_formatting     # every phase
+prompts/system/session_zero/ 01_mode 02_party 03_scaling 04_wrapup      # Session 0 only
+prompts/system/adventure/    01_role 02_rules 03_style                  # Adventure only
+prompts/templates/           campaign_record.md party_member.md gm_notes.md session_zero_done.md begin_cue.md
+prompts/tools/               roll_dice.md begin_adventure.md            # one tool description per file
 ```
 
-- Add a section by adding a file; its filename number decides where it lands. HTML comments are stripped, so files can carry authoring notes.
+- A phase's system prompt is the `common` files followed by that phase's files, each in filename order. Session 0 therefore never carries combat or narration rules, and the adventure never carries party-building rules. Add a section by adding a file; its filename number decides where it lands. HTML comments are stripped, so files can carry authoring notes.
+- The campaign record (setting, party, opening) is **not** in the system prompt. It is the first GM entry in the adventure's history, rendered from the tool arguments with `templates/campaign_record.md` and `party_member.md` (see the loop). Only the private `gm_notes` are added to the adventure system prompt, as a `## GM notes (private)` section from `templates/gm_notes.md`; saves with no notes omit it.
 - `AIGM_PROMPT_DIR` points at an override directory with the same layout: same-named files replace packaged ones, new files are added. This is the intended way to iterate on prompts without editing the package.
-- The system prompt and tool schemas are built once at startup (`app.state.system_prompt`, `app.state.tools`); restart or use `--reload` to pick up edits. The system prompt goes in the API's `system` parameter and is never stored in history.
-- v0.1 content: GM role and how a game starts; light d20 rules (DCs, AC, HP); dice discipline (always `roll_dice`, never invent numbers, narrate after seeing the result); style (second person, 1-3 short paragraphs, Markdown, end on the player's turn). It is deliberately small; grow it by adding files.
+- `Game` (`game.py`) renders both phases' prompts and tool lists once at startup (`app.state.game`); restart or use `--reload` to pick up edits. The system prompt goes in the API's `system` parameter and is never stored in history.
+- Session 0 content: welcome and open questions; party size, starting level, and building characters the 2024 way; a table matching the scale and danger of the setting to party level and the complexity of the adventure to party size; and how to wrap up (summarize, ask the player explicitly, warn there is no way back, and only then call `begin_adventure`). Adventure content: the mode statement, the digital adaptations of 5.5e, and narration style.
+- Switching prompts changes the cached prefix once, at the moment the adventure begins, and the history is replaced at the same moment, so there is no reuse to lose. Afterwards the adventure prompt and history prefix are stable. Because Session 0 is gone, the adventure model never sees a `begin_adventure` call that is no longer in its tool list. (The synthetic `[System: ...]` user messages keep roles alternating; they are the only user-role text the player did not type.) Nothing here has been run against the live API yet.
 
 ### 9. Routes
 
@@ -192,7 +204,7 @@ prompts/tools/roll_dice.md                                         # tool descri
 
 ### 10. App wiring (`app.py`)
 
-- `create_app()` factory; lifespan creates the Anthropic client, `SessionStore`, tool registry, and loads the system prompt, placing them on `app.state` (accessed via FastAPI dependencies for easy test override).
+- `create_app()` factory; lifespan creates the Anthropic client, `SessionStore`, tool registry, and builds the `Game` (prompts and tools per phase), placing them on `app.state` (accessed via FastAPI dependencies for easy test override).
 - CORS middleware for the front-end origin(s).
 - Structured logging (request id, session id, tool calls, token usage); never log API keys, and log message bodies only at DEBUG.
 

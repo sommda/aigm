@@ -6,11 +6,11 @@ from aigm.errors import install_error_handlers
 from aigm.llm.anthropic_client import AnthropicLLM
 from aigm.llm.base import LLMClient
 from aigm.llm.scripted import ScriptedLLM
+from aigm.game import Game
 from aigm.prompts import PromptLibrary
 from aigm.routes import chat, health, history
 from aigm.session.persistence import HistoryRepository
 from aigm.session.store import SessionStore
-from aigm.tools import tool_schemas
 
 TEST_MODEL_NAME = "scripted-test"
 
@@ -21,9 +21,7 @@ def create_app(settings: Settings | None = None, llm: LLMClient | None = None) -
     app.state.settings = settings
     app.state.sessions = SessionStore()
     app.state.repo = HistoryRepository(settings.save_dir)
-    prompts = PromptLibrary(settings.prompt_dir)
-    app.state.system_prompt = prompts.system_prompt()  # read at startup; restart to pick up edits
-    app.state.tools = tool_schemas(prompts)
+    app.state.game = Game(PromptLibrary(settings.prompt_dir))  # prompts are read at startup; restart to pick up edits
     if llm is None:
         if settings.test_mode:
             llm = ScriptedLLM(delay=settings.test_delay, chunk_size=settings.test_chunk_size)

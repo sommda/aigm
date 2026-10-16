@@ -29,6 +29,7 @@ class FakeServer:
         self.saves: dict[str, list[dict]] = {}
         self.calls: list[tuple[str, str, dict]] = []
         self.split_chunks = False
+        self.phase = ""  # "" = an older server that does not report the phase
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -47,11 +48,16 @@ class FakeServer:
         if path == "/health":
             return self._json(200, {"status": "ok", "model": "fake"})
         if path == "/chat/history":
-            return self._json(200, {"session_id": "default", "messages": self.messages})
+            body = {"session_id": "default", "messages": self.messages}
+            if self.phase:
+                body["phase"] = self.phase
+            return self._json(200, body)
         if path == "/chat/new":
             n = len(self.messages)
             self.messages = []
-            return self._json(200, {"session_id": "default", "message_count": 0, "discarded_message_count": n})
+            extra = {"phase": "session_zero"} if self.phase else {}
+            self.phase = "session_zero" if self.phase else self.phase
+            return self._json(200, {"session_id": "default", "message_count": 0, "discarded_message_count": n, **extra})
         if path == "/chat" and method == "POST":
             self.messages.append({"role": "user", "content": [{"type": "text", "text": body["message"]}]})
             data = b"".join(sse(e, d) for e, d in self.reply_events)

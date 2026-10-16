@@ -3,6 +3,7 @@ from typing import Any
 import d20
 
 from aigm.models import DiceRoll, DiceTerm, DieRoll
+from aigm.session.state import GameState
 from aigm.tools.base import Tool, ToolOutcome
 
 MAX_EXPRESSION_LENGTH = 200
@@ -80,7 +81,7 @@ def _error(expression: Any, detail: str) -> ToolOutcome:
     )
 
 
-def roll_dice(tool_use_id: str, tool_input: dict[str, Any]) -> ToolOutcome:
+def roll_dice(tool_use_id: str, tool_input: dict[str, Any], state: GameState | None = None) -> ToolOutcome:
     expression = tool_input.get("expression")
     if not isinstance(expression, str) or not expression.strip():
         return _error(expression, "expression must be a non-empty string")

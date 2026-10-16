@@ -2,6 +2,7 @@ from textual import events
 from textual.reactive import reactive
 from textual.strip import Strip
 from textual.widget import Widget
+from textual.widgets import Input
 
 from aigm_client.transcript import Transcript
 
@@ -58,3 +59,33 @@ class TranscriptView(Widget):
         event.stop()
         self.transcript.scroll_by(3)
         self.app.view_changed()  # type: ignore[attr-defined]
+
+
+NEWLINE_MARK = "⏎"  # how a pasted line break is shown in the one-line prompt
+
+
+def encode_paste(text: str) -> str:
+    """Pasted text for the one-line prompt: line breaks become a visible marker."""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").strip("\n").split("\n")
+    return f" {NEWLINE_MARK} ".join(line.rstrip() for line in lines)
+
+
+def decode_prompt(value: str) -> str:
+    """The message to send: the marker turns back into a real line break."""
+    return "\n".join(part.strip() for part in value.split(NEWLINE_MARK)).strip()
+
+
+class PromptInput(Input):
+    """The prompt. Textual's Input is one line and keeps only the first line of a paste; this
+    keeps all of it, showing line breaks as a marker that becomes a real newline on submit."""
+
+    def _on_paste(self, event: events.Paste) -> None:
+        if event.text:
+            text = encode_paste(event.text)
+            selection = self.selection
+            if selection.is_empty:
+                self.insert_text_at_cursor(text)
+            else:
+                self.replace(text, *selection)
+        event.prevent_default()  # else Input's own handler also runs and pastes the first line
+        event.stop()

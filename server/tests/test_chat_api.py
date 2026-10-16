@@ -7,7 +7,7 @@ from aigm.app import create_app
 from aigm.llm.loop import run_turn
 from aigm.llm.scripted import SAMPLES, ScriptedLLM, long_text, markdown_sampler
 from aigm.session.store import Session
-from aigm.tools import dispatch, tool_schemas
+from aigm.game import Game
 from fastapi.testclient import TestClient
 from tests.conftest import chat, names, reply_text
 
@@ -161,7 +161,7 @@ def test_chat_validation(client, body):
 def test_new_game_clears_live_history(client):
     chat(client, "echo hi")
     resp = client.post("/chat/new")
-    assert resp.json() == {"session_id": "default", "message_count": 0, "discarded_message_count": 2}
+    assert resp.json() == {"session_id": "default", "phase": "session_zero", "message_count": 0, "discarded_message_count": 2}
     assert history(client) == []
 
 
@@ -176,8 +176,7 @@ async def test_cancelled_stream_leaves_history_untouched():
                         {"role": "assistant", "content": [{"type": "text", "text": "old reply"}]}]
     before = list(session.messages)
     gen = run_turn(
-        session=session, user_text="echo " + "z" * 100, llm=ScriptedLLM(delay=0), system="",
-        tools=tool_schemas(), dispatch=dispatch, max_iters=4,
+        session=session, user_text="echo " + "z" * 100, llm=ScriptedLLM(delay=0), game=Game(), max_iters=4,
     )
     seen = [await gen.__anext__() for _ in range(3)]
     assert seen[0].event == "message_start"
@@ -188,8 +187,7 @@ async def test_cancelled_stream_leaves_history_untouched():
 async def test_cancel_during_sleep_propagates():
     session = Session("s")
     gen = run_turn(
-        session=session, user_text="slow", llm=ScriptedLLM(delay=0), system="",
-        tools=tool_schemas(), dispatch=dispatch, max_iters=4,
+        session=session, user_text="slow", llm=ScriptedLLM(delay=0), game=Game(), max_iters=4,
     )
 
     async def consume():

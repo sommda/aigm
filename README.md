@@ -35,11 +35,14 @@ Prompts are Markdown files, not Python strings, so they are easy to edit and dif
 
 ```
 server/src/aigm/prompts/
-  system/01_role.md  02_rules.md  03_dice.md  04_style.md   # joined in filename order
-  tools/roll_dice.md                                         # one tool description per file
+  system/common/        # used in every mode
+  system/session_zero/  # Session 0: building the setting and party
+  system/adventure/     # the game proper
+  templates/            # the campaign record shown to the model in the adventure
+  tools/                # one tool description per file
 ```
 
-Add a file to `system/` to add a section (its number sets where it goes). HTML comments in prompt files are stripped, so they can hold notes. To experiment without touching the package, point `AIGM_PROMPT_DIR` at a folder with the same layout: files there replace packaged files of the same name, and extra files are added. Prompts are read at startup, so restart the server (or use `--reload`) after editing.
+A new game starts in **Session 0**, where the GM helps you establish the setting and the party (a higher-level or larger party means a tougher, more complex setting). When you confirm, the GM starts the adventure and the game switches to the adventure prompts for good; there is no way back to Session 0. Saves record which mode the game is in, so you can save during Session 0. Prompts for a mode are the `common` files followed by that mode's files, in filename order. Add a file to a folder to add a section (its number sets where it goes). HTML comments in prompt files are stripped, so they can hold notes. To experiment without touching the package, point `AIGM_PROMPT_DIR` at a folder with the same layout: files there replace packaged files of the same name, and extra files are added. Prompts are read at startup, so restart the server (or use `--reload`) after editing.
 
 ## Running
 

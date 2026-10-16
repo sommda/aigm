@@ -14,7 +14,20 @@ v0.1 supports multiple named sessions so the API doesn't need to change later, b
 - A session is identified by `session_id` (string, `[A-Za-z0-9_-]{1,64}`).
 - If omitted, `session_id` defaults to `"default"`.
 - Sessions are created implicitly on first use.
-- Each session owns one chat history.
+- Each session owns one chat history and one game state.
+
+## Game phases
+
+Each session is in one of two phases, reported as `phase` in several responses:
+
+| `phase`        | Meaning                                                                                  |
+|----------------|------------------------------------------------------------------------------------------|
+| `session_zero` | Setup. The GM helps the player establish the setting and the party. Every new game starts here. |
+| `adventure`    | The game proper.                                                                         |
+
+The only transition is `session_zero` to `adventure`, and it is made by the model: once the setting and party are settled and the player has confirmed, it calls the `begin_adventure` tool (see below). There is no way back to Session 0 within a game; `POST /chat/new` starts a new game, which begins in Session 0. The phase selects the system prompt and tools the model sees; clients just chat as usual.
+
+The game state (the phase, plus the campaign record written by `begin_adventure`) is saved and restored together with the history, so a game can be saved during Session 0. Saves made before game state existed load as `adventure`.
 
 ---
 
@@ -86,6 +99,7 @@ data: <JSON object>
 | `text`         | A chunk of markdown text to append to the reply      | no        |
 | `tool_call`    | The model is invoking a tool (informational)         | no        |
 | `dice_roll`    | Result of a `roll_dice` call (front-end custom event)| no        |
+| `phase_change` | The game moved to a new phase (sent once, at the end of the turn) | no |
 | `message_end`  | Assistant turn complete                              | yes       |
 | `error`        | Unrecoverable error; stream ends after this          | yes       |
 
@@ -93,8 +107,10 @@ Exactly one terminal event (`message_end` or `error`) ends every stream. Clients
 
 #### `message_start`
 ```json
-{ "message_id": "msg_01", "session_id": "default" }
+{ "message_id": "msg_01", "session_id": "default", "phase": "session_zero" }
 ```
+
+`phase` is the phase the turn started in.
 
 #### `thinking`
 Signals that the model is reasoning, explaining a pause before (or between) visible output, and streams the reasoning text. Only sent when thinking is enabled for the model. A thinking phase is a `start`, zero or more `delta`s, and an `end`:
@@ -192,14 +208,23 @@ Dice added by exploding (`e`) appear as additional entries in `rolls`. The exact
 
 If a roll fails, no `dice_roll` event is emitted. A `tool_call` is followed by a `tool_error` only if we later add one; in v0.1 the error goes back to the model as the tool result (so it can retry or narrate), and is visible in `/chat/history`. The tool result sent to the model stays the short `result` string; the structured `dice` data is for the front end only and is not stored in history.
 
+#### `phase_change`
+```json
+{ "previous": "session_zero", "phase": "adventure" }
+```
+Sent when the turn changed the game phase, after the last `text` and just before `message_end`. It is only sent once the turn has succeeded: a turn that fails after calling `begin_adventure` is rolled back entirely, with no `phase_change`, and the game stays in `session_zero`. The opening scene of the adventure is part of the same turn, so it streams before this event. The history is rewritten at the same time (see `begin_adventure`).
+
 #### `message_end`
 ```json
 {
   "message_id": "msg_01",
   "stop_reason": "end_turn",
-  "usage": { "input_tokens": 1234, "output_tokens": 210 }
+  "usage": { "input_tokens": 1234, "output_tokens": 210 },
+  "phase": "session_zero"
 }
 ```
+
+`phase` is the phase after the turn.
 
 #### `error`
 ```json
@@ -250,13 +275,13 @@ Client disconnect mid-stream cancels the upstream call; the partial assistant tu
 
 ## POST `/chat/new`
 
-Start a fresh game: empties the session's live history. **Destructive**: the current live history is discarded and is *not* saved automatically, so save it first (`PUT /history/{name}/save`) if you want to keep it. Saved histories are never affected.
+Start a fresh game: empties the session's live history and puts the game back in Session 0. **Destructive**: the current live history is discarded and is *not* saved automatically, so save it first (`PUT /history/{name}/save`) if you want to keep it. Saved histories are never affected.
 
 Query: `session_id` (optional). No request body.
 
 ### Response `200`
 ```json
-{ "session_id": "default", "message_count": 0, "discarded_message_count": 14 }
+{ "session_id": "default", "phase": "session_zero", "message_count": 0, "discarded_message_count": 14 }
 ```
 
 Errors: `409` a `/chat` is in flight for that session; `422` invalid `session_id`. Calling it on an already-empty session succeeds with `discarded_message_count: 0`.
@@ -274,6 +299,14 @@ Query: `session_id` (optional).
 ```json
 {
   "session_id": "default",
+  "phase": "adventure",
+  "campaign": {
+    "setting": "The Misty Fens: gritty, haunted marshland ...",
+    "opening": "The party arrives at the Drowned Lantern inn at dusk ...",
+    "level": 3,
+    "party": [{ "name": "Ann", "sheet": "Elf rogue, level 3 ..." }],
+    "gm_notes": "The innkeeper is a spy."
+  },
   "messages": [
     { "role": "user", "content": [{ "type": "text", "text": "I attack the goblin." }] },
     {
@@ -294,7 +327,7 @@ Query: `session_id` (optional).
 }
 ```
 
-History uses the Anthropic Messages API content-block format verbatim, so it round-trips to the model with no translation. An unknown/empty session returns `200` with `"messages": []`.
+`campaign` is the record `begin_adventure` wrote at the end of Session 0, or `null` (always `null` in `session_zero`, and for adventures loaded from older saves). It includes the private `gm_notes`, so a client should not show it to the player. History uses the Anthropic Messages API content-block format verbatim, so it round-trips to the model with no translation. An unknown/empty session returns `200` with `"messages": []`.
 
 ---
 
@@ -306,8 +339,8 @@ List all saved histories (the "save slots"). Sorted by `saved_at`, newest first.
 ```json
 {
   "histories": [
-    { "name": "tavern-brawl", "message_count": 14, "saved_at": "2026-10-15T18:22:04Z", "model": "claude-sonnet-5-5" },
-    { "name": "act-1",        "message_count": 52, "saved_at": "2026-10-14T21:03:40Z", "model": "claude-sonnet-5-5" }
+    { "name": "tavern-brawl", "phase": "adventure",    "message_count": 14, "saved_at": "2026-10-15T18:22:04Z", "model": "claude-sonnet-5-5" },
+    { "name": "act-1",        "phase": "session_zero", "message_count": 52, "saved_at": "2026-10-14T21:03:40Z", "model": "claude-sonnet-5-5" }
   ]
 }
 ```
@@ -326,6 +359,7 @@ Query: `include_messages` (optional bool, default `false`). When true, the respo
 ```json
 {
   "name": "tavern-brawl",
+  "phase": "adventure",
   "message_count": 14,
   "saved_at": "2026-10-15T18:22:04Z",
   "model": "claude-sonnet-5-5",
@@ -345,7 +379,7 @@ Query: `session_id` (optional); `overwrite` (optional bool, default `false`). No
 
 ### Response `200`
 ```json
-{ "name": "tavern-brawl", "session_id": "default", "message_count": 14, "saved_at": "2026-10-15T18:22:04Z", "overwritten": false }
+{ "name": "tavern-brawl", "session_id": "default", "phase": "adventure", "message_count": 14, "saved_at": "2026-10-15T18:22:04Z", "overwritten": false }
 ```
 
 `overwritten` is `true` only when `overwrite=true` was given and a save of that name already existed. Errors: `400` invalid name; `409` with error code `already_exists` if `{name}` exists and `overwrite` is not `true` (the existing save is untouched); `409` with code `conflict` if a `/chat` is in flight for that session (avoids saving a half-finished turn); `500` storage failure. Saving an empty live history is allowed.
@@ -354,13 +388,13 @@ Query: `session_id` (optional); `overwrite` (optional bool, default `false`). No
 
 ## POST `/history/{name}/restore`
 
-Load saved history `{name}` into the session's live history. **Destructive**: the current live history is discarded (save it first if you want to keep it). POST is used because it changes server state and must not be triggered by prefetching or caching.
+Load saved history `{name}` into the session's live history, and set the session's game state (phase and campaign) to the saved one. **Destructive**: the current live history is discarded (save it first if you want to keep it). POST is used because it changes server state and must not be triggered by prefetching or caching.
 
 Query: `session_id` (optional). No request body.
 
 ### Response `200`
 ```json
-{ "name": "tavern-brawl", "session_id": "default", "message_count": 14, "saved_at": "2026-10-15T18:22:04Z", "replaced_message_count": 6 }
+{ "name": "tavern-brawl", "session_id": "default", "phase": "adventure", "message_count": 14, "saved_at": "2026-10-15T18:22:04Z", "replaced_message_count": 6 }
 ```
 
 `replaced_message_count` is the size of the discarded live history. Errors: `400` invalid name; `404` no such history; `409` a `/chat` is in flight for that session; `422` saved file corrupt or invalid. On any error the live history is left unchanged.
@@ -411,6 +445,35 @@ Exposed to the model, not directly to HTTP clients. Documented here because its 
 - Success: tool result text is the d20 breakdown string (e.g. ``1d20 (12) + 5 = `17` ``); `is_error: false`; a `dice_roll` SSE event is emitted.
 - Malformed expression: tool result is an error message such as `Invalid dice expression '2x20': <d20 error text>. Expected syntax like '1d20+5' or '4d6kh3'.` with `is_error: true`. The model sees this and may retry. No `dice_roll` event.
 - Guardrails: expression length limit (200 chars) and d20's own roll-count limits; violations are reported as the same error form.
+
+---
+
+## Tool: `begin_adventure`
+
+Offered to the model only in `session_zero`; once the adventure has begun it is no longer in the tool list. Documented here because it changes the game phase and rewrites the history.
+
+**Input.** The arguments are the model's only record of Session 0, so the server validates that they are detailed enough:
+
+| Field | Rule |
+|---|---|
+| `confirmed` | bool; must be `true` (the player has clearly said they are ready) |
+| `setting` | string, at least 300 characters: the world, tone, key places and factions, the central tension, how dangerous it is for this party |
+| `opening` | string, at least 100 characters: starting location, situation and immediate hook |
+| `level` | integer 1-20 |
+| `party` | 1-6 player characters `{name, sheet}`: unique non-empty `name` (compared ignoring case); `sheet` at least 150 characters (the full character). The player controls the whole party and may switch between members; NPCs are not party members |
+| `gm_notes` | optional string of private notes |
+
+The total size is capped at 30,000 characters. A call that fails any rule returns an `is_error` tool result that lists **every** problem, changes nothing, and lets the model fill the gaps and call again (or keep talking with the player).
+
+**On success**, within the turn:
+
+1. The phase becomes `adventure`, and the validated fields are stored as the session's `campaign` (see `GET /chat/history`).
+2. The history is **replaced**: the Session 0 conversation, the player's confirmation and the tool call and result are all discarded, and the history becomes exactly three messages: a short system note (user role, text starting `[System: Session 0 is complete...`), a single GM entry (assistant role) containing the campaign record rendered from the arguments (setting, party with full sheets, and the opening situation), and a system cue (user role, `[System: The adventure begins now...`). The model's very next reply, the first scene, follows them. `gm_notes` are not in the record; they go into the adventure system prompt only.
+3. When the turn commits, `phase_change` is sent. The final history is those three messages followed by the opening scene.
+
+Messages whose text starts with `[System:` are inserted by the server rather than typed by the player; clients should not show them as player speech.
+
+Like all turn state, the change (including the history rewrite) is committed only if the whole turn succeeds.
 
 ---
 

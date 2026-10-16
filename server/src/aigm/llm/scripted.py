@@ -61,6 +61,7 @@ The server is running with `--test`: replies are scripted, not from a model. Try
 
 - `roll <expr>`: roll dice via the real `roll_dice` tool, e.g. `roll 4d6kh3+2 # strength`
 - `multiroll`: two dice rolls in one response
+- `begin`: end Session 0 and start the adventure (calls the real `begin_adventure` tool; a new game starts in Session 0)
 - `badroll [expr]`: a malformed roll (shows the tool-error path)
 - `markdown`: a sampler of every markup form below
 - `bold`, `italic`, `strike`, `code`, `codeblock`, `list`, `numbered`, `heading`, `quote`, `table`, `link`
@@ -111,11 +112,38 @@ def _int(arg: str, default: int, lo: int = 1, hi: int = 200) -> int:
         return default
 
 
-def plan_for(text: str) -> list[Step]:
+TEST_CAMPAIGN = {
+    "confirmed": True,
+    "setting": (
+        "The Test Marches: a gritty border region of crumbling forts and muddy roads, where the old kingdom's "
+        "garrisons have been left to rot. Rival bandit chiefs and a failing baron squabble over toll roads, and "
+        "something stirs in the drowned crypts beneath the oldest fort. The tone is grim but not hopeless. "
+        "A level 1 party will find it dangerous but survivable."
+    ),
+    "opening": "The party shelters from a storm in the common room of the Rusty Flagon inn, where a nervous traveller wants to hire guards.",
+    "level": 1,
+    "party": [
+        {
+            "name": "Test Hero",
+            "sheet": "Human fighter, Soldier background, level 1. STR 16, DEX 13, CON 14, INT 10, WIS 12, CHA 8. HP 12, AC 16 (chain mail, shield). Longsword, handaxes, Second Wind. Blunt, loyal, hates wizards.",
+        }
+    ],
+    "gm_notes": "The innkeeper is a spy.",
+}
+
+
+OPENING_SCENE = "## The adventure begins\n\nYou stand in the common room of the **Rusty Flagon**. Rain drums on the roof. What do you do?"
+
+
+def plan_for(text: str, tools: tuple[str, ...] = ()) -> list[Step]:
     cmd, _, rest = text.strip().partition(" ")
     cmd, arg = cmd.lower(), rest.strip()
     if cmd == "help":
         return [Say(HELP)]
+    if cmd == "begin":
+        if "begin_adventure" not in tools:
+            return [Say("The adventure has already begun; there is no way back to Session 0.")]
+        return [Say("Then let us begin! "), UseTool("begin_adventure", dict(TEST_CAMPAIGN))]
     if cmd == "echo":
         return [Say(arg or "Echo what?")]
     if cmd == "roll":
@@ -145,7 +173,8 @@ def plan_for(text: str) -> list[Step]:
         return [Say("Starting to answer, and then "), Fail("Simulated upstream failure")]
     if cmd == "loop":
         return [UseTool("roll_dice", {"expression": "1d6"})]
-    return [Say(f"[test mode] You said: {text.strip()}\n\nType `help` to see the test commands.")]
+    mode = "Session 0" if "begin_adventure" in tools else "Adventure"
+    return [Say(f"[test mode: {mode}] You said: {text.strip()}\n\nType `help` to see the test commands.")]
 
 
 # ---- the client ------------------------------------------------------------------------
@@ -168,21 +197,25 @@ def _last_command_text(messages: list[dict[str, Any]]) -> str:
 
 def narrate_tool_results(messages: list[dict[str, Any]]) -> list[Step]:
     """The follow-up after tool results: describe each roll (or its error)."""
-    uses = {}
+    uses: dict[str, tuple[str, dict[str, Any]]] = {}
     if len(messages) >= 2:
         for b in messages[-2].get("content", []):
             if b.get("type") == "tool_use":
-                uses[b["id"]] = b.get("input", {}).get("expression", "?")
+                uses[b["id"]] = (b.get("name", ""), b.get("input", {}))
     lines = []
     for b in messages[-1].get("content", []):
         if b.get("type") != "tool_result":
             continue
-        expr = uses.get(b.get("tool_use_id"), "?")
+        name, tool_input = uses.get(b.get("tool_use_id"), ("", {}))
+        if name == "begin_adventure":  # on success the history is replaced, so only errors get here
+            lines.append(f"- The adventure could not begin: {b.get('content')}")
+            continue
+        expr = tool_input.get("expression", "?")
         if b.get("is_error"):
             lines.append(f"- The dice refused `{expr}`: {b.get('content')}")
         else:
             lines.append(f"- `{expr}` came up: {b.get('content')}")
-    return [Say("\n\n" + "\n".join(lines) + "\n\nThe die is cast.")]
+    return [Say("\n\n" + "\n".join(lines) + "\n\nThe die is cast." if lines else "\n\nDone.")]
 
 
 class ScriptedLLM:
@@ -201,12 +234,14 @@ class ScriptedLLM:
             b.get("type") == "tool_result" for b in last.get("content", [])
         )
         command = _last_command_text(messages)
-        if after_tools and command.strip().lower().startswith("loop"):
-            plan: list[Step] = [UseTool("roll_dice", {"expression": "1d6"})]
+        if command.startswith("[System: The adventure begins"):  # the server's cue after Session 0
+            plan: list[Step] = [Say(OPENING_SCENE)]
+        elif after_tools and command.strip().lower().startswith("loop"):
+            plan = [UseTool("roll_dice", {"expression": "1d6"})]
         elif after_tools:
             plan = narrate_tool_results(messages)
         else:
-            plan = plan_for(command)
+            plan = plan_for(command, tuple(t.get("name", "") for t in tools))
 
         content: list[dict[str, Any]] = []
         out_chars = 0

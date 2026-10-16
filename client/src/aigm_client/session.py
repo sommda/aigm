@@ -13,18 +13,34 @@ from aigm_client.blocks import (
 from aigm_client.transcript import Transcript
 
 
+PHASE_LABELS = {"session_zero": "Session 0", "adventure": "Adventure"}
+INTRO = {
+    "session_zero": "Welcome! This is Session 0, where we set up your world and your party. Say hello to begin. Type /help for commands.",
+    "adventure": "Welcome back. Describe what you do. Type /help for commands.",
+}
+
+
+def intro_text(phase: str) -> str:
+    return INTRO.get(phase, "Welcome, adventurer. Describe what you do. Type /help for commands.")
+
+
 class ChatSession:
     def __init__(self, transcript: Transcript) -> None:
         self.transcript = transcript
         self.busy = False  # a chat turn is in flight
         self.thinking = False
         self.game_name: str | None = None
+        self.phase = ""  # "session_zero" | "adventure" | "" (unknown)
         self.dirty = False  # unsaved changes since last save/load/new
         self.changed = False  # set whenever anything visible changed; the UI clears it
         self._text: MarkdownBlock | None = None
         self._reasoning: ReasoningBlock | None = None
 
     # ---- derived ------------------------------------------------------------------------
+
+    @property
+    def phase_label(self) -> str:
+        return PHASE_LABELS.get(self.phase, "")
 
     @property
     def can_input(self) -> bool:
@@ -68,7 +84,16 @@ class ChatSession:
             case ev.DiceRoll():
                 self._text = None
                 self.transcript.add(DiceBlock(event))
-            case ev.MessageEnd():
+            case ev.MessageStart(phase=phase) if phase:
+                self.phase = phase
+            case ev.PhaseChange(phase=phase):
+                self.phase = phase
+                self._text = self._reasoning = None
+                if phase == "adventure":
+                    self.add_system("Session 0 is over. The adventure begins!", "bold green")
+            case ev.MessageEnd(phase=phase):
+                if phase:
+                    self.phase = phase
                 self._finish_turn()
             case ev.ErrorEvent(message=message):
                 self._finish_turn()
@@ -101,15 +126,17 @@ class ChatSession:
             self.transcript.add(SystemBlock(line, style))
         self._touch()
 
-    def load_history(self, messages: list[dict[str, Any]]) -> None:
+    def load_history(self, messages: list[dict[str, Any]], phase: str = "") -> None:
         """Replace the transcript with a server history and open on its last page."""
+        self.phase = phase
         self.transcript.replace_blocks(history_to_blocks(messages))
         self.busy = self.thinking = False
         self._text = self._reasoning = None
         self.dirty = False
         self._touch()
 
-    def new_game(self) -> None:
+    def new_game(self, phase: str = "session_zero") -> None:
+        self.phase = phase
         self.transcript.clear()
         self.busy = self.thinking = False
         self._text = self._reasoning = None
