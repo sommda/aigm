@@ -61,6 +61,15 @@ class DiceRoll:
 
 
 @dataclass(frozen=True)
+class Status:
+    """Progress of a long wait (for example "Preparing the world..."); `done` ends it."""
+
+    stage: str = ""
+    message: str = ""
+    done: bool = False
+
+
+@dataclass(frozen=True)
 class MessageEnd:
     message_id: str = ""
     stop_reason: str = ""
@@ -87,7 +96,7 @@ class Unknown:
     data: Any = None
 
 
-Event = MessageStart | Thinking | Text | ToolCall | DiceRoll | MessageEnd | PhaseChange | ErrorEvent | Unknown
+Event = MessageStart | Thinking | Text | ToolCall | DiceRoll | Status | MessageEnd | PhaseChange | ErrorEvent | Unknown
 
 
 def _die(d: dict[str, Any]) -> DieRoll:
@@ -137,6 +146,8 @@ def parse_event(name: str, data: str) -> Event | None:
                     comment=d.get("comment"),
                     dice=tuple(_term(t) for t in d.get("dice", [])),
                 )
+            case "status":
+                return Status(str(d.get("stage", "")), str(d.get("message", "")), bool(d.get("done", False)))
             case "message_end":
                 return MessageEnd(d.get("message_id", ""), d.get("stop_reason", ""), d.get("usage") or {}, d.get("phase", ""))
             case "phase_change":

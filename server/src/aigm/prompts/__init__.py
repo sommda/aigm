@@ -22,6 +22,7 @@ from aigm.session.state import Phase
 
 PACKAGED_DIR = Path(__file__).parent
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_ASPECT_LINE = re.compile(r"^- (\w+): (.+)$")
 
 
 def _clean(text: str) -> str:
@@ -103,6 +104,25 @@ class PromptLibrary:
     def _fill(template: str, values: dict[str, str]) -> str:
         # one pass, so text inside a value is never treated as a placeholder
         return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), template).strip()
+
+    def world_prompt(self, name: str) -> str:
+        """A prompt for the world curator (prompts/world/<name>.md)."""
+        path = self._files("world").get(f"{name}.md")
+        if path is None:
+            raise ValueError(f"No prompt file prompts/world/{name}.md")
+        return _clean(path.read_text(encoding="utf-8"))
+
+    def aspect_guides(self) -> dict[str, dict[str, str]]:
+        """What each checklist aspect means, per entity kind (prompts/world/aspects/<kind>.md)."""
+        guides: dict[str, dict[str, str]] = {}
+        for name, path in self._files("world/aspects").items():
+            entries = {}
+            for line in _clean(path.read_text(encoding="utf-8")).splitlines():
+                match = _ASPECT_LINE.match(line.strip())
+                if match:
+                    entries[match.group(1)] = match.group(2).strip()
+            guides[name.removesuffix(".md")] = entries
+        return guides
 
     def tool_description(self, tool_name: str) -> str:
         path = self._files("tools").get(f"{tool_name}.md")

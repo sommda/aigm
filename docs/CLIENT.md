@@ -106,6 +106,7 @@ The client implements exactly the contract in API.md.
 | `text` | Append `delta` to the current markdown segment (see Streaming Markdown). |
 | `tool_call` | No visible output by itself (the `dice_roll` event follows for dice). Closes the current markdown segment. |
 | `dice_roll` | Render a dice block (see Dice Rendering). Closes the current markdown segment. |
+| `status` | Show `message` in the status line in place of "GM is writing..." (with the spinner) until a `status` with `done: true`, or until the turn ends or fails. Nothing is added to the transcript. This is the pause while the world is built after Session 0. |
 | `phase_change` | (When history is reloaded after the switch it is three server-inserted messages plus the new play; user messages starting `[System:` are shown as dim system lines, not as player speech.) Update the mode shown in the status line and add a line "Session 0 is over. The adventure begins!" to the transcript. The status line also follows `phase` on `message_start`/`message_end`. After a startup, load or new game, the phase comes from `GET /chat/history` and `POST /chat/new`; the welcome line and prompt placeholder differ in Session 0. Servers that send no phase are tolerated (no mode is shown). |
 | `message_end` | Finalize the segment (final un-healed render), stop spinner, re-enable input once all held text has been paged through. |
 | `error` | Show a red error block with `message`; clear spinner; note the turn was discarded server-side (the user's message needs resending). |

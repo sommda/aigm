@@ -22,3 +22,26 @@ def test_live_turn_with_dice(tmp_path):
     assert names(events)[-1] == "message_end"
     assert "dice_roll" in names(events)
     assert len(client.get("/chat/history").json()["messages"]) >= 4
+
+
+async def test_live_curator_grows_an_independent_world():
+    from aigm.prompts import PromptLibrary
+    from aigm.world.anthropic_curator import AnthropicCurator
+    from aigm.world.independence import independence_problem
+    from aigm.world.ops import apply_ops
+    from aigm.world.passes import PassConfig, run_pass
+    from aigm.world.sample import SETTING, render, seed
+
+    s = Settings(test_mode=False)
+    curator = AnthropicCurator(
+        api_key=s.anthropic_api_key, prompts=PromptLibrary(), model=s.world_model, expand_model=s.world_expand_model
+    )
+    world = seed()
+    result = await run_pass(world, [], curator, setting=SETTING, party_names=["Test Hero"], config=PassConfig())
+    applied = apply_ops(world, result.ops)
+    print(render(world), "\n", result.notes, applied.skipped)
+    generated = [f for f in world.facts.values() if f.source == "generated"]
+    assert len(generated) >= 5 and all(f.disclosure == "hidden" for f in generated)
+    assert all(independence_problem(f.text, ["Test Hero"]) is None for f in generated)
+    for ent in world.entities.values():  # everything is connected to the seeded world
+        assert ent.id in world.distances(world.scene.location)

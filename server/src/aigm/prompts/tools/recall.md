@@ -1,0 +1,3 @@
+Look up what the world already says about a person, place, group or idea, including GM-only facts the player has not been told. Pass `about` with a name (aliases work) to get everything recorded about it, how it connects to other things, and what it contains. Pass `query` with a few words to search all recorded facts instead. You can pass both.
+
+Use it before you state a named person, place or fact that is not already in your world notes, and whenever the party heads somewhere or asks about something the notes do not cover. Results are for you alone: use them to stay consistent, and reveal GM-only facts only through play. If nothing is recorded, you may improvise, but then record what you invent with `establish`.

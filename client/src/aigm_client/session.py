@@ -29,6 +29,7 @@ class ChatSession:
         self.transcript = transcript
         self.busy = False  # a chat turn is in flight
         self.thinking = False
+        self.status = ""  # a long wait the server is reporting ("Preparing the world..."); "" when none
         self.game_name: str | None = None
         self.phase = ""  # "session_zero" | "adventure" | "" (unknown)
         self.dirty = False  # unsaved changes since last save/load/new
@@ -79,6 +80,10 @@ class ChatSession:
             case ev.Thinking(status="end"):
                 self.thinking = False
                 self._reasoning = None
+            case ev.Status(done=True):
+                self.status = ""
+            case ev.Status(message=message):
+                self.status = message
             case ev.ToolCall():
                 self._text = None
             case ev.DiceRoll():
@@ -107,6 +112,7 @@ class ChatSession:
     def _finish_turn(self) -> None:
         self.busy = False
         self.thinking = False
+        self.status = ""
         self._text = self._reasoning = None
         self.transcript.finalize_markdown()
 
@@ -131,6 +137,7 @@ class ChatSession:
         self.phase = phase
         self.transcript.replace_blocks(history_to_blocks(messages))
         self.busy = self.thinking = False
+        self.status = ""
         self._text = self._reasoning = None
         self.dirty = False
         self._touch()
@@ -139,6 +146,7 @@ class ChatSession:
         self.phase = phase
         self.transcript.clear()
         self.busy = self.thinking = False
+        self.status = ""
         self._text = self._reasoning = None
         self.game_name = None
         self.dirty = False

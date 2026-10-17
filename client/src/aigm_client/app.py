@@ -126,7 +126,9 @@ class AigmApp(App):
 
     def _update_status(self) -> None:
         s = self.session
-        if s.thinking:
+        if s.status:
+            left = f"{SPINNER[self._spin]} {s.status}"
+        elif s.thinking:
             left = f"{SPINNER[self._spin]} Thinking..."
         elif s.busy:
             left = f"{SPINNER[self._spin]} GM is writing..."

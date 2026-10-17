@@ -95,6 +95,15 @@ class PhaseChange(SSEEvent):
     phase: str
 
 
+class Status(SSEEvent):
+    """Progress of a long wait, such as preparing the world after Session 0. `done` ends it."""
+
+    event: ClassVar[str] = "status"
+    stage: str
+    message: str
+    done: bool = False
+
+
 class MessageEnd(SSEEvent):
     event: ClassVar[str] = "message_end"
     message_id: str

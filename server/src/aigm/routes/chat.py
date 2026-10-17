@@ -2,7 +2,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from starlette.background import BackgroundTask
+from starlette.background import BackgroundTasks
 
 from aigm.deps import get_session
 from aigm.errors import Conflict
@@ -42,16 +42,26 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
                 game=app.state.game,
                 max_iters=settings.max_tool_iters,
                 stream_thinking=settings.stream_thinking,
+                curator=app.state.curator,
             ):
                 yield encode(event)
         finally:
             release()
 
+    async def curate() -> None:  # after the response: the player is never kept waiting for the world
+        service = app.state.curator
+        if service is not None:
+            await service.run_if_due(session)
+        await app.state.dumper.update(session)  # the turn, a tool or the pass may have changed the world
+
+    background = BackgroundTasks()
+    background.add_task(release)
+    background.add_task(curate)
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
-        background=BackgroundTask(release),
+        background=background,
     )
 
 
@@ -66,12 +76,14 @@ async def chat_history(session: SessionDep) -> dict[str, Any]:
 
 
 @router.post("/chat/new")
-async def new_game(session: SessionDep) -> dict[str, Any]:
+async def new_game(session: SessionDep, request: Request) -> dict[str, Any]:
     if session.busy:
         raise Conflict("A turn is in progress for this session")
     discarded = len(session.messages)
     session.messages = []
     session.state = GameState()  # back to Session 0
+    session.reset_world_work()
+    await request.app.state.dumper.remove(session.id)
     return {
         "session_id": session.id,
         "phase": session.state.phase.value,

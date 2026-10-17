@@ -14,8 +14,8 @@ from aigm.models import ID_RE
 from aigm.session.state import GameState
 
 log = logging.getLogger(__name__)
-FORMAT_VERSION = 2  # 1: messages only (read as mid-adventure); 2: adds game state
-READABLE_VERSIONS = (1, 2)
+FORMAT_VERSION = 3  # 1: messages only (read as mid-adventure); 2: adds game state; 3: adds the world
+READABLE_VERSIONS = (1, 2, 3)
 
 
 def validate_name(name: str) -> str:
@@ -85,12 +85,16 @@ class HistoryRepository:
 
     def _info(self, data: dict[str, Any], include_messages: bool) -> dict[str, Any]:
         messages = data["messages"]
+        counts = data["state"].world.counts()
         info: dict[str, Any] = {
             "name": data["name"],
             "message_count": len(messages),
             "saved_at": data.get("saved_at"),
             "model": data.get("model"),
             "phase": data["state"].phase.value,
+            "entity_count": counts["entities"],
+            "fact_count": counts["facts"],
+            "world_time": data["state"].world.time.to_dict(),
         }
         preview = last_assistant_preview(messages)
         if preview:
@@ -134,7 +138,8 @@ class HistoryRepository:
         fd, tmp = tempfile.mkstemp(dir=self.dir, prefix=f".{name}.", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False)
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.write("\n")
             os.replace(tmp, path)
         except BaseException:
             Path(tmp).unlink(missing_ok=True)

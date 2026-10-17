@@ -37,7 +37,7 @@ async def save_history(
 
 
 @router.post("/{name}/restore")
-async def restore_history(name: str, repo: RepoDep, session: SessionDep) -> dict[str, Any]:
+async def restore_history(name: str, request: Request, repo: RepoDep, session: SessionDep) -> dict[str, Any]:
     if session.busy:
         raise Conflict("A turn is in progress for this session; wait for it to finish before restoring")
     messages, state, info = await repo.load(name)  # fully validated before anything is replaced
@@ -46,6 +46,8 @@ async def restore_history(name: str, repo: RepoDep, session: SessionDep) -> dict
     replaced = len(session.messages)
     session.messages = messages
     session.state = state
+    session.reset_world_work()
+    await request.app.state.dumper.update(session)
     return {
         "name": name,
         "session_id": session.id,

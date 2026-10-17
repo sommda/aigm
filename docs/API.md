@@ -99,6 +99,7 @@ data: <JSON object>
 | `text`         | A chunk of markdown text to append to the reply      | no        |
 | `tool_call`    | The model is invoking a tool (informational)         | no        |
 | `dice_roll`    | Result of a `roll_dice` call (front-end custom event)| no        |
+| `status`       | Progress of a long wait, such as preparing the world after Session 0 | no |
 | `phase_change` | The game moved to a new phase (sent once, at the end of the turn) | no |
 | `message_end`  | Assistant turn complete                              | yes       |
 | `error`        | Unrecoverable error; stream ends after this          | yes       |
@@ -207,6 +208,12 @@ Each `rolls` entry:
 Dice added by exploding (`e`) appear as additional entries in `rolls`. The exact shape for rerolls and explodes follows whatever d20 exposes and is pinned by unit tests.
 
 If a roll fails, no `dice_roll` event is emitted. A `tool_call` is followed by a `tool_error` only if we later add one; in v0.1 the error goes back to the model as the tool result (so it can retry or narrate), and is visible in `/chat/history`. The tool result sent to the model stays the short `result` string; the structured `dice` data is for the front end only and is not stored in history.
+
+#### `status`
+```json
+{ "stage": "world", "message": "Preparing the world...", "done": false }
+```
+Sent during the turn in which Session 0 ends, between the `begin_adventure` `tool_call` and the opening scene's `text`, while the server builds the world for the new game (this can take tens of seconds with a real model). Several are sent, each replacing the last message ("Building the setting...", "Detailing the Rusty Flagon..."), then one with `"done": true` ("The world is ready."). Clients should show the latest `message` in place of their usual "writing" indicator until `done` (or the end of the stream), and may ignore the event entirely: nothing in the transcript depends on it. If world preparation fails the stream ends with an `error` (`upstream_error`, retryable) and the whole turn is rolled back, including the phase change, so the player can confirm again.
 
 #### `phase_change`
 ```json
@@ -363,11 +370,14 @@ Query: `include_messages` (optional bool, default `false`). When true, the respo
   "message_count": 14,
   "saved_at": "2026-10-15T18:22:04Z",
   "model": "claude-sonnet-5-5",
+  "entity_count": 12,
+  "fact_count": 61,
+  "world_time": { "day": 3, "hour": 14 },
   "last_message_preview": "A **17** -- your blade bites deep!"
 }
 ```
 
-`last_message_preview` is the first ~200 characters of the final assistant text (omitted if none). Errors: `400` invalid name; `404` no such history; `422` file corrupt.
+`entity_count`, `fact_count` (active facts) and `world_time` summarize the saved world (zero and day 1, 08:00 for saves with no world); the same three fields appear in each entry of `GET /history`. `last_message_preview` is the first ~200 characters of the final assistant text (omitted if none). Errors: `400` invalid name; `404` no such history; `422` file corrupt.
 
 ---
 

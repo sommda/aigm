@@ -106,3 +106,61 @@ async def test_pilot_multiline_paste_is_sent_whole():
         await pilot.press("enter")
         await settle(pilot, lambda: fake.messages and not app.session.busy)
         assert fake.messages[0]["content"][0]["text"] == "line one\nline two\nline three"
+
+
+# ---- status events (preparing the world) --------------------------------------------------
+
+
+def test_parse_status_event():
+    assert parse_event("status", '{"stage":"world","message":"Preparing the world...","done":false}') == ev.Status(
+        "world", "Preparing the world...", False
+    )
+    assert parse_event("status", '{"stage":"world","message":"The world is ready.","done":true}').done is True
+    assert parse_event("status", "{}") == ev.Status("", "", False)
+
+
+def test_status_shows_until_done_and_is_cleared_when_the_turn_ends_or_fails():
+    s = make_session()
+    s.begin_turn("yes")
+    s.apply(ev.Status("world", "Preparing the world..."))
+    assert s.status == "Preparing the world..."
+    s.apply(ev.Status("world", "Detailing the Rusty Flagon..."))
+    assert s.status == "Detailing the Rusty Flagon..."
+    s.apply(ev.Status("world", "The world is ready.", True))
+    assert s.status == ""
+    for finish in (ev.MessageEnd("m", "end_turn", {}, "adventure"), ev.ErrorEvent("upstream_error", "boom", True)):
+        s.begin_turn("again")
+        s.apply(ev.Status("world", "Preparing the world..."))
+        s.apply(finish)
+        assert s.status == "" and not s.busy
+    s.begin_turn("third")
+    s.apply(ev.Status("world", "Preparing the world..."))
+    s.interrupted()
+    assert s.status == ""
+    s.apply(ev.Status("world", "Preparing the world..."))
+    s.new_game()
+    assert s.status == ""
+
+
+def test_status_does_not_add_transcript_lines():
+    s = make_session()
+    s.begin_turn("yes")
+    before = len(plain(s.transcript.visible_lines()))
+    s.apply(ev.Status("world", "Preparing the world..."))
+    s.apply(ev.Status("world", "The world is ready.", True))
+    assert len(plain(s.transcript.visible_lines())) == before
+
+
+async def test_pilot_status_line_shows_the_server_message_in_place_of_writing():
+    app = make_app(FakeServer([("message_start", {"message_id": "m", "session_id": "default"}),
+                               ("message_end", {"message_id": "m", "stop_reason": "end_turn", "usage": {}})]))
+    async with app.run_test(size=(100, 24)) as pilot:
+        await start(app, pilot)
+        status = lambda: str(app.query_one("#status", Static).render())
+        app.session.busy = True
+        app.session.apply(ev.Status("world", "Preparing the world..."))
+        app._update_status()
+        assert "Preparing the world..." in status() and "GM is writing" not in status()
+        app.session.apply(ev.Status("world", "The world is ready.", True))
+        app._update_status()
+        assert "Preparing the world" not in status() and "GM is writing" in status()

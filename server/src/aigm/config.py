@@ -19,6 +19,22 @@ class Settings(BaseSettings):
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
         default=None, validation_alias="AIGM_EFFORT"
     )
+    # Rough size, in tokens, of the world notes shown to the GM with each request.
+    world_briefing_tokens: int = Field(default=2000, validation_alias="AIGM_WORLD_BRIEFING_TOKENS")
+    # The world curator's models: a cheap one for extraction, reconciliation and checks, a stronger
+    # one for inventing new parts of the world. Point both at one model to tune.
+    world_curator: bool = Field(default=True, validation_alias="AIGM_WORLD_CURATOR")
+    world_model: str = Field(default="claude-haiku-5-5", validation_alias="AIGM_WORLD_MODEL")
+    world_expand_model: str = Field(default="claude-sonnet-5-5", validation_alias="AIGM_WORLD_EXPAND_MODEL")
+    world_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field(default="low", validation_alias="AIGM_WORLD_EFFORT")
+    world_expand_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field(
+        default="medium", validation_alias="AIGM_WORLD_EXPAND_EFFORT"
+    )
+    # Keep a readable JSON dump of each session's world in {save_dir}/worlds/ for debugging.
+    world_dump: bool = Field(default=True, validation_alias="AIGM_WORLD_DUMP")
+    # The curator runs in the background once this many pages of GM narration have built up.
+    world_every_pages: float = Field(default=3.0, validation_alias="AIGM_WORLD_EVERY_PAGES")
+    world_page_chars: int = Field(default=1800, validation_alias="AIGM_WORLD_PAGE_CHARS")
     prompt_dir: Path | None = Field(default=None, validation_alias="AIGM_PROMPT_DIR")
     save_dir: Path = Field(default=Path("./saves"), validation_alias="AIGM_SAVE_DIR")
     test_mode: bool = Field(default=False, validation_alias="AIGM_TEST_MODE")

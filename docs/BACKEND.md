@@ -45,6 +45,7 @@ server/              # (inside the repo root; docs live in ../docs)
     tools/
       __init__.py     # Registry: name -> (schema, handler)
       roll_dice.py    # roll_dice tool
+      world.py        # recall / establish / set_scene (the world tools, see WORLD.md)
     session/
       store.py        # In-memory SessionStore + per-session lock
       persistence.py  # Save/restore snapshots to disk
@@ -70,6 +71,14 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 | `AIGM_STREAM_THINKING` | `true`               | Forward reasoning text as `thinking` `delta` events; `false` sends only `start`/`end` |
 | `AIGM_THINKING_SUMMARIES` | `true`            | Request adaptive thinking with summaries (`false` for models without adaptive thinking) |
 | `AIGM_EFFORT`          | (model default)       | `low` to `max`; maps to `output_config.effort` |
+| `AIGM_WORLD_DUMP`      | `true`              | Write a readable JSON dump of each session's world to `{save_dir}/worlds/` for debugging |
+| `AIGM_WORLD_CURATOR`   | `true`              | Run the background world curator (model-driven; scripted in `--test` mode) |
+| `AIGM_WORLD_MODEL`     | `claude-haiku-5-5`  | Model for curator extraction, reconciliation and the independence check |
+| `AIGM_WORLD_EXPAND_MODEL` | `claude-sonnet-5-5` | Model for generating new parts of the world |
+| `AIGM_WORLD_EFFORT` / `AIGM_WORLD_EXPAND_EFFORT` | `low` / `medium` | Thinking effort for those two groups |
+| `AIGM_WORLD_EVERY_PAGES` | `3`             | Run a world-curator pass after this many pages of unprocessed GM narration |
+| `AIGM_WORLD_PAGE_CHARS` | `1800`           | Characters in a "page" of narration, as the server counts it |
+| `AIGM_WORLD_BRIEFING_TOKENS` | `2000`          | Rough size of the world notes shown to the GM with each request |
 | `AIGM_PROMPT_DIR`      | (none)                | Directory overriding/extending the packaged prompt files |
 | `AIGM_SAVE_DIR`        | `./saves`             | Snapshot directory                   |
 | `AIGM_CORS_ORIGINS`    | `http://localhost:*`  | Allowed front-end origins            |
@@ -109,9 +118,12 @@ A saved history is a "named history", like a saved game file. `HistoryRepository
 
 - Snapshot file: `{AIGM_SAVE_DIR}/{name}.json`:
   ```json
-  { "version": 2, "name": "...", "saved_at": "...", "model": "...", "phase": "session_zero", "campaign": null, "messages": [...] }
+  { "version": 3, "name": "...", "saved_at": "...", "model": "...", "phase": "adventure", "campaign": {...}, "world": {...}, "messages": [...] }
   ```
-  Version 1 files (messages only, from before game state) still load, as `adventure` with no campaign record. Restore also validates the state (known phase, `campaign` an object or null, none in `session_zero`).
+  Files are written pretty-printed (`indent=2`), never on one line. Version 1 files (messages only) load as `adventure` with no campaign record; version 2 files (no `world`) load with an empty world. Restore also validates the state (known phase, `campaign` an object or null, none in `session_zero`) and the world (ids unique, every reference resolves, parent chains end, names unique, `next_id` above every id, supersession consistent). A `session_zero` save must have an empty world. Content caps are not re-checked on load, so a save still loads if the caps are tightened later.
+
+- `aigm/world/` also holds the curator pipeline: `curator.py` (the `Curator` interface and its request/answer types), `passes.py` (one pass, the frontier, the precedence and connectivity rules, narration measuring), `ops.py` (replayable changes), `service.py` (background scheduling), `scripted.py` (the deterministic test-mode curator), `anthropic_curator.py` (the model-backed curator: schemas, calls, defensive parsing), `render.py` (request to prompt text), `independence.py` (fact-text rules), `sample.py` (prints a grown world), `dump.py` (the readable world dump and its command-line helper; the server rewrites `{save_dir}/worlds/{session}.world.json` after each turn that changed the world). Curator prompts are in `prompts/world/`.
+- The world model lives in `aigm/world/` (`model.py`: `World`, `Entity`, `Fact`, `WorldTime`, `Scene`, with the indexes and validation; `text.py`: name normalization and tokenizing). It is pure data with no I/O. See [WORLD.md](WORLD.md).
 - Write atomically (temp file + `os.replace`). Names are validated by regex, which also prevents path traversal.
 - Restore validates `version` and message structure (role in {user, assistant}, content is list of blocks, and tool_use/tool_result pairing is intact) and raises a typed error mapped to `422`.
 - `list()` and `info()` must not need to parse huge message arrays unnecessarily in future; v0.1 just loads the JSON, but `message_count`, `saved_at`, and `model` live at the top level so a sidecar/index could be added later.
@@ -127,7 +139,7 @@ A saved history is a "named history", like a saved game file. `HistoryRepository
 
 `async def run_turn(session, user_text, llm, game, ...) -> AsyncIterator[SSEEvent]`
 
-`game` (`game.py`) supplies the system prompt and tool list for a given `GameState` and dispatches tool calls. The loop works on a staged copy of the state, and asks `game` for the system prompt and tools on **every** request, so a tool that changes the phase (`begin_adventure`) takes effect for the very next request in the same turn: the model that called it continues, now seeing the adventure prompt, the campaign record and no `begin_adventure` tool. When the phase changes during tool handling, the loop replaces the staged history with `game.history_after_begin(state)` (a system note, one GM entry holding the campaign record, a begin cue) instead of appending the tool result, so the adventure's first request never sees Session 0. Messages and state are committed together on success; on failure both are discarded. `phase_change` is yielded at commit time, just before `message_end`, so it is never announced for a turn that is then rolled back.
+`game` (`game.py`) supplies the system prompt and tool list for a given `GameState` and dispatches tool calls. The loop works on a staged copy of the state, and asks `game` for the system prompt and tools on **every** request, so a tool that changes the phase (`begin_adventure`) takes effect for the very next request in the same turn: the model that called it continues, now seeing the adventure prompt, the campaign record and no `begin_adventure` tool. When the phase changes during tool handling, the loop replaces the staged history with `game.history_after_begin(state)` (a system note, one GM entry holding the campaign record, a begin cue) instead of appending the tool result, so the adventure's first request never sees Session 0. Messages and state are committed together on success; on failure both are discarded. When the phase changed and a curator is configured, the loop then builds the world before the next request: `_seed_world` runs `curator.seed(...)` (a bootstrap pass, WORLD.md 4.6) as a task, yields `status` events from its progress messages, applies the resulting ops to the working state, and yields a final `status` with `done: true`; a failure becomes a retryable `upstream_error` and rolls the whole turn back, and closing the stream cancels the work. `phase_change` is yielded at commit time, just before `message_end`, so it is never announced for a turn that is then rolled back.
 
 Algorithm:
 
@@ -161,9 +173,11 @@ Tool = (schema: dict, handler: Callable[[tool_use_id, dict, GameState], ToolOutc
 ToolOutcome = { content: str, is_error: bool, event: SSEEvent | None }
 ```
 
-`phases` says where a tool is offered (`roll_dice` everywhere; `begin_adventure` only in `session_zero`); dispatching a tool outside its phases is an unknown-tool error. A handler may change the `GameState` it is given (the turn's working copy).
+`phases` says where a tool is offered (`roll_dice` everywhere; `begin_adventure` only in `session_zero`; `recall`, `establish` and `set_scene` only in `adventure`); dispatching a tool outside its phases is an unknown-tool error. A handler may change the `GameState` it is given (the turn's working copy).
 
 The optional `event` lets a tool emit a custom front-end event (e.g. `dice_roll`) without the loop knowing tool specifics. The loop just yields `outcome.event` if present — adding future tools with custom events requires no loop change.
+
+**World tools** (`adventure` only; `tools/world.py`): `recall` reads the knowledge base, `establish` and `set_scene` change it, all on the turn's working copy of the state, so a failed turn records nothing. `establish` and `set_scene` build a copy of the world and swap it in only if every part is accepted. `GameState.turn` (not saved) is set by the loop to the number of player messages so far, and stamps the facts. Details in [WORLD.md](WORLD.md) section 6.
 
 **`begin_adventure`** (`session_zero` only): the model must put its whole summary of Session 0 into the arguments, because everything else is discarded on success. The handler therefore validates sufficiency, collecting *all* problems into one error result so the model can fix them in a single retry: `confirmed is true`; `setting` >= 300 chars; `opening` >= 100 chars; `level` 1-20; `party` 1-6 members, each a player character with a unique name and a `sheet` >= 150 chars (the party is the player's whole party: there is no main character and no GM-run party members; NPCs live in the setting); optional `gm_notes`; total <= 30,000 chars. Thresholds are constants at the top of `tools/begin_adventure.py`; they are only a floor against empty or hand-wavy summaries, not a quality check. On success it sets `phase = adventure` and stores the fields as `campaign`; the loop then rewrites the history (above). Nothing on the server verifies the player's confirmation beyond the `confirmed` flag; that rule lives in the Session 0 prompt.
 
@@ -184,9 +198,9 @@ All prompt text lives in Markdown files, never in Python. `aigm.prompts.PromptLi
 ```
 prompts/system/common/      01_role 02_rules 03_dice 04_formatting     # every phase
 prompts/system/session_zero/ 01_mode 02_party 03_scaling 04_wrapup      # Session 0 only
-prompts/system/adventure/    01_role 02_rules 03_style                  # Adventure only
+prompts/system/adventure/    01_role 02_rules 03_style 04_world          # Adventure only
 prompts/templates/           campaign_record.md party_member.md gm_notes.md session_zero_done.md begin_cue.md
-prompts/tools/               roll_dice.md begin_adventure.md            # one tool description per file
+prompts/tools/               roll_dice.md begin_adventure.md recall.md establish.md set_scene.md   # one tool description per file
 ```
 
 - A phase's system prompt is the `common` files followed by that phase's files, each in filename order. Session 0 therefore never carries combat or narration rules, and the adventure never carries party-building rules. Add a section by adding a file; its filename number decides where it lands. HTML comments are stripped, so files can carry authoring notes.
@@ -214,7 +228,7 @@ The tool loop does not talk to the Anthropic SDK directly. `llm/base.py` defines
 
 - `llm/scripted.py`: `ScriptedLLM`, used by `--test` mode (below).
 - `llm/anthropic_client.py`: `AnthropicLLM`, the real client. It calls `messages.stream()` on `AsyncAnthropic` and translates SDK events: a `thinking` content block becomes `ThinkingStarted` / `ThinkingChunk`s / `ThinkingStopped` (an omitted-thinking block yields start/stop with no chunks); `text_delta`s become `TextChunk`s; and the SDK's accumulated final message becomes `Completed`, with content stored verbatim (`model_dump`), so thinking blocks keep their signatures and tool_use blocks keep their parsed input.
-  - Requests send: `system` (the assembled prompt), the tool schemas, top-level `cache_control` (prompt caching of the growing prefix), `thinking={"type": "adaptive", "display": "summarized"}` unless `AIGM_THINKING_SUMMARIES=false`, and `output_config.effort` if `AIGM_EFFORT` is set. No sampling parameters and no forced `tool_choice` (both are rejected by current models). Default model: `claude-sonnet-5-5`.
+  - Requests send: `system` (the assembled prompt), the tool schemas, prompt caching of the growing prefix (a top-level `cache_control`, or, when the request carries world notes, an explicit breakpoint on the block before them, see WORLD.md 6.1), `thinking={"type": "adaptive", "display": "summarized"}` unless `AIGM_THINKING_SUMMARIES=false`, and `output_config.effort` if `AIGM_EFFORT` is set. No sampling parameters and no forced `tool_choice` (both are rejected by current models). Default model: `claude-sonnet-5-5`.
   - `stop_reason: "refusal"` becomes a non-retryable `LLMError`; SDK exceptions map to `LLMError` with `retryable` set for rate limits, connection failures and 5xx. Missing credentials give a clear "set ANTHROPIC_API_KEY" error. The SDK client is created lazily, so the server starts (and `/health` works) without a key.
   - The loop also rejects malformed completions before they reach history: an empty response, or a `tool_use` block with a stop reason other than `tool_use` (e.g. `max_tokens` mid tool call), both become retryable errors.
   - Not implemented (yet): server-side refusal `fallbacks` (a beta that changes the request path), `eager_input_streaming` for tool inputs (dice expressions are tiny), and the 1h cache TTL.

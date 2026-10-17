@@ -62,6 +62,9 @@ The server is running with `--test`: replies are scripted, not from a model. Try
 - `roll <expr>`: roll dice via the real `roll_dice` tool, e.g. `roll 4d6kh3+2 # strength`
 - `multiroll`: two dice rolls in one response
 - `begin`: end Session 0 and start the adventure (calls the real `begin_adventure` tool; a new game starts in Session 0)
+- `establish <name>`: record a new person in the world (adventure only; calls the real `establish` tool)
+- `recall <name>`: look a name up in the world (adventure only; calls `recall`)
+- `scene <place> [hours]`: set the scene and pass time (adventure only; calls `set_scene`)
 - `badroll [expr]`: a malformed roll (shows the tool-error path)
 - `markdown`: a sampler of every markup form below
 - `bold`, `italic`, `strike`, `code`, `codeblock`, `list`, `numbered`, `heading`, `quote`, `table`, `link`
@@ -128,11 +131,45 @@ TEST_CAMPAIGN = {
             "sheet": "Human fighter, Soldier background, level 1. STR 16, DEX 13, CON 14, INT 10, WIS 12, CHA 8. HP 12, AC 16 (chain mail, shield). Longsword, handaxes, Second Wind. Blunt, loyal, hates wizards.",
         }
     ],
-    "gm_notes": "The innkeeper is a spy.",
+    "gm_notes": (
+        "The innkeeper is a spy. [[at: Rusty Flagon:location]] [[present: Innkeeper:npc]] [[hour: 18]] "
+        "[[hidden: Innkeeper | The innkeeper of the Rusty Flagon reports every guest to the baron.]]"
+    ),
 }
 
 
 OPENING_SCENE = "## The adventure begins\n\nYou stand in the common room of the **Rusty Flagon**. Rain drums on the roof. What do you do?"
+
+
+def _establish_plan(name: str) -> list[Step]:
+    name = name or "Wren"
+    return [
+        Say(f"A figure steps forward: {name}. "),
+        UseTool(
+            "establish",
+            {
+                "entities": [{"name": name, "kind": "npc"}],
+                "facts": [{"text": f"{name} tends the bar at the Rusty Flagon inn.", "about": [name]}],
+            },
+        ),
+    ]
+
+
+def _scene_plan(arg: str) -> list[Step]:
+    place, _, hours = arg.rpartition(" ")
+    if not hours.isdigit():
+        place, hours = arg, ""
+    payload: dict[str, Any] = {"location": place.strip() or arg}
+    if hours:
+        payload["elapsed_hours"] = int(hours)
+    return [Say("You move on. "), UseTool("set_scene", payload)]
+
+
+WORLD_COMMANDS: dict[str, Callable[[str], list[Step]]] = {
+    "establish": _establish_plan,
+    "recall": lambda arg: [Say("Let me think... "), UseTool("recall", {"about": arg or "Wren"})],
+    "scene": _scene_plan,
+}
 
 
 def plan_for(text: str, tools: tuple[str, ...] = ()) -> list[Step]:
@@ -144,6 +181,8 @@ def plan_for(text: str, tools: tuple[str, ...] = ()) -> list[Step]:
         if "begin_adventure" not in tools:
             return [Say("The adventure has already begun; there is no way back to Session 0.")]
         return [Say("Then let us begin! "), UseTool("begin_adventure", dict(TEST_CAMPAIGN))]
+    if cmd in WORLD_COMMANDS and "recall" in tools:
+        return WORLD_COMMANDS[cmd](arg)
     if cmd == "echo":
         return [Say(arg or "Echo what?")]
     if cmd == "roll":
@@ -182,7 +221,11 @@ def plan_for(text: str, tools: tuple[str, ...] = ()) -> list[Step]:
 
 def _user_text(message: dict[str, Any]) -> str | None:
     blocks = message.get("content", [])
-    texts = [b.get("text", "") for b in blocks if b.get("type") == "text"]
+    texts = [
+        b.get("text", "")
+        for b in blocks
+        if b.get("type") == "text" and not b.get("text", "").startswith("<world_notes>")
+    ]
     return "\n".join(texts) if texts else None
 
 
@@ -209,6 +252,9 @@ def narrate_tool_results(messages: list[dict[str, Any]]) -> list[Step]:
         name, tool_input = uses.get(b.get("tool_use_id"), ("", {}))
         if name == "begin_adventure":  # on success the history is replaced, so only errors get here
             lines.append(f"- The adventure could not begin: {b.get('content')}")
+            continue
+        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene"):
+            lines.append(f"- `{name}`{' (error)' if b.get('is_error') else ''}:\n\n```\n{b.get('content')}\n```")
             continue
         expr = tool_input.get("expression", "?")
         if b.get("is_error"):

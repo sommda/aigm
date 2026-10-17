@@ -38,6 +38,10 @@ def to_llm_error(exc: Exception) -> LLMError:
     return LLMError(f"Anthropic request failed: {exc}", retryable=False)
 
 
+def _has_cache_breakpoint(messages: list[dict[str, Any]]) -> bool:
+    return any(isinstance(b, dict) and "cache_control" in b for m in messages for b in m.get("content", []))
+
+
 class AnthropicLLM:
     def __init__(
         self,
@@ -71,10 +75,12 @@ class AnthropicLLM:
             "system": system,
             "messages": messages,
             "tools": tools,
-            # Cache everything up to the end of the conversation so far: the system prompt,
-            # tools and history are a stable prefix that grows each turn.
-            "cache_control": {"type": "ephemeral"},
         }
+        if not _has_cache_breakpoint(messages):
+            # Cache everything up to the end of the conversation so far: the system prompt,
+            # tools and history are a stable prefix that grows each turn. (When the request
+            # carries its own breakpoint, before the per-turn world notes, that one is used.)
+            params["cache_control"] = {"type": "ephemeral"}
         if self.thinking_summaries:
             params["thinking"] = {"type": "adaptive", "display": "summarized"}
         if self.effort:

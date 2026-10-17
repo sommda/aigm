@@ -4,7 +4,7 @@ An AI-powered Game Master. A FastAPI backend streams a Claude-driven narrative (
 
 | Directory | What | Docs |
 |---|---|---|
-| `server/` | FastAPI backend (own uv project) | [docs/API.md](docs/API.md), [docs/BACKEND.md](docs/BACKEND.md) |
+| `server/` | FastAPI backend (own uv project) | [docs/API.md](docs/API.md), [docs/BACKEND.md](docs/BACKEND.md), [docs/WORLD.md](docs/WORLD.md) (the persistent world: design and how it works) |
 | `client/` | Textual terminal client (own uv project) | [docs/CLIENT.md](docs/CLIENT.md) |
 
 The two projects have separate dependencies, virtualenvs, and lockfiles; they communicate only over HTTP.
@@ -25,6 +25,11 @@ cp server/.env.example server/.env   # then edit it
 | `AIGM_THINKING_SUMMARIES` | `true` | Ask the model for adaptive thinking with readable summaries. Set `false` for models without adaptive thinking (e.g. Haiku 4.5) |
 | `AIGM_EFFORT` | (model default) | Thinking depth: `low`, `medium`, `high`, `xhigh`, `max` |
 | `AIGM_STREAM_THINKING` | `true` | Forward reasoning text to the client |
+| `AIGM_WORLD_MODEL` / `AIGM_WORLD_EXPAND_MODEL` | `claude-haiku-5-5` / `claude-sonnet-5-5` | Models for the background world curator: cheap for bookkeeping, stronger for inventing the world (`AIGM_WORLD_CURATOR=false` turns it off) |
+| `AIGM_WORLD_DUMP` | `true` | Write a readable JSON dump of each session's world to `{AIGM_SAVE_DIR}/worlds/` (inspect a saved game with `uv run python -m aigm.world.dump NAME`) |
+| `AIGM_WORLD_EVERY_PAGES` | `3` | World curator pass after this many pages of GM narration (see [docs/WORLD.md](docs/WORLD.md)) |
+| `AIGM_WORLD_PAGE_CHARS` | `1800` | Characters in a "page" of narration, as the server counts it |
+| `AIGM_WORLD_BRIEFING_TOKENS` | `2000` | Rough size of the world notes shown to the GM with each request (see [docs/WORLD.md](docs/WORLD.md)) |
 | `AIGM_PROMPT_DIR` | (none) | Directory of prompt files that override or extend the packaged ones (see Prompts) |
 
 Or inline: `ANTHROPIC_API_KEY=sk-ant-... AIGM_MODEL=claude-opus-5-5 uv run uvicorn aigm.app:app`. The active model is shown by `GET /health`. The full list of settings is in [docs/BACKEND.md](docs/BACKEND.md).
@@ -39,6 +44,7 @@ server/src/aigm/prompts/
   system/session_zero/  # Session 0: building the setting and party
   system/adventure/     # the game proper
   templates/            # the campaign record shown to the model in the adventure
+  world/                # prompts and aspect checklists for the background world curator
   tools/                # one tool description per file
 ```
 
