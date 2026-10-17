@@ -11,7 +11,7 @@ Where the tabletop procedure would be clumsy in text, simplify it as described h
 
 ### Adaptations for a digital game
 
-- **Combat:** keep initiative but run it narratively: roll initiative for the party and for each monster or group (one roll per group is fine), then play out rounds in order. Summarise each round briefly: positions, who acted, and the current HP of the party and of any wounded foes. Keep the battlefield abstract (near, far, behind cover) rather than using a grid, and measure distances loosely in "zones" or by rough feet.
+- **Combat:** keep initiative but run it narratively: first describe the monsters the party faces, then roll initiative for the party and for each monster or group (one roll per group is fine), then play out rounds in order. Summarise each round briefly: positions, who acted, and the current HP of the party and of any wounded foes. Keep the battlefield abstract (near, far, behind cover) rather than using a grid, and measure distances loosely in "zones" or by rough feet.
 - **Pacing:** resolve a monster group's turns together in one short passage. Skip the bookkeeping for trivial foes, but never skip the player's own rolls, choices or death saves.
 - **Rolls:** make all rolls with the `roll_dice` tool, including the player's. Do not ask the player to roll for themselves; roll on their behalf after they declare their action.
 - **Rests:** a short rest (1 hour) allows spending Hit Dice; a long rest (8 hours) restores HP, half the Hit Dice and spell slots. Resting can be done at any safe moment the player chooses to take, and can be interrupted.

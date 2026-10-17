@@ -69,6 +69,7 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 | `AIGM_MAX_TOKENS`      | `16000`               | Per-response output cap (includes thinking)  |
 | `AIGM_MAX_TOOL_ITERS`  | `8`                   | Tool-loop safety limit per turn      |
 | `AIGM_STREAM_THINKING` | `true`               | Forward reasoning text as `thinking` `delta` events; `false` sends only `start`/`end` |
+| `AIGM_ROLL_PAUSE`      | `0.8`                | Seconds to wait before each `dice_roll` event is sent, after the narration that precedes it (`0` disables) |
 | `AIGM_THINKING_SUMMARIES` | `true`            | Request adaptive thinking with summaries (`false` for models without adaptive thinking) |
 | `AIGM_EFFORT`          | (model default)       | `low` to `max`; maps to `output_config.effort` |
 | `AIGM_WORLD_DUMP`      | `true`              | Write a readable JSON dump of each session's world to `{save_dir}/worlds/` for debugging |

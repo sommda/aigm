@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     max_tokens: int = Field(default=16000, validation_alias="AIGM_MAX_TOKENS")
     max_tool_iters: int = Field(default=8, validation_alias="AIGM_MAX_TOOL_ITERS")
     stream_thinking: bool = Field(default=True, validation_alias="AIGM_STREAM_THINKING")
+    # Seconds to wait before each dice roll is shown, so the narration leading up to it can be read.
+    roll_pause: float = Field(default=0.8, ge=0, validation_alias="AIGM_ROLL_PAUSE")
     # Request readable thinking summaries (adaptive thinking). Set false for models that do not
     # support adaptive thinking; the model then uses its own default.
     thinking_summaries: bool = Field(default=True, validation_alias="AIGM_THINKING_SUMMARIES")

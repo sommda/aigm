@@ -6,6 +6,7 @@ from aigm.config import Settings
 from aigm.app import create_app
 from aigm.llm.loop import run_turn
 from aigm.llm.scripted import SAMPLES, ScriptedLLM, long_text, markdown_sampler
+from aigm.session.state import Phase
 from aigm.session.store import Session
 from aigm.game import Game
 from fastapi.testclient import TestClient
@@ -200,3 +201,17 @@ async def test_cancel_during_sleep_propagates():
     with pytest.raises(asyncio.CancelledError):
         await task
     assert session.messages == []
+
+
+async def test_roll_pause_comes_between_the_narration_and_the_dice():
+    session = Session("s")
+    session.state.phase = Phase.ADVENTURE
+    stamps = []
+    loop = asyncio.get_running_loop()
+    async for ev in run_turn(
+        session=session, user_text="roll 1d20", llm=ScriptedLLM(delay=0), game=Game(), max_iters=4, roll_pause=0.2,
+    ):
+        stamps.append((ev.event, loop.time()))
+    order = [n for n, _ in stamps]
+    call, dice = order.index("tool_call"), order.index("dice_roll")
+    assert stamps[dice][1] - stamps[call][1] >= 0.19

@@ -18,6 +18,7 @@ from aigm.llm.base import (
 )
 from aigm.game import Game
 from aigm.models import (
+    DiceRoll,
     ErrorEvent,
     MessageEnd,
     MessageStart,
@@ -78,6 +79,7 @@ async def run_turn(
     max_iters: int,
     stream_thinking: bool = True,
     curator: CuratorService | None = None,
+    roll_pause: float = 0.0,
 ) -> AsyncIterator[SSEEvent]:
     """Run one user turn, yielding SSE events.
 
@@ -150,6 +152,8 @@ async def run_turn(
                 yield ToolCall(tool_use_id=block["id"], name=block["name"], input=tool_input)
                 outcome = game.dispatch(state, block["name"], block["id"], tool_input)
                 if outcome.event is not None:
+                    if roll_pause > 0 and isinstance(outcome.event, DiceRoll):
+                        await asyncio.sleep(roll_pause)  # let the narration sink in before the dice land
                     yield outcome.event
                 results.append(
                     {

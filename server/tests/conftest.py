@@ -9,7 +9,7 @@ from aigm.config import Settings
 
 @pytest.fixture
 def settings(tmp_path):
-    return Settings(test_mode=True, test_delay=0, save_dir=tmp_path / "saves", _env_file=None)
+    return Settings(test_mode=True, test_delay=0, roll_pause=0, save_dir=tmp_path / "saves", _env_file=None)
 
 
 @pytest.fixture

@@ -25,6 +25,7 @@ cp server/.env.example server/.env   # then edit it
 | `AIGM_THINKING_SUMMARIES` | `true` | Ask the model for adaptive thinking with readable summaries. Set `false` for models without adaptive thinking (e.g. Haiku 4.5) |
 | `AIGM_EFFORT` | (model default) | Thinking depth: `low`, `medium`, `high`, `xhigh`, `max` |
 | `AIGM_STREAM_THINKING` | `true` | Forward reasoning text to the client |
+| `AIGM_ROLL_PAUSE` | `0.8` | Seconds to pause before each dice roll is shown, so the narration leading up to it can be read (`0` disables) |
 | `AIGM_WORLD_MODEL` / `AIGM_WORLD_EXPAND_MODEL` | `claude-haiku-5-5` / `claude-sonnet-5-5` | Models for the background world curator: cheap for bookkeeping, stronger for inventing the world (`AIGM_WORLD_CURATOR=false` turns it off) |
 | `AIGM_WORLD_DUMP` | `true` | Write a readable JSON dump of each session's world to `{AIGM_SAVE_DIR}/worlds/` (inspect a saved game with `uv run python -m aigm.world.dump NAME`) |
 | `AIGM_WORLD_EVERY_PAGES` | `3` | World curator pass after this many pages of GM narration (see [docs/WORLD.md](docs/WORLD.md)) |

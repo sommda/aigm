@@ -43,6 +43,7 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
                 max_iters=settings.max_tool_iters,
                 stream_thinking=settings.stream_thinking,
                 curator=app.state.curator,
+                roll_pause=settings.roll_pause,
             ):
                 yield encode(event)
         finally:
