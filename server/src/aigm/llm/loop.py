@@ -37,7 +37,7 @@ from aigm.world.service import CuratorService
 log = logging.getLogger(__name__)
 
 
-def _turn_number(messages: list[dict[str, Any]]) -> int:
+def turn_number(messages: list[dict[str, Any]]) -> int:
     """How many player messages the history holds: the number of the turn in progress."""
     return sum(1 for m in messages if m["role"] == "user" and any(b.get("type") == "text" for b in m["content"]))
 
@@ -92,7 +92,7 @@ async def run_turn(
     session.drain_pending(in_turn=True)  # curator results land before the turn takes its working copy
     staged = [*session.messages, {"role": "user", "content": [{"type": "text", "text": user_text}]}]
     state = session.state.copy()
-    state.turn = _turn_number(staged)
+    state.turn = turn_number(staged)
     shown_corrections = list(state.world.corrections)  # the GM sees these in this turn's notes
     usage = {"input_tokens": 0, "output_tokens": 0}
     yield MessageStart(message_id=message_id, session_id=session.id, phase=state.phase.value)
@@ -100,11 +100,8 @@ async def run_turn(
         for _ in range(max_iters):
             completed: Completed | None = None
             think_started: float | None = None
-            async for ev in llm.stream(
-                system=game.system(state),
-                messages=game.request_messages(state, staged, user_text),
-                tools=game.tools(state),
-            ):
+            request = game.describe(state, staged, user_text)
+            async for ev in llm.stream(system=request.system, messages=request.messages, tools=request.tools):
                 if isinstance(ev, ThinkingStarted):
                     think_started = time.monotonic()
                     yield Thinking(status="start")
@@ -166,7 +163,7 @@ async def run_turn(
             if state.phase != phase_before:
                 # Session 0 just ended: its history is replaced by the campaign record
                 staged = game.history_after_begin(state)
-                state.turn = _turn_number(staged)
+                state.turn = turn_number(staged)
                 if curator is not None:
                     seeding = _seed_world(state, staged, curator)
                     try:

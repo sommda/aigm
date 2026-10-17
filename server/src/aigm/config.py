@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     prompt_dir: Path | None = Field(default=None, validation_alias="AIGM_PROMPT_DIR")
     save_dir: Path = Field(default=Path("./saves"), validation_alias="AIGM_SAVE_DIR")
     test_mode: bool = Field(default=False, validation_alias="AIGM_TEST_MODE")
+    # Debug mode: expose GET /debug/context, which shows the GM's private notes (start with `aigm --debug`).
+    debug: bool = Field(default=False, validation_alias="AIGM_DEBUG")
     test_delay: float = Field(default=0.02, validation_alias="AIGM_TEST_DELAY")
     test_chunk_size: int = Field(default=4, validation_alias="AIGM_TEST_CHUNK_SIZE")
     cors_origins: list[str] = Field(

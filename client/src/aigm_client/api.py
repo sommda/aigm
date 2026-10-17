@@ -71,6 +71,10 @@ class ApiClient:
     async def health(self) -> dict[str, Any]:
         return await self._request("GET", "/health")
 
+    async def context(self, draft: str = "") -> dict[str, Any]:
+        """The model's next request as a tree (debug servers only; anything else answers 404)."""
+        return await self._request("GET", "/debug/context", params={**self._session(), "draft": draft})
+
     async def chat_state(self) -> dict[str, Any]:
         """The live session: `messages`, plus `phase` and `campaign` on servers that have them."""
         return await self._request("GET", "/chat/history", params=self._session())

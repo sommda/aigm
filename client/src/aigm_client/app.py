@@ -9,6 +9,7 @@ from textual.worker import Worker
 from aigm_client.api import ApiClient, ApiError
 from aigm_client.blocks import MarkdownBlock, UserBlock
 from aigm_client.commands import Command, parse_command
+from aigm_client.context_screen import ContextScreen
 from aigm_client.dialogs import ConfirmDialog, LoadDialog, NewGameDialog, SaveDialog, suggest_name
 from aigm_client.session import ChatSession, intro_text
 from aigm_client.transcript import Transcript
@@ -26,6 +27,7 @@ HELP = """Commands:
   /quit                 quit
 Keys: Space/Enter = next page, PageUp/PageDown/arrows/wheel = scroll back,
       End = back to the current page, Esc = cancel the current turn, Ctrl+T = show/hide reasoning."""
+DEBUG_HELP = "\nDebug server: /context (Ctrl+K) shows exactly what the model will be sent for your next message."
 
 
 class AigmApp(App):
@@ -47,11 +49,15 @@ class AigmApp(App):
         Binding("ctrl+o,f3", "load", "Load"),
         Binding("ctrl+n,f4", "new_game", "New game"),
         Binding("ctrl+t", "toggle_reasoning", "Reasoning"),
+        # priority: the prompt's own Ctrl+K (delete to end of line) must not take it
+        Binding("ctrl+k", "context", "Context", priority=True),
     ]
 
     def __init__(self, api: ApiClient, ascii_only: bool = False) -> None:
         super().__init__()
         self.api = api
+        self.ascii_only = ascii_only
+        self.debug_server = False  # set from /health: the server offers the context view
         self.transcript = Transcript(ascii_only=ascii_only)
         self.session = ChatSession(self.transcript)
         self.connected: bool | None = None
@@ -82,13 +88,15 @@ class AigmApp(App):
     async def _startup(self) -> None:
         s = self.session
         try:
-            await self.api.health()
+            health = await self.api.health()
             state = await self.api.chat_state()
         except ApiError as e:
             self.connected = False
             s.add_system(f"{e.message}\nStart the server, then type /reconnect.", "red")
             return
         self.connected = True
+        self.debug_server = health.get("debug") is True
+        self.refresh_bindings()
         messages = state["messages"]
         s.load_history(messages, state.get("phase", ""))
         s.dirty = bool(messages)
@@ -137,7 +145,8 @@ class AigmApp(App):
         game = (s.game_name or "unsaved") + ("*" if s.dirty and s.game_name else "")
         conn = {True: "● connected", False: "○ offline", None: "… connecting"}[self.connected]
         mode = f"   mode: {s.phase_label}" if s.phase_label else ""
-        self.query_one("#status", Static).update(f"{left}{mode}   game: {game}   {conn}")
+        debug = "   DEBUG" if self.debug_server else ""
+        self.query_one("#status", Static).update(f"{left}{mode}   game: {game}   {conn}{debug}")
 
     def _sync_input(self) -> None:
         prompt = self.query_one("#prompt", Input)
@@ -216,6 +225,27 @@ class AigmApp(App):
             "Reasoning is now " + ("shown." if self.transcript.show_reasoning else "hidden.")
         )
         self._kick()
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "context" and not self.debug_server:
+            return False  # not bound and not shown in the footer unless the server is in debug mode
+        return True
+
+    def action_context(self) -> None:
+        if isinstance(self.screen, ContextScreen):
+            self.screen.dismiss(None)
+        else:
+            self.run_worker(self._context_flow(), group="flow")
+
+    async def _context_flow(self) -> None:
+        if not self.debug_server:
+            self.session.add_system("The server is not in debug mode (start it with --debug).", "yellow")
+            self._kick()
+            return
+        if self._modal():
+            return
+        prompt = self.query_one("#prompt", Input)
+        await self.push_screen_wait(ContextScreen(self.api, lambda: decode_prompt(prompt.value), self.ascii_only))
 
     def action_cancel_turn(self) -> None:
         if self._turn is not None and self.session.busy:
@@ -351,7 +381,9 @@ class AigmApp(App):
         s = self.session
         match cmd.name:
             case "help":
-                s.add_system(HELP)
+                s.add_system(HELP + (DEBUG_HELP if self.debug_server else ""))
+            case "context":
+                await self._context_flow()
             case "quit":
                 self.exit()
             case "reconnect":

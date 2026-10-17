@@ -18,6 +18,50 @@ def sse(event: str, data: dict) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode()
 
 
+def sample_context() -> dict:
+    """A small context tree in the shape of GET /debug/context (docs/API.md)."""
+    msg = lambda i, kind, title, blocks: {  # noqa: E731
+        "id": f"history/{i}", "kind": kind, "title": title, "tokens": sum(b["tokens"] for b in blocks), "children": blocks,
+    }
+    block = lambda i, j, kind, title, text: {  # noqa: E731
+        "id": f"history/{i}/{j}", "kind": kind, "title": title, "tokens": len(text) // 4 + 1, "text": text,
+    }
+    history = [
+        msg(0, "assistant", "Turn 1 · GM: You stand before the mine.", [
+            block(0, 0, "assistant", "You stand before the mine.", "You stand before the mine.\nIt is cold."),
+        ]),
+        msg(1, "user", "Turn 1 · Player: I roll to search.", [
+            block(1, 0, "user", "I roll to search.", "I roll to search."),
+        ]),
+        msg(2, "assistant", "Turn 2 · GM: (rolls the dice)", [
+            block(2, 0, "thinking", "Thinking", "Needs a check."),
+            block(2, 1, "tool_use", "Tool call: roll_dice", 'roll_dice\n{"expression": "1d20+2"}'),
+        ]),
+    ]
+    return {
+        "session_id": "default", "phase": "adventure", "model": "fake", "turn": 2, "estimated_tokens": 321,
+        "sections": [
+            {"id": "system", "kind": "system", "title": "System prompt", "tokens": 20, "children": [
+                {"id": "prompt/system/common/01_role.md", "kind": "prompt", "title": "system/common/01_role.md",
+                 "tokens": 20, "text": "You are the game master.\nBe vivid."},
+            ]},
+            {"id": "tools", "kind": "tools", "title": "Tools (1)", "tokens": 30, "children": [
+                {"id": "tools/roll_dice", "kind": "tools", "title": "roll_dice", "tokens": 30, "text": "Roll dice."},
+            ]},
+            {"id": "history", "kind": "history", "title": "History (3 messages)",
+             "tokens": sum(m["tokens"] for m in history), "children": history},
+            {"id": "next", "kind": "user", "title": "Next user message (turn 2)", "tokens": 50, "children": [
+                {"id": "input", "kind": "input", "title": "Your next message", "tokens": 8,
+                 "text": "«your next message goes here»", "cache_breakpoint": True},
+                {"id": "briefing", "kind": "briefing", "title": "World notes (briefing)", "tokens": 42,
+                 "note": "Computed for the text typed so far, not the final message.", "children": [
+                    {"id": "briefing/0", "kind": "briefing", "title": "Clock", "tokens": 5, "text": "Time: day 1, 08:00"},
+                 ]},
+            ]},
+        ],
+    }
+
+
 class FakeServer:
     def __init__(self, reply_events: list[tuple[str, dict]] | None = None) -> None:
         self.reply_events = reply_events or [
@@ -30,6 +74,8 @@ class FakeServer:
         self.calls: list[tuple[str, str, dict]] = []
         self.split_chunks = False
         self.phase = ""  # "" = an older server that does not report the phase
+        self.debug: bool | None = None  # None = an older server whose /health has no debug field
+        self.context = sample_context()
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -46,7 +92,10 @@ class FakeServer:
         body = json.loads(req.content) if req.content else {}
         self.calls.append((method, path, {**params, **body}))
         if path == "/health":
-            return self._json(200, {"status": "ok", "model": "fake"})
+            extra = {} if self.debug is None else {"debug": self.debug}
+            return self._json(200, {"status": "ok", "model": "fake", **extra})
+        if path == "/debug/context" and self.debug:
+            return self._json(200, self.context)
         if path == "/chat/history":
             body = {"session_id": "default", "messages": self.messages}
             if self.phase:

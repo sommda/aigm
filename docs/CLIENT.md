@@ -1,19 +1,25 @@
 # AIGM Client Design
 
-A simple terminal client for the AI Game Master backend (v0.1), written in Python. It speaks the API in [API.md](API.md) and is meant to feel like playing a text adventure: the story streams in as nicely formatted text, fills a page, and waits for you to turn the page.
+A simple terminal client for the AI Game Master backend (v0.1), written in Python. It speaks the API in [API.md](API.md)
+and is meant to feel like playing a text adventure: the story streams in as nicely formatted text, fills a page, and
+waits for you to turn the page.
 
 No code yet; this document defines scope, structure, and the tricky parts (streaming markdown, paging).
 
 ## Goals / Non-goals
 
 **Goals (v0.1)**
-1. Stream the GM's markdown reply to the screen **with correct formatting even while constructs are only partly received** (e.g. `**bol` ... `d**`, an unfinished code fence).
+1. Stream the GM's markdown reply to the screen **with correct formatting even while constructs are only partly
+   received** (e.g. `**bol` ... `d**`, an unfinished code fence).
 2. **Scrollback** through earlier chat.
-3. **Paging**: when new text fills the visible page, stop and wait for a key press or click before showing more, while still receiving and buffering the stream.
+3. **Paging**: when new text fills the visible page, stop and wait for a key press or click before showing more, while
+   still receiving and buffering the stream.
 4. Render the custom events (`dice_roll`, `thinking`) sensibly.
-5. **Menu-driven save, load, and new game** from the UI (keyboard shortcuts, clickable footer, and dialogs), with slash-command equivalents.
+5. **Menu-driven save, load, and new game** from the UI (keyboard shortcuts, clickable footer, and dialogs), with
+   slash-command equivalents.
 
-**Non-goals (later)**: themes, inline images/maps, multiple panes, character sheets, voice, auto-reconnect/stream resume (the server doesn't support it), mouse text selection niceties beyond what the terminal gives, authentication.
+**Non-goals (later)**: themes, inline images/maps, multiple panes, character sheets, voice, auto-reconnect/stream resume
+(the server doesn't support it), mouse text selection niceties beyond what the terminal gives, authentication.
 
 ## Technology Choice
 
@@ -24,14 +30,18 @@ No code yet; this document defines scope, structure, and the tricky parts (strea
 | Web UI (TypeScript) | Best markdown ecosystem and a natural fit for SSE, but a second toolchain. Likely later; the API is already front-end-neutral. |
 | `prompt_toolkit` / plain Rich | Rich `Live` can't do scrollback or paging; prompt_toolkit would mean building more of the widget layer ourselves. |
 
-It is a terminal "thick client" in Python, as preferred. The client is its own uv project in `client/` (separate `pyproject.toml`, `.venv`, `uv.lock`), so it can pin its Python version independently of the server. Both currently use Python 3.13 (verified: Textual 8.2.8 installs and imports).
+It is a terminal "thick client" in Python, as preferred. The client is its own uv project in `client/` (separate
+`pyproject.toml`, `.venv`, `uv.lock`), so it can pin its Python version independently of the server. Both currently use
+Python 3.13 (verified: Textual 8.2.8 installs and imports).
 
 ### Dependencies
 
 Declared in `client/pyproject.toml`, entirely separate from the server's dependencies:
-`textual`, `rich` (comes with Textual), `httpx`. SSE parsing is hand-written (about 30 lines) rather than adding `httpx-sse`. Dev: `pytest`, `pytest-asyncio`, plus Textual's `Pilot` test driver.
+`textual`, `rich` (comes with Textual), `httpx`. SSE parsing is hand-written (about 30 lines) rather than adding
+`httpx-sse`. Dev: `pytest`, `pytest-asyncio`, plus Textual's `Pilot` test driver.
 
-Run (from `client/`): `uv run aigm-client` (or `uv run python -m aigm_client`). Config: `AIGM_URL` (default `http://127.0.0.1:8000`, where `uvicorn aigm.app:app` listens by default), `--session NAME` (default `default`).
+Run (from `client/`): `uv run aigm-client` (or `uv run python -m aigm_client`). Config: `AIGM_URL` (default
+`http://127.0.0.1:8000`, where `uvicorn aigm.app:app` listens by default), `--session NAME` (default `default`).
 
 ## Screen Layout
 
@@ -54,9 +64,13 @@ Run (from `client/`): `uv run aigm-client` (or `uv run python -m aigm_client`). 
 
 - **Transcript**: a custom `ScrollView` subclass that draws pre-rendered terminal lines (see "Pager").
 - **Pager bar**: one row, shown only while content is being held back.
-- **Status line**: spinner while thinking or streaming, the game mode (`Session 0` or `Adventure`, from the server's `phase`), the current game name (the name last saved or loaded; `*` suffix means unsaved changes), and connection state.
+- **Status line**: spinner while thinking or streaming, the game mode (`Session 0` or `Adventure`, from the server's
+  `phase`), the current game name (the name last saved or loaded; `*` suffix means unsaved changes), and connection
+  state.
 - **Footer**: key hints that double as clickable buttons for Save / Load / New game.
-- **Input**: single-line prompt. A multi-line paste is kept whole: each line break shows as a `⏎` marker in the prompt and is sent as a real newline. It is **hidden/disabled** while a page is held back or a turn is in flight (see Input Gating), so Space/Enter advance the page rather than type.
+- **Input**: single-line prompt. A multi-line paste is kept whole: each line break shows as a `⏎` marker in the prompt
+  and is sent as a real newline. It is **hidden/disabled** while a page is held back or a turn is in flight (see Input
+  Gating), so Space/Enter advance the page rather than type.
 
 ## Architecture
 
@@ -77,7 +91,8 @@ tests/client/
   test_sse.py  test_heal.py  test_transcript_pager.py  test_commands.py  test_dialogs_pilot.py  test_app_pilot.py
 ```
 
-Principle: everything with real logic (`sse`, `heal`, `blocks`, `transcript`, `commands`) is pure or UI-free so it can be unit tested without a terminal. `app.py` and `widgets.py` stay thin.
+Principle: everything with real logic (`sse`, `heal`, `blocks`, `transcript`, `commands`) is pure or UI-free so it can
+be unit tested without a terminal. `app.py` and `widgets.py` stay thin.
 
 ### Data flow
 
@@ -91,7 +106,8 @@ Principle: everything with real logic (`sse`, `heal`, `blocks`, `transcript`, `c
                                                   TranscriptView.render_line(y)
 ```
 
-The stream is consumed by a Textual worker (an async task), independent of the UI's key handling. **Receiving never stops**: events are always applied to the transcript's block model; the *pager* only limits how many lines are *shown*.
+The stream is consumed by a Textual worker (an async task), independent of the UI's key handling. **Receiving never
+stops**: events are always applied to the transcript's block model; the *pager* only limits how many lines are *shown*.
 
 ## Server Compatibility
 
@@ -117,7 +133,8 @@ The client implements exactly the contract in API.md.
 
 ### Save / Load / New game from the UI
 
-These three actions are first-class UI features, reachable three ways: **keyboard shortcuts**, **clicking the footer hints**, and **slash commands** (which open the same dialogs when arguments are omitted).
+These three actions are first-class UI features, reachable three ways: **keyboard shortcuts**, **clicking the footer
+hints**, and **slash commands** (which open the same dialogs when arguments are omitted).
 
 | Action | Shortcut | Alias | Slash command |
 |---|---|---|---|
@@ -125,13 +142,20 @@ These three actions are first-class UI features, reachable three ways: **keyboar
 | Load game | `Ctrl+O` | `F3` | `/load [NAME]` |
 | New game | `Ctrl+N` | `F4` | `/new` |
 
-The `F` keys exist because some terminals intercept `Ctrl+S` (XOFF flow control); Textual runs the terminal in raw mode so it should work, but this is to be verified on macOS Terminal/iTerm and common Linux terminals.
+The `F` keys exist because some terminals intercept `Ctrl+S` (XOFF flow control); Textual runs the terminal in raw mode
+so it should work, but this is to be verified on macOS Terminal/iTerm and common Linux terminals.
 
-**When available.** All three are available whenever no chat turn is in flight, *including while held text is waiting to be paged* (the user need not read everything first). While a turn is streaming they show a hint instead ("Wait for the GM to finish, or press Esc to cancel the turn"), because the server rejects save/restore/new with `409` during a turn.
+**When available.** All three are available whenever no chat turn is in flight, *including while held text is waiting to
+be paged* (the user need not read everything first). While a turn is streaming they show a hint instead ("Wait for the
+GM to finish, or press Esc to cancel the turn"), because the server rejects save/restore/new with `409` during a turn.
 
-**Unsaved-changes tracking.** The client keeps a `dirty` flag: set when a turn completes (`message_end`) or the user sends a message, cleared on a successful save, load, or new game. It drives the `*` in the status line and decides whether destructive actions need a warning. A freshly started client that repopulated history from the server starts `dirty = false` if the server's history is empty, otherwise `true` (it cannot know whether it was saved).
+**Unsaved-changes tracking.** The client keeps a `dirty` flag: set when a turn completes (`message_end`) or the user
+sends a message, cleared on a successful save, load, or new game. It drives the `*` in the status line and decides
+whether destructive actions need a warning. A freshly started client that repopulated history from the server starts
+`dirty = false` if the server's history is empty, otherwise `true` (it cannot know whether it was saved).
 
-All dialogs are Textual `ModalScreen`s: `Esc` cancels, `Tab`/click moves between controls, `Enter` activates the default button. Server errors appear inline in the dialog (red text) without closing it.
+All dialogs are Textual `ModalScreen`s: `Esc` cancels, `Tab`/click moves between controls, `Enter` activates the default
+button. Server errors appear inline in the dialog (red text) without closing it.
 
 #### Save dialog (`Ctrl+S`)
 
@@ -147,10 +171,15 @@ All dialogs are Textual `ModalScreen`s: `Esc` cancels, `Tab`/click moves between
 └───────────────────────────────────────────┘
 ```
 
-- Name field is prefilled with the current game name, or a suggested `game-YYYYMMDD-HHMM` for a game that was never saved. Names are validated client-side against the server's `[A-Za-z0-9_-]{1,64}` rule with an inline message.
+- Name field is prefilled with the current game name, or a suggested `game-YYYYMMDD-HHMM` for a game that was never
+  saved. Names are validated client-side against the server's `[A-Za-z0-9_-]{1,64}` rule with an inline message.
 - The existing-saves list comes from `GET /history`; selecting one copies its name into the field.
-- On Save the client calls `PUT /history/{name}/save` **without** `overwrite`. If the server answers `409 already_exists`, the dialog switches to an inline confirmation: *"'tavern-brawl' already exists. Overwrite?"* with `[ Overwrite ]` / `[ Back ]`; Overwrite repeats the call with `?overwrite=true`. (Relying on the server's answer rather than the listing avoids races.)
-- On success: dialog closes, `dirty = false`, current game name set, a dim system line "Saved as 'tavern-brawl' (14 messages)" is added to the transcript.
+- On Save the client calls `PUT /history/{name}/save` **without** `overwrite`. If the server answers
+  `409 already_exists`, the dialog switches to an inline confirmation: *"'tavern-brawl' already exists. Overwrite?"*
+  with `[ Overwrite ]` / `[ Back ]`; Overwrite repeats the call with `?overwrite=true`. (Relying on the server's answer
+  rather than the listing avoids races.)
+- On success: dialog closes, `dirty = false`, current game name set, a dim system line "Saved as 'tavern-brawl' (14
+  messages)" is added to the transcript.
 
 #### Load dialog (`Ctrl+O`)
 
@@ -166,10 +195,15 @@ All dialogs are Textual `ModalScreen`s: `Esc` cancels, `Tab`/click moves between
 └─────────────────────────────────────────────────────┘
 ```
 
-- List from `GET /history`; highlighting a row fetches `GET /history/{name}` (without messages) for the preview line, so nothing is loaded until confirmed.
-- The unsaved-changes warning is shown only when `dirty` is true. When it is, `Load` first asks a one-step confirmation (*"Discard current game and load 'tavern-brawl'?"* `[ Load anyway ]` `[ Back ]`).
-- `Load` calls `POST /history/{name}/restore`, then refetches `GET /chat/history` and rebuilds the transcript; the view opens on the last page of the restored conversation (scrollback available), input is shown, `dirty = false`, current game name set.
-- `Delete` asks for confirmation, calls `DELETE /history/{name}`, and refreshes the list. It never affects the live game.
+- List from `GET /history`; highlighting a row fetches `GET /history/{name}` (without messages) for the preview line, so
+  nothing is loaded until confirmed.
+- The unsaved-changes warning is shown only when `dirty` is true. When it is, `Load` first asks a one-step confirmation
+  (*"Discard current game and load 'tavern-brawl'?"* `[ Load anyway ]` `[ Back ]`).
+- `Load` calls `POST /history/{name}/restore`, then refetches `GET /chat/history` and rebuilds the transcript; the view
+  opens on the last page of the restored conversation (scrollback available), input is shown, `dirty = false`, current
+  game name set.
+- `Delete` asks for confirmation, calls `DELETE /history/{name}`, and refreshes the list. It never affects the live
+  game.
 - Empty list: "No saved games yet" with only `[ Cancel ]`.
 
 #### New game dialog (`Ctrl+N`)
@@ -183,13 +217,17 @@ All dialogs are Textual `ModalScreen`s: `Esc` cancels, `Tab`/click moves between
 └───────────────────────────────────────────┘
 ```
 
-- If `dirty` is false, the dialog is a simple confirmation (`[ Start new game ]` / `[ Cancel ]`); if the transcript is empty it skips the dialog entirely.
+- If `dirty` is false, the dialog is a simple confirmation (`[ Start new game ]` / `[ Cancel ]`); if the transcript is
+  empty it skips the dialog entirely.
 - `Save first...` opens the Save dialog and, on a successful save, continues straight to the new game.
-- `Discard` calls `POST /chat/new`, clears the transcript and held text, resets current game name to none, `dirty = false`, shows a system line "New game started.", and focuses the input.
+- `Discard` calls `POST /chat/new`, clears the transcript and held text, resets current game name to none,
+  `dirty = false`, shows a system line "New game started.", and focuses the input.
 
 #### Slash commands
 
-Typed at the prompt; anything not starting with `/` is sent as a chat message. The save/load/new commands open the dialogs above when the name is omitted, and run directly (still with the destructive-action confirmation when `dirty`) when it is given.
+Typed at the prompt; anything not starting with `/` is sent as a chat message. The save/load/new commands open the
+dialogs above when the name is omitted, and run directly (still with the destructive-action confirmation when `dirty`)
+when it is given.
 
 | Command | Calls | Notes |
 |---|---|---|
@@ -199,7 +237,40 @@ Typed at the prompt; anything not starting with `/` is sent as a chat message. T
 | `/saves` | `GET /history` | Prints the list of saved games into the transcript. |
 | `/info NAME` | `GET /history/{NAME}` | Prints metadata and last-message preview. |
 | `/delete NAME` | `DELETE /history/{NAME}` | Confirms first. |
+| `/context` | `GET /debug/context` | Debug servers only: opens the context viewer (same as `Ctrl+K`). See below. |
 | `/help`, `/quit` | local | |
+
+### Context viewer (debug servers only)
+
+Shows exactly what the model will be sent for the next message. The design is in [CONTEXT.md](CONTEXT.md); the
+server side is `GET /debug/context` in [API.md](API.md).
+
+- **Availability.** `/health` reports `debug`. The client reads it at startup (and on `/reconnect`). When it is not
+  `true` (or the field is missing, as on older servers) the viewer does not exist: `Ctrl+K` is unbound, so the prompt
+  keeps its own `Ctrl+K` (delete to end of line), the footer does not list it, and `/context` prints "The server is not
+  in debug mode (start it with --debug)" without calling the server. On a debug server the status line ends with
+  `DEBUG`, the footer lists `Ctrl+K Context`, and `/help` mentions `/context`. `Ctrl+K` has priority over the prompt
+  there.
+- **Screen.** A full-screen modal with a header (phase, model, turn, estimated tokens), a scrollable tree and a key
+  hint line. Each row is `▾ title  kind · ~N tok` in the node's color, with a bar in that color down the left of its
+  expanded text. Kinds: system and prompt files blue, tools cyan, briefing yellow, player green, GM magenta, thinking
+  dim magenta, tool calls and results orange, the input placeholder bold on white. Every row also names its kind, so
+  color is never the only signal. `--ascii` replaces the glyphs (`▌ ▸ ▾ ● ──`) with `| > v * --`.
+- **Defaults.** The four top-level groups (system prompt, tools, history, next message) are open, showing one row per
+  child. Prompt files, tools, history messages, thinking, tool calls and results and the briefing start closed. A
+  message's text blocks show as soon as the message is opened. The input placeholder is always visible and cannot be
+  closed; the prompt-cache breakpoint is drawn as a rule under it.
+- **Keys.** `Enter`/`Space` open or close the row under the cursor (a click also does), `↑` `↓` move, `PgUp`/`PgDn`
+  and `Home`/`End` jump, `e` opens everything, `c` goes back to the defaults, `r` fetches again, and `Esc`, `q` or
+  `Ctrl+K` close. Open and closed rows are remembered by node `id` across refreshes within one opening, and forgotten
+  when the viewer closes.
+- **Draft.** Opening and `r` send the text typed in the prompt so far (`draft`), so the briefing preview matches what
+  the next message would bring in. The prompt itself is not changed.
+- **Errors.** A `404` (a server restarted without `--debug`) shows "This server does not offer the context view.
+  Start it with: aigm --debug"; other failures show the error text in the viewer.
+- **Code.** `context_model.py` is pure (the tree, collapse state, cursor, and the colored lines for a width) and has
+  its own tests; `context_screen.py` holds the thin Textual widgets; `ApiClient.context(draft)` makes the call. Unknown
+  node kinds are shown as plain text.
 
 ### Rebuilding the transcript from `/chat/history`
 
@@ -207,39 +278,65 @@ History is Anthropic content blocks. Mapping to display blocks:
 
 - `user` + `text` → "You:" block.
 - `assistant` + `text` → markdown block.
-- `assistant` + `tool_use(roll_dice)` → paired with the following `tool_result`; shown as a compact dice line using the result string (the structured `dice` data is **not** stored in history, so historical rolls show less detail than live ones).
+- `assistant` + `tool_use(roll_dice)` → paired with the following `tool_result`; shown as a compact dice line using the
+  result string (the structured `dice` data is **not** stored in history, so historical rolls show less detail than live
+  ones).
 - `thinking` / `redacted_thinking` blocks → skipped.
 - `tool_result` with `is_error: true` → short dim "roll failed" line.
 
 ## Streaming Markdown (the key requirement)
 
-Streaming chunks arrive mid-word and mid-construct (`**bo`, `` ``` ``, `[link](htt`). Naively rendering each chunk as it arrives is wrong; naively re-parsing the buffer is *almost* right but flickers. The approach:
+Streaming chunks arrive mid-word and mid-construct (`**bo`, `` ``` ``, `[link](htt`). Naively rendering each chunk as it
+arrives is wrong; naively re-parsing the buffer is *almost* right but flickers. The approach:
 
-1. **Never render chunks; render the accumulated text.** Each markdown segment keeps its full raw text. On every update (coalesced to ~30 fps) the whole segment is re-parsed and re-rendered. Raw text is never mutated, so the final render after `message_end` is always identical to rendering the complete reply in one shot.
+1. **Never render chunks; render the accumulated text.** Each markdown segment keeps its full raw text. On every update
+   (coalesced to ~30 fps) the whole segment is re-parsed and re-rendered. Raw text is never mutated, so the final render
+   after `message_end` is always identical to rendering the complete reply in one shot.
 
-2. **Heal a copy for display (`heal.py`).** A CommonMark parser treats an unclosed `**` as literal asterisks until the closer arrives, so the user would see `**bol` flash and then snap to **bol**. Before rendering, apply a pure function `heal(text) -> text` to a *copy* that provisionally closes constructs still open at the end of the buffer:
-   - Unclosed fenced code block (` ``` ` or `~~~`): append the closing fence. Inside a fence, **no other healing is applied**.
+2. **Heal a copy for display (`heal.py`).** A CommonMark parser treats an unclosed `**` as literal asterisks until the
+   closer arrives, so the user would see `**bol` flash and then snap to **bol**. Before rendering, apply a pure function
+   `heal(text) -> text` to a *copy* that provisionally closes constructs still open at the end of the buffer:
+   - Unclosed fenced code block (` ``` ` or `~~~`): append the closing fence. Inside a fence, **no other healing is
+     applied**.
    - Unclosed inline code span (odd number of backticks on the last line): append a backtick.
-   - Unclosed emphasis (`*`, `_`, `**`, `__`, `~~`): append the matching closers in reverse order, tracking nesting; ignore `_` inside words and `*`/`_` used as list bullets or in math-like text (`2 * 3`).
+   - Unclosed emphasis (`*`, `_`, `**`, `__`, `~~`): append the matching closers in reverse order, tracking nesting;
+     ignore `_` inside words and `*`/`_` used as list bullets or in math-like text (`2 * 3`).
    - Dangling link/image: `[text](partial-url` renders as just `text`; a bare trailing `[` or `![` is dropped.
-   - Dangling trailing marker characters that can't yet be classified (a lone final `*`, `` ` ``, `#`, `>`, `-`, or digits followed by `.`) are **held back** from display until the next chunk disambiguates them (they are still in the raw text).
+   - Dangling trailing marker characters that can't yet be classified (a lone final `*`, `` ` ``, `#`, `>`, `-`, or
+     digits followed by `.`) are **held back** from display until the next chunk disambiguates them (they are still in
+     the raw text).
    - Headings, lists, blockquotes need no healing; line-level constructs parse correctly on the partial line.
 
-3. **Only the tail is volatile (optimization deferred in v0.1).** Split a segment into top-level blocks (paragraphs, lists, fences, tables) separated by blank lines outside fences. All blocks except the last are *settled*: rendered once per terminal width and cached. Only the last block would be re-parsed per update, keeping long replies cheap. *v0.1 simply re-renders the whole segment on each (30 fps-coalesced) update, which is fast enough for narrative-length replies; per-block caching is deferred because splitting a list or numbered list across blocks changes how it renders.*
+3. **Only the tail is volatile (optimization deferred in v0.1).** Split a segment into top-level blocks (paragraphs,
+   lists, fences, tables) separated by blank lines outside fences. All blocks except the last are *settled*: rendered
+   once per terminal width and cached. Only the last block would be re-parsed per update, keeping long replies cheap.
+   *v0.1 simply re-renders the whole segment on each (30 fps-coalesced) update, which is fast enough for
+   narrative-length replies; per-block caching is deferred because splitting a list or numbered list across blocks
+   changes how it renders.*
 
-4. **Known, accepted wrinkles.** A table appears as plain text until its header-delimiter row arrives, then reflows to a table. Setext headings (`Title` then `===`) reflow when the underline arrives. These are inherent to streaming markdown and are minor for narrative GM output.
+4. **Known, accepted wrinkles.** A table appears as plain text until its header-delimiter row arrives, then reflows to a
+   table. Setext headings (`Title` then `===`) reflow when the underline arrives. These are inherent to streaming
+   markdown and are minor for narrative GM output.
 
-5. **Renderer.** Rich's `Markdown` (markdown-it-py underneath) rendered through `Console.render_lines()` at the current viewport width, producing exact lines (lists of styled segments). Exact line counts are what make paging possible; Textual's own `Markdown` widget has no line-level control, so it is not used for the transcript.
+5. **Renderer.** Rich's `Markdown` (markdown-it-py underneath) rendered through `Console.render_lines()` at the current
+   viewport width, producing exact lines (lists of styled segments). Exact line counts are what make paging possible;
+   Textual's own `Markdown` widget has no line-level control, so it is not used for the transcript.
 
 ### Tests for this (most important test suite)
 
-- **Split-point fuzz**: for a corpus of GM-style markdown (bold/italics/nested, lists, headings, code fences, inline code, links, tables, blockquotes, emoji), feed the text in at *every* split point and char-by-char; assert (a) no exceptions, (b) the render after the final chunk equals the one-shot render, (c) healed intermediate renders never contain literal unmatched `**`/`` ` ``/`~~` that the full text would show as formatting.
-- **Heal unit tests**: table of `(partial input → healed text)` cases including negatives (`2 * 3 = 6`, `snake_case_name`, `5 * 4 * 3`, a lone `*` bullet, fences containing `**`).
-- **No-regression of settled blocks**: lines of settled blocks are byte-identical across updates (so the screen doesn't jitter).
+- **Split-point fuzz**: for a corpus of GM-style markdown (bold/italics/nested, lists, headings, code fences, inline
+  code, links, tables, blockquotes, emoji), feed the text in at *every* split point and char-by-char; assert (a) no
+  exceptions, (b) the render after the final chunk equals the one-shot render, (c) healed intermediate renders never
+  contain literal unmatched `**`/`` ` ``/`~~` that the full text would show as formatting.
+- **Heal unit tests**: table of `(partial input → healed text)` cases including negatives (`2 * 3 = 6`,
+  `snake_case_name`, `5 * 4 * 3`, a lone `*` bullet, fences containing `**`).
+- **No-regression of settled blocks**: lines of settled blocks are byte-identical across updates (so the screen doesn't
+  jitter).
 
 ## Dice Rendering
 
-`dice_roll` renders as one compact, styled block between markdown segments (a `tool_call`/`dice_roll` ends the current text segment, so the model's text before and after a roll are separate paragraphs; this is acceptable for v0.1):
+`dice_roll` renders as one compact, styled block between markdown segments (a `tool_call`/`dice_roll` ends the current
+text segment, so the model's text before and after a roll are separate paragraphs; this is acceptable for v0.1):
 
 ```
   🎲 4d6kh3+2  →  [1] [6] [1̶] [3]  +2  =  12
@@ -257,29 +354,50 @@ Streaming chunks arrive mid-word and mid-construct (`**bo`, `` ``` ``, `[link](h
 `transcript.py` owns:
 
 - `blocks`: the ordered block model (user lines, markdown segments, dice blocks, errors, system notes).
-- `lines`: the flattened rendered lines for the current width. Settled blocks are cached; the last block is re-rendered on update. Re-rendered on terminal resize.
+- `lines`: the flattened rendered lines for the current width. Settled blocks are cached; the last block is re-rendered
+  on update. Re-rendered on terminal resize.
 - Pager state:
   - `page_start`: index of the first line of the current page.
   - `page_height`: visible rows of the transcript view (viewport height minus the pager bar row).
-  - `revealed_end = min(len(lines), page_start + page_height)`: lines the user may see. Lines at or beyond it are **held**.
+  - `revealed_end = min(len(lines), page_start + page_height)`: lines the user may see. Lines at or beyond it are
+    **held**.
   - `held = len(lines) - revealed_end` (drives the "MORE (N lines buffered)" indicator).
 
 ### Behavior
 
-1. **Continuous flow.** The conversation is one unbroken stream: the user's own message is echoed into the transcript (styled distinctly, with a blank line before and after) **between** GM replies, and the next reply continues directly below it. Nothing is cleared when a message is sent. The pager does not reset on send: new lines fill whatever room is left on the current page, and only when the page is full does the pager hold the rest. (If the page happens to be exactly full when the user sends, sending counts as the user's page turn: `page_start` moves to the echoed message.)
-2. As events arrive, lines are appended and reveal up to `revealed_end`; the view shows the page top-down (anchored at `page_start`), so text visibly fills the page.
-3. When `held > 0`, the pager bar shows **MORE**. Incoming events keep being applied to the model; nothing is dropped or delayed on the network side.
-4. **Advance** (Space, Enter, PageDown, or a mouse click on the transcript): the new page starts **three lines before** the end of the old one (`page_start = revealed_end - 3`, fewer on tiny screens), so the last three lines you read lead the new page for continuity. The view does a quick 150 ms ease-out slide from the old page to the new one rather than jumping; the sliding window never extends past the new page, so held lines are not revealed early. Repeats until `held == 0`.
-5. When `held == 0`, the stream is finished (`message_end`/`error`), and the user has paged through everything, the input prompt is shown and focused.
-6. The last, partial line of the stream is revealed as it grows. Only the tail block can change, so earlier lines never move. If a tail reflow pushes a line past the page boundary, that line becomes held again; since the user is still on the same page, nothing they have already read is retracted.
-7. Resize: re-render lines at the new width, then recompute `page_start` by keeping the same *source block and offset* so the user does not lose their place.
+1. **Continuous flow.** The conversation is one unbroken stream: the user's own message is echoed into the transcript
+   (styled distinctly, with a blank line before and after) **between** GM replies, and the next reply continues directly
+   below it. Nothing is cleared when a message is sent. The pager does not reset on send: new lines fill whatever room
+   is left on the current page, and only when the page is full does the pager hold the rest. (If the page happens to be
+   exactly full when the user sends, sending counts as the user's page turn: `page_start` moves to the echoed message.)
+2. As events arrive, lines are appended and reveal up to `revealed_end`; the view shows the page top-down (anchored at
+   `page_start`), so text visibly fills the page.
+3. When `held > 0`, the pager bar shows **MORE**. Incoming events keep being applied to the model; nothing is dropped or
+   delayed on the network side.
+4. **Advance** (Space, Enter, PageDown, or a mouse click on the transcript): the new page starts **three lines before**
+   the end of the old one (`page_start = revealed_end - 3`, fewer on tiny screens), so the last three lines you read
+   lead the new page for continuity. The view does a quick 150 ms ease-out slide from the old page to the new one rather
+   than jumping; the sliding window never extends past the new page, so held lines are not revealed early. Repeats until
+   `held == 0`.
+5. When `held == 0`, the stream is finished (`message_end`/`error`), and the user has paged through everything, the
+   input prompt is shown and focused.
+6. The last, partial line of the stream is revealed as it grows. Only the tail block can change, so earlier lines never
+   move. If a tail reflow pushes a line past the page boundary, that line becomes held again; since the user is still on
+   the same page, nothing they have already read is retracted.
+7. Resize: re-render lines at the new width, then recompute `page_start` by keeping the same *source block and offset*
+   so the user does not lose their place.
 
 ### Scrollback
 
-- `PageUp` / `PageDown`(when not paging) / `↑` `↓` / mouse wheel / `Home` scroll freely through **revealed** content (everything before `revealed_end`), including history from earlier turns. Held lines cannot be scrolled into; that would defeat paging.
-- While scrolled back, the view does not jump when new lines arrive; the pager bar adds "(scrolled back, `End` to return)".
-- `End` jumps back to the current page. `Space`/`Enter` while scrolled back first returns to the current page, then a second press advances.
-- Scrollback holds the whole session in memory in v0.1 (no cap; history overflow is a server-side later milestone as well).
+- `PageUp` / `PageDown`(when not paging) / `↑` `↓` / mouse wheel / `Home` scroll freely through **revealed** content
+  (everything before `revealed_end`), including history from earlier turns. Held lines cannot be scrolled into; that
+  would defeat paging.
+- While scrolled back, the view does not jump when new lines arrive; the pager bar adds "(scrolled back, `End` to
+  return)".
+- `End` jumps back to the current page. `Space`/`Enter` while scrolled back first returns to the current page, then a
+  second press advances.
+- Scrollback holds the whole session in memory in v0.1 (no cap; history overflow is a server-side later milestone as
+  well).
 
 ### Key bindings
 
@@ -290,27 +408,39 @@ Streaming chunks arrive mid-word and mid-construct (`**bo`, `` ``` ``, `[link](h
 | `Esc` | Cancel the in-flight turn (or cancel a confirmation) |
 | `Ctrl+S` / `F2`, `Ctrl+O` / `F3`, `Ctrl+N` / `F4` | Save, Load, New game dialogs |
 | `Ctrl+T` | Toggle display of reasoning text (hidden by default) |
+| `Ctrl+K` | Open or close the context viewer (debug servers only; not bound otherwise) |
 | `Ctrl+Q` / `/quit` | Quit |
 
 ### Input gating
 
-The input box is only shown when (a) no turn is in flight (`message_end` or `error` received) **and** (b) `held == 0`. This guarantees Space/Enter are page keys while text remains and typing keys are never swallowed mid-page, and it also prevents sending a second `/chat` during a turn (the server would return 409). Typed text is not accepted while gated; there is no type-ahead in v0.1. The save/load/new shortcuts and the footer are *not* gated by held text (only by an in-flight turn), as described above.
+The input box is only shown when (a) no turn is in flight (`message_end` or `error` received) **and** (b) `held == 0`.
+This guarantees Space/Enter are page keys while text remains and typing keys are never swallowed mid-page, and it also
+prevents sending a second `/chat` during a turn (the server would return 409). Typed text is not accepted while gated;
+there is no type-ahead in v0.1. The save/load/new shortcuts and the footer are *not* gated by held text (only by an
+in-flight turn), as described above.
 
 ## Error Handling
 
-- **Server unreachable / connection dropped mid-stream**: show an error block, discard nothing already displayed, re-enable input. Because the server rolls back the turn, annotate the partial text as interrupted.
+- **Server unreachable / connection dropped mid-stream**: show an error block, discard nothing already displayed,
+  re-enable input. Because the server rolls back the turn, annotate the partial text as interrupted.
 - **Malformed SSE data** (bad JSON): skip the event and log at debug level; continue the stream.
 - **Stream ends with no terminal event**: treat as an error with "connection closed unexpectedly".
 - **Slash command errors**: always shown as a system line, never a crash.
 
 ## Testing Strategy
 
-- `test_sse.py`: parser against golden byte streams, including chunk boundaries that split a line, `\r\n` line endings, multi-line `data`, comments/pings, and unknown events.
+- `test_sse.py`: parser against golden byte streams, including chunk boundaries that split a line, `\r\n` line endings,
+  multi-line `data`, comments/pings, and unknown events.
 - `test_heal.py` and the split-point fuzz (above).
-- `test_transcript_pager.py`: deterministic simulation: append lines to a transcript with a given `page_height`; assert held counts, advance behavior, scrollback bounds, resize anchoring, and that the stream is never blocked by a held page.
+- `test_transcript_pager.py`: deterministic simulation: append lines to a transcript with a given `page_height`; assert
+  held counts, advance behavior, scrollback bounds, resize anchoring, and that the stream is never blocked by a held
+  page.
 - `test_commands.py`: parsing and endpoint mapping using `httpx.MockTransport`.
-- `test_dialogs_pilot.py`: save (new name; `409 already_exists` -> overwrite confirm -> `overwrite=true`), load (preview, dirty warning, transcript rebuilt, last page shown), delete from the load dialog, new game (dirty vs clean, `Save first...` chaining), shortcuts disabled with a hint while a turn is in flight, and `dirty`/`*` transitions.
-- `test_app_pilot.py`: Textual `Pilot` end-to-end against a fake server (an ASGI app replaying scripted SSE): page fills → MORE appears → Space advances → input appears at the end.
+- `test_dialogs_pilot.py`: save (new name; `409 already_exists` -> overwrite confirm -> `overwrite=true`), load
+  (preview, dirty warning, transcript rebuilt, last page shown), delete from the load dialog, new game (dirty vs clean,
+  `Save first...` chaining), shortcuts disabled with a hint while a turn is in flight, and `dirty`/`*` transitions.
+- `test_app_pilot.py`: Textual `Pilot` end-to-end against a fake server (an ASGI app replaying scripted SSE): page fills
+  → MORE appears → Space advances → input appears at the end.
 - Manual smoke test against the real backend with `curl -N` side by side.
 
 ## Build Order
@@ -321,7 +451,8 @@ The input box is only shown when (a) no turn is in flight (`message_end` or `err
 4. `blocks.py` and `transcript.py` (rendering to lines, pager state machine) with tests.
 5. `widgets.py`: `TranscriptView` drawing lines, pager bar, scrollback, key bindings.
 6. Wire chat: input, worker, event application, thinking spinner, dice blocks.
-7. Save / Load / New-game dialogs (`dialogs.py`), dirty tracking, shortcuts and footer; slash commands; history repopulation.
+7. Save / Load / New-game dialogs (`dialogs.py`), dirty tracking, shortcuts and footer; slash commands; history
+   repopulation.
 8. Polish: resize handling, cancel, error cases, `--ascii`.
 
 ## Known Limitations / Future Work
@@ -329,10 +460,13 @@ The input box is only shown when (a) no turn is in flight (`message_end` or `err
 - No type-ahead and no editing of past messages.
 - Long sessions keep everything in memory; scrollback is uncapped.
 - Text before and after a dice roll appear as separate paragraphs because the roll splits the segment.
-- Historical dice rolls (after `/load` or restart) have less detail than live ones because structured roll data isn't saved in history.
+- Historical dice rolls (after `/load` or restart) have less detail than live ones because structured roll data isn't
+  saved in history.
 - Single session at a time (the `--session` flag selects which); no session switcher UI.
-- Web or richer GUI front end is a likely later step; the pure-logic modules (`sse`, `heal`, pager rules) document behavior a TypeScript client would need to reimplement.
+- Web or richer GUI front end is a likely later step; the pure-logic modules (`sse`, `heal`, pager rules) document
+  behavior a TypeScript client would need to reimplement.
 
 ## Open Questions
 
-None outstanding. Settled decisions: replies flow continuously with the user's messages echoed between them; reasoning text is hidden by default; Space and Enter both advance a page.
+None outstanding. Settled decisions: replies flow continuously with the user's messages echoed between them; reasoning
+text is hidden by default; Space and Enter both advance a page.

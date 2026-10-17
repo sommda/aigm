@@ -1,6 +1,8 @@
 # AIGM Backend API
 
-HTTP API for the AI Game Master backend (v0.1). The server is a FastAPI app. Clients send chat messages by `POST` and receive the GM's reply as a Server-Sent Events (SSE) stream of markdown text interleaved with custom events (e.g. die rolls) that a front end may render specially.
+HTTP API for the AI Game Master backend (v0.1). The server is a FastAPI app. Clients send chat messages by `POST` and
+receive the GM's reply as a Server-Sent Events (SSE) stream of markdown text interleaved with custom events (e.g. die
+rolls) that a front end may render specially.
 
 - Base URL (dev): `http://127.0.0.1:8000` (the default address of `uvicorn aigm.app:app`)
 - All request bodies are JSON (`Content-Type: application/json`).
@@ -9,7 +11,8 @@ HTTP API for the AI Game Master backend (v0.1). The server is a FastAPI app. Cli
 
 ## Sessions
 
-v0.1 supports multiple named sessions so the API doesn't need to change later, but a client may ignore this and use the default.
+v0.1 supports multiple named sessions so the API doesn't need to change later, but a client may ignore this and use the
+default.
 
 - A session is identified by `session_id` (string, `[A-Za-z0-9_-]{1,64}`).
 - If omitted, `session_id` defaults to `"default"`.
@@ -25,9 +28,13 @@ Each session is in one of two phases, reported as `phase` in several responses:
 | `session_zero` | Setup. The GM helps the player establish the setting and the party. Every new game starts here. |
 | `adventure`    | The game proper.                                                                         |
 
-The only transition is `session_zero` to `adventure`, and it is made by the model: once the setting and party are settled and the player has confirmed, it calls the `begin_adventure` tool (see below). There is no way back to Session 0 within a game; `POST /chat/new` starts a new game, which begins in Session 0. The phase selects the system prompt and tools the model sees; clients just chat as usual.
+The only transition is `session_zero` to `adventure`, and it is made by the model: once the setting and party are
+settled and the player has confirmed, it calls the `begin_adventure` tool (see below). There is no way back to Session 0
+within a game; `POST /chat/new` starts a new game, which begins in Session 0. The phase selects the system prompt and
+tools the model sees; clients just chat as usual.
 
-The game state (the phase, plus the campaign record written by `begin_adventure`) is saved and restored together with the history, so a game can be saved during Session 0. Saves made before game state existed load as `adventure`.
+The game state (the phase, plus the campaign record written by `begin_adventure`) is saved and restored together with
+the history, so a game can be saved during Session 0. Saves made before game state existed load as `adventure`.
 
 ---
 
@@ -43,22 +50,29 @@ The game state (the phase, plus the campaign record written by `begin_adventure`
 | PUT    | `/history/{name}/save`        | Save the live history under `{name}`                 | JSON       |
 | POST   | `/history/{name}/restore`     | Load saved history `{name}` into the live session    | JSON       |
 | DELETE | `/history/{name}`             | Delete one saved history                             | JSON       |
-| GET    | `/health`                     | Liveness check                                       | JSON       |
+| GET    | `/health`                     | Liveness check; reports whether debug mode is on     | JSON       |
+| GET    | `/debug/context`              | The next request's context (**debug mode only**)     | JSON       |
 
 Terminology:
 
 - **Live history**: the in-memory conversation for a session. `/chat` appends to it.
-- **Saved history** (or "named history"): an on-disk snapshot, like a saved game file, identified by `{name}`. Names match `[A-Za-z0-9_-]{1,64}`.
+- **Saved history** (or "named history"): an on-disk snapshot, like a saved game file, identified by `{name}`. Names
+  match `[A-Za-z0-9_-]{1,64}`.
 
-`/chat` takes `session_id` in the body. `/chat/new`, `/chat/history`, `/history/{name}/save` and `/history/{name}/restore` act on a session's live history, selected by optional query param `?session_id=...` (default `"default"`). `GET /history`, `GET /history/{name}` and `DELETE /history/{name}` touch only saved files and take no session.
+`/chat` takes `session_id` in the body. `/chat/new`, `/chat/history`, `/history/{name}/save` and
+`/history/{name}/restore` act on a session's live history, selected by optional query param `?session_id=...` (default
+`"default"`). `GET /history`, `GET /history/{name}` and `DELETE /history/{name}` touch only saved files and take no
+session.
 
-There is intentionally no blanket delete of saved histories. The live history is emptied only by `POST /chat/new` or replaced by a restore.
+There is intentionally no blanket delete of saved histories. The live history is emptied only by `POST /chat/new` or
+replaced by a restore.
 
 ---
 
 ## POST `/chat`
 
-Send a user message. The server appends it to history, calls the Claude model (running any tool calls), and streams the reply.
+Send a user message. The server appends it to history, calls the Claude model (running any tool calls), and streams the
+reply.
 
 ### Request
 
@@ -77,7 +91,8 @@ Send a user message. The server appends it to history, calls the Claude model (r
 ### Response
 
 - Status `200`, `Content-Type: text/event-stream`, `Cache-Control: no-cache`.
-- Validation errors (bad JSON, empty message, bad session id) return a normal `422`/`400` JSON error *before* the stream starts. Errors occurring after streaming starts are delivered as an `error` event.
+- Validation errors (bad JSON, empty message, bad session id) return a normal `422`/`400` JSON error *before* the stream
+  starts. Errors occurring after streaming starts are delivered as an `error` event.
 - Only one in-flight `/chat` per session; a second concurrent request returns `409 Conflict` (JSON).
 
 ### SSE framing
@@ -104,7 +119,10 @@ data: <JSON object>
 | `message_end`  | Assistant turn complete                              | yes       |
 | `error`        | Unrecoverable error; stream ends after this          | yes       |
 
-Exactly one terminal event (`message_end` or `error`) ends every stream. Clients should concatenate `text` chunks in order to build the markdown reply. Unknown event types must be ignored by clients (forward compatibility). `thinking` is optional: it is only sent when the configured model supports and has enabled extended thinking, and clients must work correctly if it never appears.
+Exactly one terminal event (`message_end` or `error`) ends every stream. Clients should concatenate `text` chunks in
+order to build the markdown reply. Unknown event types must be ignored by clients (forward compatibility). `thinking` is
+optional: it is only sent when the configured model supports and has enabled extended thinking, and clients must work
+correctly if it never appears.
 
 #### `message_start`
 ```json
@@ -114,7 +132,9 @@ Exactly one terminal event (`message_end` or `error`) ends every stream. Clients
 `phase` is the phase the turn started in.
 
 #### `thinking`
-Signals that the model is reasoning, explaining a pause before (or between) visible output, and streams the reasoning text. Only sent when thinking is enabled for the model. A thinking phase is a `start`, zero or more `delta`s, and an `end`:
+Signals that the model is reasoning, explaining a pause before (or between) visible output, and streams the reasoning
+text. Only sent when thinking is enabled for the model. A thinking phase is a `start`, zero or more `delta`s, and an
+`end`:
 
 ```json
 { "status": "start" }
@@ -129,17 +149,24 @@ Signals that the model is reasoning, explaining a pause before (or between) visi
 | `duration_ms` | number | On `end` only: wall-clock length of the thinking phase.               |
 
 Rules:
-- A turn may contain several thinking phases (e.g. one before each tool call and one after tool results). Phases never nest or overlap, and every `start` is followed by an `end` before the next `text` or `tool_call` event.
-- Clients concatenate `delta`s in order to build the reasoning text for a phase, and should keep it separate from the reply (e.g. a collapsible "reasoning" panel). Reasoning text is not part of the reply and must never be mixed into `text`.
-- Some models return summarized rather than raw reasoning, and redacted reasoning produces a `start`/`end` pair with no `delta`s. Clients must handle phases with no deltas and should always be able to fall back to a simple "Thinking..." indicator between `start` and `end`.
-- If the stream fails mid-phase, the terminal `error` event ends the stream without an `end`; clients should clear any thinking indicator on a terminal event.
+- A turn may contain several thinking phases (e.g. one before each tool call and one after tool results). Phases never
+  nest or overlap, and every `start` is followed by an `end` before the next `text` or `tool_call` event.
+- Clients concatenate `delta`s in order to build the reasoning text for a phase, and should keep it separate from the
+  reply (e.g. a collapsible "reasoning" panel). Reasoning text is not part of the reply and must never be mixed into
+  `text`.
+- Some models return summarized rather than raw reasoning, and redacted reasoning produces a `start`/`end` pair with no
+  `delta`s. Clients must handle phases with no deltas and should always be able to fall back to a simple "Thinking..."
+  indicator between `start` and `end`.
+- If the stream fails mid-phase, the terminal `error` event ends the stream without an `end`; clients should clear any
+  thinking indicator on a terminal event.
 - The server can be configured to omit `delta`s (sending only `start`/`end`); clients must not depend on them.
 
 #### `text`
 ```json
 { "delta": "The goblin snarls and " }
 ```
-`delta` is a markdown fragment; fragments may split mid-word and mid-markdown-token, so clients must concatenate before rendering.
+`delta` is a markdown fragment; fragments may split mid-word and mid-markdown-token, so clients must concatenate before
+rendering.
 
 #### `tool_call`
 Emitted when the model finishes specifying a tool call, before it runs.
@@ -148,7 +175,8 @@ Emitted when the model finishes specifying a tool call, before it runs.
 ```
 
 #### `dice_roll`
-Emitted after `roll_dice` succeeds. Intended for front-end rendering (animations, roll log). Carries everything the `d20` library reports about the roll, including every individual die.
+Emitted after `roll_dice` succeeds. Intended for front-end rendering (animations, roll log). Carries everything the
+`d20` library reports about the roll, including every individual die.
 
 ```json
 {
@@ -205,21 +233,34 @@ Each `rolls` entry:
 | `kept`   | boolean  | `false` if dropped by a keep/drop selector (`kh`, `kl`, `dh`, `dl`, advantage, ...).   |
 | `values` | number[] | Every face d20 records for this die, in order; `value` is the last entry. Usually one entry; more only if d20 keeps history for the die. |
 
-Dice added by exploding (`e`) appear as additional entries in `rolls`. The exact shape for rerolls and explodes follows whatever d20 exposes and is pinned by unit tests.
+Dice added by exploding (`e`) appear as additional entries in `rolls`. The exact shape for rerolls and explodes follows
+whatever d20 exposes and is pinned by unit tests.
 
-If a roll fails, no `dice_roll` event is emitted. A `tool_call` is followed by a `tool_error` only if we later add one; in v0.1 the error goes back to the model as the tool result (so it can retry or narrate), and is visible in `/chat/history`. The tool result sent to the model stays the short `result` string; the structured `dice` data is for the front end only and is not stored in history.
+If a roll fails, no `dice_roll` event is emitted. A `tool_call` is followed by a `tool_error` only if we later add one;
+in v0.1 the error goes back to the model as the tool result (so it can retry or narrate), and is visible in
+`/chat/history`. The tool result sent to the model stays the short `result` string; the structured `dice` data is for
+the front end only and is not stored in history.
 
 #### `status`
 ```json
 { "stage": "world", "message": "Preparing the world...", "done": false }
 ```
-Sent during the turn in which Session 0 ends, between the `begin_adventure` `tool_call` and the opening scene's `text`, while the server builds the world for the new game (this can take tens of seconds with a real model). Several are sent, each replacing the last message ("Building the setting...", "Detailing the Rusty Flagon..."), then one with `"done": true` ("The world is ready."). Clients should show the latest `message` in place of their usual "writing" indicator until `done` (or the end of the stream), and may ignore the event entirely: nothing in the transcript depends on it. If world preparation fails the stream ends with an `error` (`upstream_error`, retryable) and the whole turn is rolled back, including the phase change, so the player can confirm again.
+Sent during the turn in which Session 0 ends, between the `begin_adventure` `tool_call` and the opening scene's `text`,
+while the server builds the world for the new game (this can take tens of seconds with a real model). Several are sent,
+each replacing the last message ("Building the setting...", "Detailing the Rusty Flagon..."), then one with
+`"done": true` ("The world is ready."). Clients should show the latest `message` in place of their usual "writing"
+indicator until `done` (or the end of the stream), and may ignore the event entirely: nothing in the transcript depends
+on it. If world preparation fails the stream ends with an `error` (`upstream_error`, retryable) and the whole turn is
+rolled back, including the phase change, so the player can confirm again.
 
 #### `phase_change`
 ```json
 { "previous": "session_zero", "phase": "adventure" }
 ```
-Sent when the turn changed the game phase, after the last `text` and just before `message_end`. It is only sent once the turn has succeeded: a turn that fails after calling `begin_adventure` is rolled back entirely, with no `phase_change`, and the game stays in `session_zero`. The opening scene of the adventure is part of the same turn, so it streams before this event. The history is rewritten at the same time (see `begin_adventure`).
+Sent when the turn changed the game phase, after the last `text` and just before `message_end`. It is only sent once the
+turn has succeeded: a turn that fails after calling `begin_adventure` is rolled back entirely, with no `phase_change`,
+and the game stays in `session_zero`. The opening scene of the adventure is part of the same turn, so it streams before
+this event. The history is rewritten at the same time (see `begin_adventure`).
 
 #### `message_end`
 ```json
@@ -266,7 +307,10 @@ event: tool_call
 data: {"tool_use_id":"toolu_abc","name":"roll_dice","input":{"expression":"1d20+5"}}
 
 event: dice_roll
-data: {"tool_use_id":"toolu_abc","expression":"1d20+5","total":17,"result":"1d20 (12) + 5 = `17`","crit":"none","comment":null,"dice":[{"notation":"1d20","count":1,"sides":20,"total":12,"annotation":null,"rolls":[{"value":12,"kept":true,"values":[12]}]}]}
+data: {"tool_use_id":"toolu_abc","expression":"1d20+5","total":17,"result":"1d20 (12) + 5 = `17`","crit":"none",
+  "comment":null,"dice":[{"notation":"1d20","count":1,"sides":20,"total":12,"annotation":null,
+  "rolls":[{"value":12,"kept":true,"values":[12]}]}]}
+# (the data field is one line on the wire; it is wrapped here for reading)
 
 event: text
 data: {"delta":"A **17** -- your blade bites deep!"}
@@ -276,13 +320,16 @@ data: {"message_id":"msg_01","stop_reason":"end_turn","usage":{"input_tokens":81
 
 ```
 
-Client disconnect mid-stream cancels the upstream call; the partial assistant turn is discarded and the user message remains in history (see backend design for the rule).
+Client disconnect mid-stream cancels the upstream call; the partial assistant turn is discarded and the user message
+remains in history (see backend design for the rule).
 
 ---
 
 ## POST `/chat/new`
 
-Start a fresh game: empties the session's live history and puts the game back in Session 0. **Destructive**: the current live history is discarded and is *not* saved automatically, so save it first (`PUT /history/{name}/save`) if you want to keep it. Saved histories are never affected.
+Start a fresh game: empties the session's live history and puts the game back in Session 0. **Destructive**: the current
+live history is discarded and is *not* saved automatically, so save it first (`PUT /history/{name}/save`) if you want to
+keep it. Saved histories are never affected.
 
 Query: `session_id` (optional). No request body.
 
@@ -291,7 +338,8 @@ Query: `session_id` (optional). No request body.
 { "session_id": "default", "phase": "session_zero", "message_count": 0, "discarded_message_count": 14 }
 ```
 
-Errors: `409` a `/chat` is in flight for that session; `422` invalid `session_id`. Calling it on an already-empty session succeeds with `discarded_message_count: 0`.
+Errors: `409` a `/chat` is in flight for that session; `422` invalid `session_id`. Calling it on an already-empty
+session succeeds with `discarded_message_count: 0`.
 
 ---
 
@@ -334,7 +382,10 @@ Query: `session_id` (optional).
 }
 ```
 
-`campaign` is the record `begin_adventure` wrote at the end of Session 0, or `null` (always `null` in `session_zero`, and for adventures loaded from older saves). It includes the private `gm_notes`, so a client should not show it to the player. History uses the Anthropic Messages API content-block format verbatim, so it round-trips to the model with no translation. An unknown/empty session returns `200` with `"messages": []`.
+`campaign` is the record `begin_adventure` wrote at the end of Session 0, or `null` (always `null` in `session_zero`,
+and for adventures loaded from older saves). It includes the private `gm_notes`, so a client should not show it to the
+player. History uses the Anthropic Messages API content-block format verbatim, so it round-trips to the model with no
+translation. An unknown/empty session returns `200` with `"messages": []`.
 
 ---
 
@@ -346,8 +397,10 @@ List all saved histories (the "save slots"). Sorted by `saved_at`, newest first.
 ```json
 {
   "histories": [
-    { "name": "tavern-brawl", "phase": "adventure",    "message_count": 14, "saved_at": "2026-10-15T18:22:04Z", "model": "claude-sonnet-5-5" },
-    { "name": "act-1",        "phase": "session_zero", "message_count": 52, "saved_at": "2026-10-14T21:03:40Z", "model": "claude-sonnet-5-5" }
+    { "name": "tavern-brawl", "phase": "adventure", "message_count": 14,
+      "saved_at": "2026-10-15T18:22:04Z", "model": "claude-sonnet-5-5" },
+    { "name": "act-1", "phase": "session_zero", "message_count": 52,
+      "saved_at": "2026-10-14T21:03:40Z", "model": "claude-sonnet-5-5" }
   ]
 }
 ```
@@ -360,7 +413,8 @@ No saves yields `{ "histories": [] }`.
 
 Show information about one saved history without loading it. Does not touch any live session.
 
-Query: `include_messages` (optional bool, default `false`). When true, the response also contains the full `messages` array in the same format as `/chat/history`.
+Query: `include_messages` (optional bool, default `false`). When true, the response also contains the full `messages`
+array in the same format as `/chat/history`.
 
 ### Response `200`
 ```json
@@ -377,37 +431,50 @@ Query: `include_messages` (optional bool, default `false`). When true, the respo
 }
 ```
 
-`entity_count`, `fact_count` (active facts) and `world_time` summarize the saved world (zero and day 1, 08:00 for saves with no world); the same three fields appear in each entry of `GET /history`. `last_message_preview` is the first ~200 characters of the final assistant text (omitted if none). Errors: `400` invalid name; `404` no such history; `422` file corrupt.
+`entity_count`, `fact_count` (active facts) and `world_time` summarize the saved world (zero and day 1, 08:00 for saves
+with no world); the same three fields appear in each entry of `GET /history`. `last_message_preview` is the first ~200
+characters of the final assistant text (omitted if none). Errors: `400` invalid name; `404` no such history; `422` file
+corrupt.
 
 ---
 
 ## PUT `/history/{name}/save`
 
-Save the session's live history under `{name}`. Does not change the live history. If a save with that name already exists, the request is refused unless `overwrite=true` is given.
+Save the session's live history under `{name}`. Does not change the live history. If a save with that name already
+exists, the request is refused unless `overwrite=true` is given.
 
 Query: `session_id` (optional); `overwrite` (optional bool, default `false`). No request body.
 
 ### Response `200`
 ```json
-{ "name": "tavern-brawl", "session_id": "default", "phase": "adventure", "message_count": 14, "saved_at": "2026-10-15T18:22:04Z", "overwritten": false }
+{ "name": "tavern-brawl", "session_id": "default", "phase": "adventure", "message_count": 14,
+  "saved_at": "2026-10-15T18:22:04Z", "overwritten": false }
 ```
 
-`overwritten` is `true` only when `overwrite=true` was given and a save of that name already existed. Errors: `400` invalid name; `409` with error code `already_exists` if `{name}` exists and `overwrite` is not `true` (the existing save is untouched); `409` with code `conflict` if a `/chat` is in flight for that session (avoids saving a half-finished turn); `500` storage failure. Saving an empty live history is allowed.
+`overwritten` is `true` only when `overwrite=true` was given and a save of that name already existed. Errors: `400`
+invalid name; `409` with error code `already_exists` if `{name}` exists and `overwrite` is not `true` (the existing save
+is untouched); `409` with code `conflict` if a `/chat` is in flight for that session (avoids saving a half-finished
+turn); `500` storage failure. Saving an empty live history is allowed.
 
 ---
 
 ## POST `/history/{name}/restore`
 
-Load saved history `{name}` into the session's live history, and set the session's game state (phase and campaign) to the saved one. **Destructive**: the current live history is discarded (save it first if you want to keep it). POST is used because it changes server state and must not be triggered by prefetching or caching.
+Load saved history `{name}` into the session's live history, and set the session's game state (phase and campaign) to
+the saved one. **Destructive**: the current live history is discarded (save it first if you want to keep it). POST is
+used because it changes server state and must not be triggered by prefetching or caching.
 
 Query: `session_id` (optional). No request body.
 
 ### Response `200`
 ```json
-{ "name": "tavern-brawl", "session_id": "default", "phase": "adventure", "message_count": 14, "saved_at": "2026-10-15T18:22:04Z", "replaced_message_count": 6 }
+{ "name": "tavern-brawl", "session_id": "default", "phase": "adventure", "message_count": 14,
+  "saved_at": "2026-10-15T18:22:04Z", "replaced_message_count": 6 }
 ```
 
-`replaced_message_count` is the size of the discarded live history. Errors: `400` invalid name; `404` no such history; `409` a `/chat` is in flight for that session; `422` saved file corrupt or invalid. On any error the live history is left unchanged.
+`replaced_message_count` is the size of the discarded live history. Errors: `400` invalid name; `404` no such history;
+`409` a `/chat` is in flight for that session; `422` saved file corrupt or invalid. On any error the live history is
+left unchanged.
 
 ---
 
@@ -426,20 +493,72 @@ Errors: `400` invalid name; `404` no such history. There is no endpoint that del
 
 ## GET `/health`
 
-Response `200`: `{ "status": "ok", "model": "claude-sonnet-5-5" }`
+Response `200`: `{ "status": "ok", "model": "claude-sonnet-5-5", "debug": false }`
+
+`debug` is `true` when the server was started with `--debug` (or `AIGM_DEBUG=true`). Clients use it to decide whether
+to offer the context viewer; it does not grant access by itself.
+
+---
+
+## GET `/debug/context`
+
+**Debug mode only.** Without `--debug` the route is not registered: the server answers `404 not_found` exactly as for
+any unknown path, and the path is absent from the OpenAPI schema. The response shows the GM's private notes and hidden
+world facts, so run debug mode only on a trusted machine (the server warns if it listens on a non-loopback host).
+
+The request the next player message would produce, as a tree of named parts in request order. It is built from the
+same description that is sent to the model, from the session's committed state; calling it changes nothing. Finished
+curator results the next turn would apply first are included.
+
+Query parameters: `session_id` (default `"default"`) and `draft` (optional, at most 20000 characters): the text typed
+so far, used in place of the unsent message when the world briefing is chosen.
+
+### Response `200`
+
+```json
+{
+  "session_id": "default",
+  "phase": "adventure",
+  "model": "claude-sonnet-5-5",
+  "turn": 14,
+  "estimated_tokens": 18420,
+  "sections": [ { "id": "system", "kind": "system", "title": "System prompt", "tokens": 5200, "children": [] } ]
+}
+```
+
+Each node has `id` (stable between calls for the same content, so a client can keep its collapse state), `kind`,
+`title` and `tokens` (an estimate: characters divided by four, summed over children). A leaf has `text`, exactly as the
+model receives it; any other node has `children`. Optional fields: `cache_breakpoint` (true on the node after which the
+request carries a prompt-cache breakpoint) and `note` (on the briefing).
+
+Top-level sections, in order:
+
+- `system` (kind `system`): one child per prompt file, kind `prompt`, `id` `prompt/<path under prompts/>`. The private
+  GM-notes section (`prompt/templates/gm_notes.md`) appears only when the world is empty.
+- `tools` (kind `tools`): one child per tool: its description and input schema.
+- `history` (kind `history`): one child per stored message (kind `user` or `assistant`, `id` `history/<index>`) with
+  one child per content block: text (kind `user`/`assistant`), `thinking` (signatures are not shown), `tool_use` and
+  `tool_result`.
+- `next` (kind `user`): the pending message, with the `input` placeholder (the draft, or `«your next message goes
+  here»`) and, in the adventure once the world is not empty, the `briefing` (the `<world_notes>` block) with one child
+  per section: Clock, Location, Present, Nearby, Relevant, Corrections.
+
+Unknown `kind` values may be added later; clients should show them as plain text.
 
 ---
 
 ## Tool: `roll_dice`
 
-Exposed to the model, not directly to HTTP clients. Documented here because its results surface in `dice_roll` events and history.
+Exposed to the model, not directly to HTTP clients. Documented here because its results surface in `dice_roll` events
+and history.
 
 ### Tool definition (as sent to Claude)
 
 ```json
 {
   "name": "roll_dice",
-  "description": "Roll dice using d20 expression syntax (e.g. '1d20+5', '4d6kh3', '2d8+1d4+3'; use '2d20kh1' for advantage). Use for any random outcome: attacks, checks, saves, damage, random tables.",
+  "description": "Roll dice using d20 expression syntax (e.g. '1d20+5', '4d6kh3', '2d8+1d4+3'; use '2d20kh1' for
+    advantage). Use for any random outcome: attacks, checks, saves, damage, random tables.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -452,17 +571,23 @@ Exposed to the model, not directly to HTTP clients. Documented here because its 
 
 ### Results
 
-- Success: tool result text is the d20 breakdown string (e.g. ``1d20 (12) + 5 = `17` ``); `is_error: false`; a `dice_roll` SSE event is emitted.
-- Malformed expression: tool result is an error message such as `Invalid dice expression '2x20': <d20 error text>. Expected syntax like '1d20+5' or '4d6kh3'.` with `is_error: true`. The model sees this and may retry. No `dice_roll` event.
-- Guardrails: expression length limit (200 chars) and d20's own roll-count limits; violations are reported as the same error form.
+- Success: tool result text is the d20 breakdown string (e.g. ``1d20 (12) + 5 = `17` ``); `is_error: false`; a
+  `dice_roll` SSE event is emitted.
+- Malformed expression: tool result is an error message such as
+  `Invalid dice expression '2x20': <d20 error text>. Expected syntax like '1d20+5' or '4d6kh3'.` with `is_error: true`.
+  The model sees this and may retry. No `dice_roll` event.
+- Guardrails: expression length limit (200 chars) and d20's own roll-count limits; violations are reported as the same
+  error form.
 
 ---
 
 ## Tool: `begin_adventure`
 
-Offered to the model only in `session_zero`; once the adventure has begun it is no longer in the tool list. Documented here because it changes the game phase and rewrites the history.
+Offered to the model only in `session_zero`; once the adventure has begun it is no longer in the tool list. Documented
+here because it changes the game phase and rewrites the history.
 
-**Input.** The arguments are the model's only record of Session 0, so the server validates that they are detailed enough:
+**Input.** The arguments are the model's only record of Session 0, so the server validates that they are detailed
+enough:
 
 | Field | Rule |
 |---|---|
@@ -473,15 +598,24 @@ Offered to the model only in `session_zero`; once the adventure has begun it is 
 | `party` | 1-6 player characters `{name, sheet}`: unique non-empty `name` (compared ignoring case); `sheet` at least 150 characters (the full character). The player controls the whole party and may switch between members; NPCs are not party members |
 | `gm_notes` | optional string of private notes |
 
-The total size is capped at 30,000 characters. A call that fails any rule returns an `is_error` tool result that lists **every** problem, changes nothing, and lets the model fill the gaps and call again (or keep talking with the player).
+The total size is capped at 30,000 characters. A call that fails any rule returns an `is_error` tool result that lists
+**every** problem, changes nothing, and lets the model fill the gaps and call again (or keep talking with the player).
 
 **On success**, within the turn:
 
-1. The phase becomes `adventure`, and the validated fields are stored as the session's `campaign` (see `GET /chat/history`).
-2. The history is **replaced**: the Session 0 conversation, the player's confirmation and the tool call and result are all discarded, and the history becomes exactly three messages: a short system note (user role, text starting `[System: Session 0 is complete...`), a single GM entry (assistant role) containing the campaign record rendered from the arguments (setting, party with full sheets, and the opening situation), and a system cue (user role, `[System: The adventure begins now...`). The model's very next reply, the first scene, follows them. `gm_notes` are not in the record; they go into the adventure system prompt only.
-3. When the turn commits, `phase_change` is sent. The final history is those three messages followed by the opening scene.
+1. The phase becomes `adventure`, and the validated fields are stored as the session's `campaign` (see
+   `GET /chat/history`).
+2. The history is **replaced**: the Session 0 conversation, the player's confirmation and the tool call and result are
+   all discarded, and the history becomes exactly three messages: a short system note (user role, text starting
+   `[System: Session 0 is complete...`), a single GM entry (assistant role) containing the campaign record rendered from
+   the arguments (setting, party with full sheets, and the opening situation), and a system cue (user role,
+   `[System: The adventure begins now...`). The model's very next reply, the first scene, follows them. `gm_notes` are
+   not in the record; they go into the adventure system prompt only.
+3. When the turn commits, `phase_change` is sent. The final history is those three messages followed by the opening
+   scene.
 
-Messages whose text starts with `[System:` are inserted by the server rather than typed by the player; clients should not show them as player speech.
+Messages whose text starts with `[System:` are inserted by the server rather than typed by the player; clients should
+not show them as player speech.
 
 Like all turn state, the change (including the history rewrite) is committed only if the whole turn succeeds.
 
@@ -493,7 +627,8 @@ Like all turn state, the change (including the history rewrite) is committed onl
 { "error": { "code": "not_found", "message": "No saved history named 'tavern-brawl'" } }
 ```
 
-Codes: `bad_request` (400), `not_found` (404), `conflict` (409), `already_exists` (409), `validation_error` (422), `internal_error` (500).
+Codes: `bad_request` (400), `not_found` (404), `conflict` (409), `already_exists` (409), `validation_error` (422),
+`internal_error` (500).
 
 ---
 

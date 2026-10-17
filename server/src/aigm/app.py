@@ -8,7 +8,7 @@ from aigm.llm.base import LLMClient
 from aigm.llm.scripted import ScriptedLLM
 from aigm.game import Game
 from aigm.prompts import PromptLibrary
-from aigm.routes import chat, health, history
+from aigm.routes import chat, debug, health, history
 from aigm.session.persistence import HistoryRepository
 from aigm.session.store import SessionStore
 from aigm.world.anthropic_curator import AnthropicCurator
@@ -54,6 +54,8 @@ def create_app(
     app.include_router(health.router)
     app.include_router(chat.router)
     app.include_router(history.router)
+    if settings.debug:  # without it the path does not exist at all
+        app.include_router(debug.router)
     return app
 
 

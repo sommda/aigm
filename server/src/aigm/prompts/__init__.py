@@ -15,6 +15,7 @@ prompt files can carry notes to their authors.
 """
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,14 @@ _ASPECT_LINE = re.compile(r"^- (\w+): (.+)$")
 
 def _clean(text: str) -> str:
     return _COMMENT.sub("", text).strip()
+
+
+@dataclass(frozen=True)
+class PromptPart:
+    """One piece of a prompt and where it came from (a path under prompts/, e.g. system/common/01_role.md)."""
+
+    source: str
+    text: str
 
 
 class PromptLibrary:
@@ -43,18 +52,24 @@ class PromptLibrary:
                     found[path.name] = path
         return found
 
-    def _joined(self, subdir: str) -> str:
+    def _parts(self, subdir: str) -> list[PromptPart]:
+        """The non-empty files of a folder in filename order (an override replaces the packaged file)."""
         files = self._files(subdir)
-        parts = [_clean(files[name].read_text(encoding="utf-8")) for name in sorted(files)]
-        return "\n\n".join(p for p in parts if p)
+        parts = [PromptPart(f"{subdir}/{name}", _clean(files[name].read_text(encoding="utf-8"))) for name in sorted(files)]
+        return [p for p in parts if p.text]
+
+    def system_parts(self, phase: Phase | str) -> list[PromptPart]:
+        """The pieces of a phase's system prompt in order: the common files, then the phase's files."""
+        phase = Phase(phase)
+        common = self._parts("system/common")
+        own = self._parts(f"system/{phase.value}")
+        if not own:
+            raise ValueError(f"The {phase.value} system prompt is empty: no prompts/system/{phase.value}/*.md files found")
+        return [*common, *own]
 
     def system_prompt(self, phase: Phase | str) -> str:
         """The base system prompt for a phase (without the campaign record)."""
-        phase = Phase(phase)
-        prompt = "\n\n".join(p for p in (self._joined("system/common"), self._joined(f"system/{phase.value}")) if p)
-        if not self._joined(f"system/{phase.value}"):
-            raise ValueError(f"The {phase.value} system prompt is empty: no prompts/system/{phase.value}/*.md files found")
-        return prompt
+        return "\n\n".join(part.text for part in self.system_parts(phase))
 
     def _template(self, name: str) -> str:
         path = self._files("templates").get(f"{name}.md")
