@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aigm.prompts import PromptLibrary, PromptPart
+from aigm.rulesets import RULESETS
 from aigm.session.state import GameState, Phase
 from aigm.tools import dispatch, tool_schemas
 from aigm.tools.base import ToolOutcome
@@ -53,11 +54,13 @@ class Game:
     def __init__(self, prompts: PromptLibrary | None = None, briefing_tokens: int = 2000) -> None:
         self.prompts = prompts or PromptLibrary()
         self.briefing_tokens = briefing_tokens
-        self._system = {phase: tuple(self.prompts.system_parts(phase)) for phase in Phase}
+        self._system = {
+            (phase, rs.id): tuple(self.prompts.system_parts(phase, rs.id)) for phase in Phase for rs in RULESETS
+        }
         self._tools = {phase: tool_schemas(self.prompts, phase) for phase in Phase}
 
     def system_parts(self, state: GameState) -> tuple[PromptPart, ...]:
-        parts = self._system[state.phase]
+        parts = self._system[state.phase, state.ruleset]
         if state.phase is Phase.ADVENTURE and state.world.is_empty:
             # Normally the private notes live in the world as hidden facts. Without a world (curator
             # off, or an older save) the GM still needs them.
@@ -97,7 +100,7 @@ class Game:
         text = lambda t: [{"type": "text", "text": t}]  # noqa: E731
         return [
             {"role": "user", "content": text(self.prompts.session_zero_done_note())},
-            {"role": "assistant", "content": text(self.prompts.campaign_record(state.campaign))},
+            {"role": "assistant", "content": text(self.prompts.campaign_record(state.campaign, state.ruleset))},
             {"role": "user", "content": text(self.prompts.begin_cue())},
         ]
 

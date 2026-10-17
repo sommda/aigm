@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from aigm import rulesets
 from aigm.session.state import Phase
 
 PACKAGED_DIR = Path(__file__).parent
@@ -58,18 +59,27 @@ class PromptLibrary:
         parts = [PromptPart(f"{subdir}/{name}", _clean(files[name].read_text(encoding="utf-8"))) for name in sorted(files)]
         return [p for p in parts if p.text]
 
-    def system_parts(self, phase: Phase | str) -> list[PromptPart]:
-        """The pieces of a phase's system prompt in order: the common files, then the phase's files."""
+    def ruleset_parts(self, ruleset: str) -> list[PromptPart]:
+        """The prompt files of one ruleset (its rules, then the feel of its era)."""
+        rulesets.get(ruleset)  # unknown ids are an error, not an empty section
+        parts = self._parts(f"rulesets/{ruleset}")
+        if not parts:
+            raise ValueError(f"The ruleset {ruleset!r} has no prompt files: prompts/rulesets/{ruleset}/*.md")
+        return parts
+
+    def system_parts(self, phase: Phase | str, ruleset: str = rulesets.DEFAULT_RULESET) -> list[PromptPart]:
+        """The pieces of a phase's system prompt in order: the common files, the chosen ruleset's files,
+        then the phase's files."""
         phase = Phase(phase)
         common = self._parts("system/common")
         own = self._parts(f"system/{phase.value}")
         if not own:
             raise ValueError(f"The {phase.value} system prompt is empty: no prompts/system/{phase.value}/*.md files found")
-        return [*common, *own]
+        return [*common, *self.ruleset_parts(ruleset), *own]
 
-    def system_prompt(self, phase: Phase | str) -> str:
+    def system_prompt(self, phase: Phase | str, ruleset: str = rulesets.DEFAULT_RULESET) -> str:
         """The base system prompt for a phase (without the campaign record)."""
-        return "\n\n".join(part.text for part in self.system_parts(phase))
+        return "\n\n".join(part.text for part in self.system_parts(phase, ruleset))
 
     def _template(self, name: str) -> str:
         path = self._files("templates").get(f"{name}.md")
@@ -77,7 +87,7 @@ class PromptLibrary:
             raise ValueError(f"No prompt file prompts/templates/{name}.md")
         return _clean(path.read_text(encoding="utf-8"))
 
-    def campaign_record(self, campaign: dict[str, Any]) -> str:
+    def campaign_record(self, campaign: dict[str, Any], ruleset: str = rulesets.DEFAULT_RULESET) -> str:
         """The GM's written record of Session 0, which becomes the first GM entry in the adventure."""
         party = campaign.get("party")
         members = party if isinstance(party, list) else []
@@ -99,6 +109,7 @@ class PromptLibrary:
                 "setting": str(campaign.get("setting", "")).strip(),
                 "opening": str(campaign.get("opening", "")).strip(),
                 "level": str(campaign.get("level", "?")),
+                "ruleset": rulesets.get(ruleset).name,
                 "party_size": str(len(rendered)),
                 "party": "\n\n".join(rendered),
             },

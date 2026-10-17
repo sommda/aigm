@@ -65,7 +65,8 @@ Run (from `client/`): `uv run aigm-client` (or `uv run python -m aigm_client`). 
 - **Transcript**: a custom `ScrollView` subclass that draws pre-rendered terminal lines (see "Pager").
 - **Pager bar**: one row, shown only while content is being held back.
 - **Status line**: spinner while thinking or streaming, the game mode (`Session 0` or `Adventure`, from the server's
-  `phase`), the current game name (the name last saved or loaded; `*` suffix means unsaved changes), and connection
+  `phase`) followed by the ruleset's short name (`ruleset_name`, for example `Session 0 · AD&D 1e`; omitted by older
+  servers), the current game name (the name last saved or loaded; `*` suffix means unsaved changes), and connection
   state.
 - **Footer**: key hints that double as clickable buttons for Save / Load / New game.
 - **Input**: single-line prompt. A multi-line paste is kept whole: each line break shows as a `⏎` marker in the prompt

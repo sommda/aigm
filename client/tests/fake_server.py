@@ -74,6 +74,7 @@ class FakeServer:
         self.calls: list[tuple[str, str, dict]] = []
         self.split_chunks = False
         self.phase = ""  # "" = an older server that does not report the phase
+        self.ruleset_name = ""  # "" = an older server that does not report the ruleset
         self.debug: bool | None = None  # None = an older server whose /health has no debug field
         self.context = sample_context()
 
@@ -100,6 +101,8 @@ class FakeServer:
             body = {"session_id": "default", "messages": self.messages}
             if self.phase:
                 body["phase"] = self.phase
+            if self.ruleset_name:
+                body["ruleset_name"] = self.ruleset_name
             return self._json(200, body)
         if path == "/chat/new":
             n = len(self.messages)

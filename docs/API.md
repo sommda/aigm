@@ -126,8 +126,12 @@ correctly if it never appears.
 
 #### `message_start`
 ```json
-{ "message_id": "msg_01", "session_id": "default", "phase": "session_zero" }
+{ "message_id": "msg_01", "session_id": "default", "phase": "session_zero",
+  "ruleset": "dnd55e", "ruleset_name": "D&D 5.5e" }
 ```
+
+`ruleset` is the id of the ruleset the game is played under (see `set_ruleset` below) and `ruleset_name` its short
+display name. A ruleset chosen during the turn shows in the `message_end` of that turn.
 
 `phase` is the phase the turn started in.
 
@@ -268,7 +272,9 @@ this event. The history is rewritten at the same time (see `begin_adventure`).
   "message_id": "msg_01",
   "stop_reason": "end_turn",
   "usage": { "input_tokens": 1234, "output_tokens": 210 },
-  "phase": "session_zero"
+  "phase": "session_zero",
+  "ruleset": "dnd55e",
+  "ruleset_name": "D&D 5.5e"
 }
 ```
 
@@ -335,7 +341,8 @@ Query: `session_id` (optional). No request body.
 
 ### Response `200`
 ```json
-{ "session_id": "default", "phase": "session_zero", "message_count": 0, "discarded_message_count": 14 }
+{ "session_id": "default", "phase": "session_zero", "ruleset": "dnd55e", "ruleset_name": "D&D 5.5e",
+  "message_count": 0, "discarded_message_count": 14 }
 ```
 
 Errors: `409` a `/chat` is in flight for that session; `422` invalid `session_id`. Calling it on an already-empty
@@ -355,6 +362,8 @@ Query: `session_id` (optional).
 {
   "session_id": "default",
   "phase": "adventure",
+  "ruleset": "dnd55e",
+  "ruleset_name": "D&D 5.5e",
   "campaign": {
     "setting": "The Misty Fens: gritty, haunted marshland ...",
     "opening": "The party arrives at the Drowned Lantern inn at dusk ...",
@@ -578,6 +587,35 @@ and history.
   The model sees this and may retry. No `dice_roll` event.
 - Guardrails: expression length limit (200 chars) and d20's own roll-count limits; violations are reported as the same
   error form.
+
+---
+
+## Tool: `set_ruleset`
+
+Offered in `session_zero` only. Chooses the ruleset the game is played under; the default is `dnd55e`, and the choice is
+final once the adventure begins. The catalog and the meaning of each id are in [RULESETS.md](RULESETS.md).
+
+```json
+{
+  "name": "set_ruleset",
+  "input_schema": {
+    "type": "object",
+    "required": ["ruleset"],
+    "properties": {
+      "ruleset": {
+        "type": "string",
+        "enum": ["odnd", "basic", "becmi", "adnd1e", "adnd2e", "dnd3e", "dnd35e", "dnd4e", "dnd5e", "dnd55e",
+                 "pf1e", "pf2e"]
+      }
+    }
+  }
+}
+```
+
+Results: success says which ruleset is now in force (and that characters built under another must be rebuilt); an
+unknown id is an error listing the valid ones. Its rules and period feel are in the system prompt from the next request
+on. The ruleset is saved with the game (`ruleset` in the save file; older saves are `dnd55e`) and is part of the
+campaign record.
 
 ---
 

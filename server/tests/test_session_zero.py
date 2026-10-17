@@ -137,7 +137,7 @@ def test_corrupt_state_in_a_save_is_rejected(client, settings):
 def test_tools_offered_depend_on_phase():
     zero = [t["name"] for t in tool_schemas(phase=Phase.SESSION_ZERO)]
     adventure = [t["name"] for t in tool_schemas(phase=Phase.ADVENTURE)]
-    assert zero == ["roll_dice", "begin_adventure"]
+    assert zero == ["roll_dice", "set_ruleset", "begin_adventure"]
     assert adventure == ["roll_dice", "recall", "establish", "set_scene"]
 
 
@@ -219,7 +219,7 @@ def test_game_prompts_and_tools_follow_the_state():
     zero = GameState()
     adv = GameState(Phase.ADVENTURE, {**GOOD, "gm_notes": "The mayor is a vampire."})
     assert "Current mode: Session 0" in game.system(zero)
-    assert [t["name"] for t in game.tools(zero)] == ["roll_dice", "begin_adventure"]
+    assert [t["name"] for t in game.tools(zero)] == ["roll_dice", "set_ruleset", "begin_adventure"]
     text = game.system(adv)
     assert "Current mode: Adventure" in text and "Current mode: Session 0" not in text
     assert "The mayor is a vampire." in text  # private notes are in the system prompt
@@ -266,7 +266,7 @@ async def test_next_request_in_the_same_turn_uses_the_adventure_prompt_and_tools
     events = await collect(session, llm)
     assert [type(e) for e in events if isinstance(e, (PhaseChange, MessageEnd))] == [PhaseChange, MessageEnd]
     (sys1, tools1), (sys2, tools2) = llm.calls
-    assert "Current mode: Session 0" in sys1 and tools1 == ["roll_dice", "begin_adventure"]
+    assert "Current mode: Session 0" in sys1 and tools1 == ["roll_dice", "set_ruleset", "begin_adventure"]
     assert "Current mode: Adventure" in sys2 and tools2 == ["roll_dice", "recall", "establish", "set_scene"]
     assert session.state.phase is Phase.ADVENTURE and session.state.campaign["level"] == 3
     assert len(llm.requests[1]) == 3  # the second request saw only: note, campaign record, cue

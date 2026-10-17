@@ -61,6 +61,7 @@ The server is running with `--test`: replies are scripted, not from a model. Try
 
 - `roll <expr>`: roll dice via the real `roll_dice` tool, e.g. `roll 4d6kh3+2 # strength`
 - `multiroll`: two dice rolls in one response
+- `ruleset <id>`: choose the game's ruleset in Session 0 (calls the real `set_ruleset` tool), e.g. `ruleset adnd1e`; ids are in docs/RULESETS.md
 - `begin`: end Session 0 and start the adventure (calls the real `begin_adventure` tool; a new game starts in Session 0)
 - `establish <name>`: record a new person in the world (adventure only; calls the real `establish` tool)
 - `recall <name>`: look a name up in the world (adventure only; calls `recall`)
@@ -177,6 +178,10 @@ def plan_for(text: str, tools: tuple[str, ...] = ()) -> list[Step]:
     cmd, arg = cmd.lower(), rest.strip()
     if cmd == "help":
         return [Say(HELP)]
+    if cmd == "ruleset":
+        if "set_ruleset" not in tools:
+            return [Say("The ruleset was fixed when the adventure began.")]
+        return [Say("Changing the rules... "), UseTool("set_ruleset", {"ruleset": arg or "dnd55e"})]
     if cmd == "begin":
         if "begin_adventure" not in tools:
             return [Say("The adventure has already begun; there is no way back to Session 0.")]
@@ -253,7 +258,7 @@ def narrate_tool_results(messages: list[dict[str, Any]]) -> list[Step]:
         if name == "begin_adventure":  # on success the history is replaced, so only errors get here
             lines.append(f"- The adventure could not begin: {b.get('content')}")
             continue
-        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene"):
+        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_ruleset"):
             lines.append(f"- `{name}`{' (error)' if b.get('is_error') else ''}:\n\n```\n{b.get('content')}\n```")
             continue
         expr = tool_input.get("expression", "?")

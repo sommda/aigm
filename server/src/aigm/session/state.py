@@ -6,6 +6,7 @@ from enum import StrEnum
 from typing import Any
 
 from aigm.errors import CorruptSave
+from aigm.rulesets import BY_ID, DEFAULT_RULESET
 from aigm.world import World
 
 
@@ -19,22 +20,31 @@ class GameState:
     """What the save file and the live session carry besides the message history.
 
     `campaign` is filled in by the `begin_adventure` tool at the end of Session 0 and holds
-    the keys `setting`, `party`, `party_size`, `level` and (optionally) `gm_notes`. `world` is
+    the keys `setting`, `party`, `party_size`, `level` and (optionally) `gm_notes`. `ruleset` is an id from aigm.rulesets. `world` is
     the persistent knowledge base (docs/WORLD.md); it stays empty in Session 0."""
 
     phase: Phase = Phase.SESSION_ZERO
     campaign: dict[str, Any] | None = None
     world: World = field(default_factory=World)
+    # The rules the game is played under: chosen in Session 0 (set_ruleset), fixed once the adventure begins.
+    ruleset: str = DEFAULT_RULESET
     # The current turn number (player messages so far, including this one), set by the turn loop. Not saved: facts record it.
     turn: int = field(default=0, compare=False)
     # Set when the GM looked up something unrecorded: ask for a curator pass soon. Not saved.
     pass_requested: bool = field(default=False, compare=False)
 
     def copy(self) -> "GameState":
-        return GameState(self.phase, copy.deepcopy(self.campaign), self.world.copy(), self.turn, self.pass_requested)
+        return GameState(
+            self.phase, copy.deepcopy(self.campaign), self.world.copy(), self.ruleset, self.turn, self.pass_requested
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"phase": self.phase.value, "campaign": self.campaign, "world": self.world.to_dict()}
+        return {
+            "phase": self.phase.value,
+            "campaign": self.campaign,
+            "world": self.world.to_dict(),
+            "ruleset": self.ruleset,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "GameState":
@@ -53,4 +63,7 @@ class GameState:
         world = World.from_dict(data.get("world"))  # saves before version 3 have none
         if phase is Phase.SESSION_ZERO and not world.is_empty:
             raise CorruptSave("a session_zero save cannot have a world")
-        return cls(phase, campaign, world)
+        ruleset = data.get("ruleset", DEFAULT_RULESET)  # saves from before rulesets were all D&D 2024
+        if ruleset not in BY_ID:
+            raise CorruptSave(f"unknown ruleset {ruleset!r}")
+        return cls(phase, campaign, world, ruleset)

@@ -230,7 +230,8 @@ Tool = (schema: dict, handler: Callable[[tool_use_id, dict, GameState], ToolOutc
 ToolOutcome = { content: str, is_error: bool, event: SSEEvent | None }
 ```
 
-`phases` says where a tool is offered (`roll_dice` everywhere; `begin_adventure` only in `session_zero`; `recall`,
+`phases` says where a tool is offered (`roll_dice` everywhere; `set_ruleset` and `begin_adventure` only in
+`session_zero`; `recall`,
 `establish` and `set_scene` only in `adventure`); dispatching a tool outside its phases is an unknown-tool error. A
 handler may change the `GameState` it is given (the turn's working copy).
 
@@ -279,10 +280,11 @@ All prompt text lives in Markdown files, never in Python. `aigm.prompts.PromptLi
 
 ```
 prompts/system/common/      01_role 02_rules 03_dice 04_formatting     # every phase
-prompts/system/session_zero/ 01_mode 02_party 03_scaling 04_wrapup      # Session 0 only
+prompts/system/session_zero/ 01_mode 01a_ruleset 02_party 03_scaling 04_wrapup  # Session 0 only
+prompts/rulesets/<id>/       01_rules.md 02_era.md                       # the chosen ruleset, see RULESETS.md
 prompts/system/adventure/    01_role 02_rules 03_style 04_world          # Adventure only
 prompts/templates/           campaign_record.md party_member.md gm_notes.md session_zero_done.md begin_cue.md
-prompts/tools/               roll_dice.md begin_adventure.md recall.md establish.md set_scene.md  # one per tool
+prompts/tools/               roll_dice.md set_ruleset.md begin_adventure.md recall.md establish.md set_scene.md
 ```
 
 - A phase's system prompt is the `common` files followed by that phase's files, each in filename order. Session 0
@@ -302,10 +304,13 @@ prompts/tools/               roll_dice.md begin_adventure.md recall.md establish
   history and the world briefing. `run_turn` sends `.system`, `.tools` and `.messages` (the history with the briefing
   and its cache breakpoint added), so anything that shows the request reads the same object that is sent. See
   [CONTEXT.md](CONTEXT.md).
-- Session 0 content: welcome and open questions; party size, starting level, and building characters the 2024 way; a
+- Session 0 content: welcome and open questions; choosing the ruleset (`01a_ruleset`); party size, starting level, and
+  building characters the way the chosen ruleset does; a
   table matching the scale and danger of the setting to party level and the complexity of the adventure to party size;
   and how to wrap up (summarize, ask the player explicitly, warn there is no way back, and only then call
-  `begin_adventure`). Adventure content: the mode statement, the digital adaptations of 5.5e, and narration style.
+  `begin_adventure`). Adventure content: the mode statement, the digital adaptations, and narration style. The rules
+  themselves and the period feel are in the chosen ruleset's files (RULESETS.md), placed between the common and the mode
+  files.
 - Switching prompts changes the cached prefix once, at the moment the adventure begins, and the history is replaced at
   the same moment, so there is no reuse to lose. Afterwards the adventure prompt and history prefix are stable. Because
   Session 0 is gone, the adventure model never sees a `begin_adventure` call that is no longer in its tool list. (The

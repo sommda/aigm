@@ -7,7 +7,8 @@ from aigm.session.state import Phase
 def test_adventure_prompt_is_assembled_in_order():
     prompt = PromptLibrary().system_prompt(Phase.ADVENTURE)
     assert prompt.startswith("You are the Game Master")
-    assert prompt.index("## Core rules") < prompt.index("## Dice") < prompt.index("## Current mode: Adventure")
+    assert prompt.index("## Using the rules") < prompt.index("## Dice") < prompt.index("## Ruleset: ")
+    assert prompt.index("## Ruleset: ") < prompt.index("## Current mode: Adventure")
     assert prompt.index("## Current mode: Adventure") < prompt.index("## Running the game") < prompt.index("## Style")
     assert "<!--" not in prompt  # authoring comments are stripped
 
@@ -18,7 +19,7 @@ def test_session_zero_prompt_has_only_session_zero_material():
     assert "## Current mode: Session 0" in prompt and "begin_adventure" in prompt
     assert "## Matching the setting to the party" in prompt
     assert "## Current mode: Adventure" not in prompt and "## Running the game" not in prompt
-    assert "## Core rules" in prompt and "## Dice" in prompt  # shared parts
+    assert "## Using the rules" in prompt and "## Dice" in prompt  # shared parts
 
 
 def test_adventure_prompt_has_no_session_zero_material():

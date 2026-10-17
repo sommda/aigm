@@ -5,7 +5,7 @@ and a Textual terminal client plays it like a text adventure.
 
 | Directory | What | Docs |
 |---|---|---|
-| `server/` | FastAPI backend (own uv project) | [docs/API.md](docs/API.md), [docs/BACKEND.md](docs/BACKEND.md), [docs/WORLD.md](docs/WORLD.md) (the persistent world: design and how it works) |
+| `server/` | FastAPI backend (own uv project) | [docs/API.md](docs/API.md), [docs/BACKEND.md](docs/BACKEND.md), [docs/WORLD.md](docs/WORLD.md) (the persistent world: design and how it works), [docs/RULESETS.md](docs/RULESETS.md) (choosing the game's ruleset), [docs/CONTEXT.md](docs/CONTEXT.md) (the debug context viewer) |
 | `client/` | Textual terminal client (own uv project) | [docs/CLIENT.md](docs/CLIENT.md) |
 
 The two projects have separate dependencies, virtualenvs, and lockfiles; they communicate only over HTTP.
@@ -49,12 +49,14 @@ server/src/aigm/prompts/
   system/session_zero/  # Session 0: building the setting and party
   system/adventure/     # the game proper
   templates/            # the campaign record shown to the model in the adventure
+  rulesets/<id>/        # the rules and the period feel of each ruleset the player can choose (see docs/RULESETS.md)
   world/                # prompts and aspect checklists for the background world curator
   tools/                # one tool description per file
 ```
 
-A new game starts in **Session 0**, where the GM helps you establish the setting and the party (a higher-level or larger
-party means a tougher, more complex setting). When you confirm, the GM starts the adventure and the game switches to the
+A new game starts in **Session 0**, where the GM helps you choose the ruleset (D&D 5.5e by default, or any older D&D or
+Pathfinder edition) and establish the setting and the party (a higher-level or larger party means a tougher, more
+complex setting). When you confirm, the GM starts the adventure and the game switches to the
 adventure prompts for good; there is no way back to Session 0. Saves record which mode the game is in, so you can save
 during Session 0. Prompts for a mode are the `common` files followed by that mode's files, in filename order. Add a file
 to a folder to add a section (its number sets where it goes). HTML comments in prompt files are stripped, so they can

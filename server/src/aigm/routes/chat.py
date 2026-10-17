@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTasks
 
+from aigm import rulesets
 from aigm.deps import get_session
 from aigm.errors import Conflict
 from aigm.llm.loop import run_turn
@@ -71,6 +72,8 @@ async def chat_history(session: SessionDep) -> dict[str, Any]:
     return {
         "session_id": session.id,
         "phase": session.state.phase.value,
+        "ruleset": session.state.ruleset,
+        "ruleset_name": rulesets.get(session.state.ruleset).short,
         "campaign": session.state.campaign,
         "messages": session.messages,
     }
@@ -88,6 +91,8 @@ async def new_game(session: SessionDep, request: Request) -> dict[str, Any]:
     return {
         "session_id": session.id,
         "phase": session.state.phase.value,
+        "ruleset": session.state.ruleset,
+        "ruleset_name": rulesets.get(session.state.ruleset).short,
         "message_count": 0,
         "discarded_message_count": discarded,
     }

@@ -6,6 +6,10 @@
 
 {{setting}}
 
+### Ruleset
+
+{{ruleset}}
+
 ### Party
 
 {{party_size}} character(s), starting at level {{level}}.

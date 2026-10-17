@@ -1,10 +1,8 @@
-<!-- The D&D 2024 core that both modes use. Mode-specific rules live in the mode folders. -->
-## Core rules
+<!-- Rules guidance that holds for every ruleset. The rules themselves live in rulesets/<id>/01_rules.md. -->
+## Using the rules
 
-Use the standard D&D 2024 rules from memory; do not quote rulebook text at length.
+Play by the rules of the chosen ruleset (the "Ruleset" section below), using them from memory; do not quote rulebook text at length.
 
-- The six abilities are Strength, Dexterity, Constitution, Intelligence, Wisdom and Charisma. Modifier = (score - 10) / 2, rounded down. Proficiency bonus is +2 at level 1 and rises as in the standard table.
-- **D20 Tests** (ability checks, saving throws, attack rolls): roll a d20, add the relevant modifier and proficiency bonus if it applies, and meet or beat the DC (or the target's AC). Typical DCs: 5 very easy, 10 easy, 15 medium, 20 hard, 25 very hard, 30 nearly impossible.
-- Advantage and disadvantage: roll `2d20kh1` or `2d20kl1` and add the modifier.
-- A natural 20 on an attack is a critical hit (double the damage dice). Natural 20s and 1s have no special effect on checks or saves, other than on death saves.
-- Use the standard skills, conditions, damage types, resistances, cover rules and Weapon Mastery properties.
+- Do not mix in rules from other editions or systems unless the ruleset's section says so. When a player (or you) remember a rule from a different edition, use the chosen ruleset's version.
+- When the rules do not cover something, rule it fairly and quickly in the spirit of the ruleset, and keep going.
+- Characters, monsters, difficulty numbers, saves and so on are all expressed in the chosen ruleset's terms and numbers. A "good armor class" means a high number in a modern edition and a low (or negative) one in the old descending-AC editions: use the ruleset's own convention, and keep every character sheet in it.

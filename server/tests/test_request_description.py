@@ -43,7 +43,10 @@ def test_system_prompt_is_the_parts_joined_in_order():
     sources = [p.source for p in lib.system_parts(Phase.ADVENTURE)]
     assert sources[0] == "system/common/01_role.md"
     assert sources.index("system/common/04_formatting.md") < sources.index("system/adventure/01_role.md")
-    assert all(s.endswith(".md") and s.startswith("system/") for s in sources)
+    assert all(s.endswith(".md") and s.startswith(("system/", "rulesets/")) for s in sources)
+    # common files, then the ruleset's, then the phase's
+    assert sources.index("system/common/04_formatting.md") < sources.index("rulesets/dnd55e/01_rules.md")
+    assert sources.index("rulesets/dnd55e/02_era.md") < sources.index("system/adventure/01_role.md")
 
 
 def test_override_files_keep_their_place_and_source(tmp_path):

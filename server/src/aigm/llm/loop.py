@@ -17,6 +17,7 @@ from aigm.llm.base import (
     ThinkingStopped,
 )
 from aigm.game import Game
+from aigm import rulesets
 from aigm.models import (
     DiceRoll,
     ErrorEvent,
@@ -95,7 +96,13 @@ async def run_turn(
     state.turn = turn_number(staged)
     shown_corrections = list(state.world.corrections)  # the GM sees these in this turn's notes
     usage = {"input_tokens": 0, "output_tokens": 0}
-    yield MessageStart(message_id=message_id, session_id=session.id, phase=state.phase.value)
+    yield MessageStart(
+        message_id=message_id,
+        session_id=session.id,
+        phase=state.phase.value,
+        ruleset=state.ruleset,
+        ruleset_name=rulesets.get(state.ruleset).short,
+    )
     try:
         for _ in range(max_iters):
             completed: Completed | None = None
@@ -138,7 +145,12 @@ async def run_turn(
                 if state.phase != previous:  # announced only once committed, so it is never rolled back
                     yield PhaseChange(previous=previous.value, phase=state.phase.value)
                 yield MessageEnd(
-                    message_id=message_id, stop_reason=completed.stop_reason, usage=usage, phase=state.phase.value
+                    message_id=message_id,
+                    stop_reason=completed.stop_reason,
+                    usage=usage,
+                    phase=state.phase.value,
+                    ruleset=state.ruleset,
+                    ruleset_name=rulesets.get(state.ruleset).short,
                 )
                 return
 

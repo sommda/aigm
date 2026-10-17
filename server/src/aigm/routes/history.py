@@ -52,6 +52,7 @@ async def restore_history(name: str, request: Request, repo: RepoDep, session: S
         "name": name,
         "session_id": session.id,
         "phase": state.phase.value,
+        "ruleset": state.ruleset,
         "message_count": len(messages),
         "saved_at": info["saved_at"],
         "replaced_message_count": replaced,

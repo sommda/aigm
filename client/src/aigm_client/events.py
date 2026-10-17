@@ -11,6 +11,7 @@ class MessageStart:
     message_id: str = ""
     session_id: str = ""
     phase: str = ""  # "session_zero" | "adventure" ("" from servers that do not report it)
+    ruleset_name: str = ""  # short display name such as "AD&D 1e" ("" from older servers)
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class MessageEnd:
     stop_reason: str = ""
     usage: dict[str, Any] = field(default_factory=dict)
     phase: str = ""
+    ruleset_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -129,7 +131,9 @@ def parse_event(name: str, data: str) -> Event | None:
     try:
         match name:
             case "message_start":
-                return MessageStart(d.get("message_id", ""), d.get("session_id", ""), d.get("phase", ""))
+                return MessageStart(
+                    d.get("message_id", ""), d.get("session_id", ""), d.get("phase", ""), d.get("ruleset_name", "")
+                )
             case "thinking":
                 return Thinking(d.get("status", "start"), d.get("delta", ""), d.get("duration_ms"))
             case "text":
@@ -149,7 +153,13 @@ def parse_event(name: str, data: str) -> Event | None:
             case "status":
                 return Status(str(d.get("stage", "")), str(d.get("message", "")), bool(d.get("done", False)))
             case "message_end":
-                return MessageEnd(d.get("message_id", ""), d.get("stop_reason", ""), d.get("usage") or {}, d.get("phase", ""))
+                return MessageEnd(
+                    d.get("message_id", ""),
+                    d.get("stop_reason", ""),
+                    d.get("usage") or {},
+                    d.get("phase", ""),
+                    d.get("ruleset_name", ""),
+                )
             case "phase_change":
                 return PhaseChange(d.get("previous", ""), d.get("phase", ""))
             case "error":

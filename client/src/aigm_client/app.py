@@ -98,7 +98,7 @@ class AigmApp(App):
         self.debug_server = health.get("debug") is True
         self.refresh_bindings()
         messages = state["messages"]
-        s.load_history(messages, state.get("phase", ""))
+        s.load_history(messages, state.get("phase", ""), state.get("ruleset_name", ""))
         s.dirty = bool(messages)
         if not messages:
             s.add_system(intro_text(s.phase))
@@ -145,6 +145,8 @@ class AigmApp(App):
         game = (s.game_name or "unsaved") + ("*" if s.dirty and s.game_name else "")
         conn = {True: "● connected", False: "○ offline", None: "… connecting"}[self.connected]
         mode = f"   mode: {s.phase_label}" if s.phase_label else ""
+        if mode and s.ruleset_name:
+            mode += f" · {s.ruleset_name}"
         debug = "   DEBUG" if self.debug_server else ""
         self.query_one("#status", Static).update(f"{left}{mode}   game: {game}   {conn}{debug}")
 
@@ -348,7 +350,7 @@ class AigmApp(App):
             s.add_system(f"Load failed: {e.message}", "red")
             self._kick()
             return
-        s.load_history(state["messages"], state.get("phase", ""))
+        s.load_history(state["messages"], state.get("phase", ""), state.get("ruleset_name", ""))
         s.mark_loaded(name)
         s.add_system(f"Loaded '{name}'." + (f" ({s.phase_label})" if s.phase_label else ""))
         self._kick()
@@ -371,7 +373,7 @@ class AigmApp(App):
             s.add_system(f"New game failed: {e.message}", "red")
             self._kick()
             return
-        s.new_game(result.get("phase", ""))
+        s.new_game(result.get("phase", ""), result.get("ruleset_name", ""))
         s.add_system("New game started. " + intro_text(s.phase))
         self._kick()
 

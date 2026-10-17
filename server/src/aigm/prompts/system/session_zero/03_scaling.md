@@ -5,6 +5,8 @@ The setting, and the adventure you intend to run in it, must suit the party. As 
 
 **Party level sets the scale and danger of the setting:**
 
+These bands are written for a 20-level game. Where the chosen ruleset's levels run differently (shorter, or longer), stretch or squeeze the bands to fit its range; its section says how many levels it has and where the heroic scale starts.
+
 | Levels | Scale of the world and its threats |
 | --- | --- |
 | 1-4 | Local. A village, a dungeon, a bandit gang, a haunted ruin. Dangerous but survivable; one bad fight can kill. |

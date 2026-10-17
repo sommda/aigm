@@ -37,7 +37,7 @@ SCHEMA: dict[str, Any] = {
                         "name": {"type": "string"},
                         "sheet": {
                             "type": "string",
-                            "description": f"The complete character, enough to play from (at least {MIN_SHEET} characters): species, background, class and subclass, level, ability scores, HP, AC, proficiencies, features, spells, equipment, and personality.",
+                            "description": f"The complete character, enough to play from (at least {MIN_SHEET} characters), in the terms of the chosen ruleset: race or species, class, level, ability scores, HP, Armor Class, saves, skills or proficiencies, features, spells, equipment, and personality.",
                         },
                     },
                     "required": ["name", "sheet"],
@@ -97,7 +97,7 @@ def _party(raw: Any, problems: list[str]) -> list[dict[str, str]]:
         if not isinstance(sheet, str) or len(sheet.strip()) < MIN_SHEET:
             problems.append(
                 f"{label}: 'sheet' is too thin (at least {MIN_SHEET} characters; give the full character: "
-                "class, level, ability scores, HP, AC, features, equipment, personality)"
+                "class, level, ability scores, HP, AC, saves, features, equipment, personality)"
             )
         party.append(
             {

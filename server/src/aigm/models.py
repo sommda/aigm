@@ -39,6 +39,8 @@ class MessageStart(SSEEvent):
     message_id: str
     session_id: str
     phase: str
+    ruleset: str = ""  # the id, e.g. "dnd55e"
+    ruleset_name: str = ""  # for display, e.g. "AD&D 1e"
 
 
 class Thinking(SSEEvent):
@@ -110,6 +112,8 @@ class MessageEnd(SSEEvent):
     stop_reason: str
     usage: dict[str, int]
     phase: str
+    ruleset: str = ""
+    ruleset_name: str = ""
 
 
 class ErrorEvent(SSEEvent):

@@ -15,7 +15,7 @@ from aigm_client.transcript import Transcript
 
 PHASE_LABELS = {"session_zero": "Session 0", "adventure": "Adventure"}
 INTRO = {
-    "session_zero": "Welcome! This is Session 0, where we set up your world and your party. Say hello to begin. Type /help for commands.",
+    "session_zero": "Welcome! This is Session 0, where we choose the rules (D&D 5.5e by default, or any older D&D or Pathfinder edition) and set up your world and your party. Say hello to begin. Type /help for commands.",
     "adventure": "Welcome back. Describe what you do. Type /help for commands.",
 }
 
@@ -32,6 +32,7 @@ class ChatSession:
         self.status = ""  # a long wait the server is reporting ("Preparing the world..."); "" when none
         self.game_name: str | None = None
         self.phase = ""  # "session_zero" | "adventure" | "" (unknown)
+        self.ruleset_name = ""  # e.g. "AD&D 1e"; "" when the server does not report it
         self.dirty = False  # unsaved changes since last save/load/new
         self.changed = False  # set whenever anything visible changed; the UI clears it
         self._text: MarkdownBlock | None = None
@@ -89,16 +90,18 @@ class ChatSession:
             case ev.DiceRoll():
                 self._text = None
                 self.transcript.add(DiceBlock(event))
-            case ev.MessageStart(phase=phase) if phase:
+            case ev.MessageStart(phase=phase, ruleset_name=ruleset) if phase:
                 self.phase = phase
+                self.ruleset_name = ruleset or self.ruleset_name
             case ev.PhaseChange(phase=phase):
                 self.phase = phase
                 self._text = self._reasoning = None
                 if phase == "adventure":
                     self.add_system("Session 0 is over. The adventure begins!", "bold green")
-            case ev.MessageEnd(phase=phase):
+            case ev.MessageEnd(phase=phase, ruleset_name=ruleset):
                 if phase:
                     self.phase = phase
+                self.ruleset_name = ruleset or self.ruleset_name
                 self._finish_turn()
             case ev.ErrorEvent(message=message):
                 self._finish_turn()
@@ -132,9 +135,10 @@ class ChatSession:
             self.transcript.add(SystemBlock(line, style))
         self._touch()
 
-    def load_history(self, messages: list[dict[str, Any]], phase: str = "") -> None:
+    def load_history(self, messages: list[dict[str, Any]], phase: str = "", ruleset_name: str = "") -> None:
         """Replace the transcript with a server history and open on its last page."""
         self.phase = phase
+        self.ruleset_name = ruleset_name
         self.transcript.replace_blocks(history_to_blocks(messages))
         self.busy = self.thinking = False
         self.status = ""
@@ -142,8 +146,9 @@ class ChatSession:
         self.dirty = False
         self._touch()
 
-    def new_game(self, phase: str = "session_zero") -> None:
+    def new_game(self, phase: str = "session_zero", ruleset_name: str = "") -> None:
         self.phase = phase
+        self.ruleset_name = ruleset_name
         self.transcript.clear()
         self.busy = self.thinking = False
         self.status = ""

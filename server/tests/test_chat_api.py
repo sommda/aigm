@@ -162,7 +162,10 @@ def test_chat_validation(client, body):
 def test_new_game_clears_live_history(client):
     chat(client, "echo hi")
     resp = client.post("/chat/new")
-    assert resp.json() == {"session_id": "default", "phase": "session_zero", "message_count": 0, "discarded_message_count": 2}
+    assert resp.json() == {
+        "session_id": "default", "phase": "session_zero", "ruleset": "dnd55e", "ruleset_name": "D&D 5.5e",
+        "message_count": 0, "discarded_message_count": 2,
+    }
     assert history(client) == []
 
 
