@@ -265,6 +265,12 @@ server side is `GET /debug/context` in [API.md](API.md).
   and `Home`/`End` jump, `e` opens everything, `c` goes back to the defaults, `r` fetches again, and `Esc`, `q` or
   `Ctrl+K` close. Open and closed rows are remembered by node `id` across refreshes within one opening, and forgotten
   when the viewer closes.
+- **History reduction.** When the server shortens the history it sends (docs/HISTORY.md), the viewer shows what
+  the model gets: old turns marked `(trimmed)`, the digests of the oldest turns as one purple `digest` block, and a
+  second header line "History reduced: N turns as digests, M trimmed, ~K tokens saved".
+- **Turn timings.** On a debug server, each finished turn ends with a dim line from `message_end.metrics`: time to the
+  first visible text, total time, input tokens (with how many came from and went to the prompt cache), output tokens
+  and the number of model calls. Servers without `metrics` print nothing.
 - **Draft.** Opening and `r` send the text typed in the prompt so far (`draft`), so the briefing preview matches what
   the next message would bring in. The prompt itself is not changed.
 - **Errors.** A `404` (a server restarted without `--debug`) shows "This server does not offer the context view.

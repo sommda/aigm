@@ -114,6 +114,7 @@ class MessageEnd(SSEEvent):
     phase: str
     ruleset: str = ""
     ruleset_name: str = ""
+    metrics: dict[str, Any] | None = None  # timings and token use of the turn (see aigm.metrics)
 
 
 class ErrorEvent(SSEEvent):

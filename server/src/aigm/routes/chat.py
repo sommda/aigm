@@ -45,6 +45,8 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
                 stream_thinking=settings.stream_thinking,
                 curator=app.state.curator,
                 roll_pause=settings.roll_pause,
+                metrics=app.state.metrics,
+                model=app.state.model_name,
             ):
                 yield encode(event)
         finally:

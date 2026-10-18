@@ -7,6 +7,7 @@ merged) skips it instead of failing, so replaying them is safe."""
 
 from dataclasses import dataclass, field
 
+from aigm.world.digest import Digest
 from aigm.world.model import World, WorldError
 
 
@@ -82,8 +83,14 @@ class MarkProcessed:
     count: int
 
 
+@dataclass
+class AddDigest:
+    digest: Digest
+
+
 Op = (
     AddEntity | AddAlias | AddFact | Supersede | Reveal | SetScene | SettleTime | StartClock | Correct | MarkProcessed
+    | AddDigest
 )
 
 
@@ -193,4 +200,6 @@ def _apply(world: World, op: Op) -> bool:
             world.mark_processed(op.count)
             return True
         return False
+    if isinstance(op, AddDigest):
+        return world.add_digest(op.digest)
     raise WorldError(f"unknown op {op!r}")

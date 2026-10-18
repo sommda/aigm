@@ -77,6 +77,8 @@ def dump_world(world: World, *, known_only: bool = False, session_id: str | None
             entry["superseded"] = [fact_line(world, f) for f in replaced]
         entities.append(entry)
     out["entities"] = entities
+    if world.digests and not known_only:
+        out["digests"] = [f"turn {d.turn} (messages {d.start}-{d.end - 1}): {d.text}" for d in sorted(world.digests.values(), key=lambda d: d.start)]
     return out
 
 

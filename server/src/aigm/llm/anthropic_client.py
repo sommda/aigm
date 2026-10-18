@@ -144,5 +144,10 @@ class AnthropicLLM:
             # Stored verbatim in history, including thinking blocks and their signatures.
             content=[b.model_dump(mode="json", exclude_none=True) for b in final.content],
             stop_reason=final.stop_reason or "end_turn",
-            usage={"input_tokens": input_tokens, "output_tokens": usage.output_tokens or 0},
+            usage={
+                "input_tokens": input_tokens,
+                "output_tokens": usage.output_tokens or 0,
+                "cache_read_tokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
+                "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", 0) or 0,
+            },
         )

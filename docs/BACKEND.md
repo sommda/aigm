@@ -37,6 +37,8 @@ server/              # (inside the repo root; docs live in ../docs)
   src/aigm/
     __init__.py
     app.py            # FastAPI app factory, router wiring, lifespan
+    history.py        # the reduced history the model is shown: trimming and digests (section 11)
+    metrics.py        # per-turn measurements: timings, token use, request sizes
     config.py         # Settings (env-driven)
     models.py         # Pydantic request/response models, SSE event models
     sse.py            # SSE event encoding helpers
@@ -76,6 +78,10 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 | `AIGM_MAX_TOOL_ITERS`  | `8`                   | Tool-loop safety limit per turn      |
 | `AIGM_STREAM_THINKING` | `true`               | Forward reasoning text as `thinking` `delta` events; `false` sends only `start`/`end` |
 | `AIGM_DEBUG`           | `false`              | Debug mode (`aigm --debug`): registers `GET /debug/context` and reports `debug: true` in `/health` (see CONTEXT.md) |
+| `AIGM_HISTORY_TRIM` / `AIGM_HISTORY_DIGEST` | `true` / `true` | Shrink the history the model sees (see section 11); `false` for both sends everything |
+| `AIGM_HISTORY_TRIM_KEEP` / `_STEP` | `4` / `6` | Newest turns never trimmed; the trim cut moves this many turns at a time |
+| `AIGM_HISTORY_DIGEST_KEEP` / `_STEP` | `12` / `12` | Newest turns always shown in full; the digest cut moves this many turns at a time |
+| `AIGM_METRICS`         | `true`               | Append one JSON line per turn (timings, token use, request sizes) to `{save_dir}/metrics/{session}.jsonl` |
 | `AIGM_ROLL_PAUSE`      | `0.8`                | Seconds to wait before each `dice_roll` event is sent, after the narration that precedes it (`0` disables) |
 | `AIGM_THINKING_SUMMARIES` | `true`            | Request adaptive thinking with summaries (`false` for models without adaptive thinking) |
 | `AIGM_EFFORT`          | (model default)       | `low` to `max`; maps to `output_config.effort` |
@@ -201,7 +207,8 @@ Algorithm:
       blocks, including `tool_use` and, when thinking is enabled, `thinking` blocks with their signatures — the API
       requires thinking blocks to be passed back unmodified alongside tool results within a turn, so never strip or
       reorder them).
-   4. If `stop_reason != "tool_use"`: yield `message_end` (with accumulated usage) and return.
+   4. If `stop_reason != "tool_use"`: yield `message_end` (with accumulated usage and the turn's `metrics`, which are
+      also logged and appended to the session's metrics file) and return.
    5. Otherwise, for each `tool_use` block, in order:
       - yield `tool_call`;
       - dispatch to the tool registry (handler runs in `to_thread` if blocking);
@@ -335,6 +342,29 @@ prompts/tools/               roll_dice.md set_ruleset.md begin_adventure.md reca
 - Structured logging (request id, session id, tool calls, token usage); never log API keys, and log message bodies only
   at DEBUG.
 
+### 11. History reduction (`history.py`)
+
+Design and reasoning are in [HISTORY.md](HISTORY.md). `Game.describe` passes the stored messages through
+`reduce_history`, so the request (and the context viewer, which reads the same description) shows the reduced view;
+the stored messages, the saves and `/chat/history` are never changed. The briefing is still chosen from the full
+history.
+
+- A **turn** starts at each player message and runs to the next one, so a turn includes the tool-call messages in it.
+  The first turn (the campaign record after Session 0) is always shown in full.
+- **Cuts.** `cut(turns, keep, step) = max(0, (turns - keep) // step * step)`: it counts the turns that have aged out,
+  moves only every `step` turns, and always leaves at least `keep` turns newer than it. Only the number of turns
+  matters, so between moves the start of the request is byte-identical and the prompt cache keeps hitting; a move
+  rewrites the cache once.
+- **Digest cut** (`AIGM_HISTORY_DIGEST_KEEP`/`_STEP`): turns before it are replaced by their digests (world.digests,
+  written by the curator, see WORLD.md 4.7), listed in one `<story_so_far>` block at the front of the oldest turn
+  that is still shown in full (so the roles keep alternating). The cut stops at the first turn without a digest, so
+  a lagging curator only delays the reduction.
+- **Trim cut** (`AIGM_HISTORY_TRIM_KEEP`/`_STEP`): turns between the digest cut and this one lose their `thinking`
+  blocks, and each tool call with its result is folded into a note inside the GM's message, for example
+  `(Rolled 1d20+5: 1d20 (13) + 5 = 18)`. The messages around it merge, so no `tool_use` is left unanswered. The
+  turn in progress is never touched, because thinking must go back unmodified while its tool calls are answered.
+- With both switches off the stored list is returned as it is.
+
 ## LLM abstraction
 
 The tool loop does not talk to the Anthropic SDK directly. `llm/base.py` defines a small `LLMClient` protocol whose
@@ -416,7 +446,8 @@ results the scripted model narrates them, so the full request -> tool -> follow-
 
 ## Known Limitations / Future Work
 
-- History grows without bound (memory/summarization is the next milestone).
+- The stored history grows without bound (it is the transcript and the save). What the model is sent does not: see
+  section 11.
 - Single process: the in-memory store and locks don't survive restarts or scale across workers; saves are manual.
 - Rolled-back turns lose partial text a client already displayed; a future version might persist partial turns with
   synthetic tool results.

@@ -4,6 +4,8 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from aigm.history import HistoryPolicy
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
@@ -23,6 +25,17 @@ class Settings(BaseSettings):
     )
     # Rough size, in tokens, of the world notes shown to the GM with each request.
     world_briefing_tokens: int = Field(default=2000, validation_alias="AIGM_WORLD_BRIEFING_TOKENS")
+    # Shrinking the history the model sees (docs/HISTORY.md). The stored messages are never changed. Turns older than
+    # *_keep are trimmed (thinking dropped, tool calls folded into notes) or replaced by their digests; the cuts move
+    # every *_step turns, so the start of the request stays the same in between and the prompt cache keeps hitting.
+    history_trim: bool = Field(default=True, validation_alias="AIGM_HISTORY_TRIM")
+    history_trim_keep: int = Field(default=4, ge=1, validation_alias="AIGM_HISTORY_TRIM_KEEP")
+    history_trim_step: int = Field(default=6, ge=1, validation_alias="AIGM_HISTORY_TRIM_STEP")
+    history_digest: bool = Field(default=True, validation_alias="AIGM_HISTORY_DIGEST")
+    history_digest_keep: int = Field(default=12, ge=1, validation_alias="AIGM_HISTORY_DIGEST_KEEP")
+    history_digest_step: int = Field(default=12, ge=1, validation_alias="AIGM_HISTORY_DIGEST_STEP")
+    # Write one JSON line per turn (timings, token usage, request sizes) to {save_dir}/metrics/{session}.jsonl.
+    metrics: bool = Field(default=True, validation_alias="AIGM_METRICS")
     # The world curator's models: a cheap one for extraction, reconciliation and checks, a stronger
     # one for inventing new parts of the world. Point both at one model to tune.
     world_curator: bool = Field(default=True, validation_alias="AIGM_WORLD_CURATOR")
@@ -47,3 +60,14 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(
         default=["http://localhost", "http://127.0.0.1"], validation_alias="AIGM_CORS_ORIGINS"
     )
+
+    @property
+    def history_policy(self) -> HistoryPolicy:
+        return HistoryPolicy(
+            trim=self.history_trim,
+            trim_keep=self.history_trim_keep,
+            trim_step=self.history_trim_step,
+            digest=self.history_digest,
+            digest_keep=self.history_digest_keep,
+            digest_step=self.history_digest_step,
+        )

@@ -14,6 +14,7 @@ KIND_STYLES = {
     "prompt": "bright_blue",
     "tools": "cyan",
     "briefing": "yellow",
+    "digest": "medium_purple1",
     "history": "white",
     "user": "green",
     "assistant": "magenta",
@@ -99,10 +100,17 @@ class ContextModel:
     @property
     def header_text(self) -> str:
         d = self.data
-        return (
+        head = (
             f"Context for the next message  ·  {d.get('phase', '?')}  ·  {d.get('model', '?')}  ·  "
             f"turn {d.get('turn', '?')}  ·  ~{d.get('estimated_tokens', 0):,} tokens"
         )
+        red = d.get("reduction") or {}
+        if red.get("digested_turns") or red.get("trimmed_turns"):
+            head += (
+                f"\nHistory reduced: {red.get('digested_turns', 0)} turns as digests, {red.get('trimmed_turns', 0)} "
+                f"trimmed, ~{red.get('history_tokens_saved', 0):,} tokens saved"
+            )
+        return head
 
     # ---- collapse state -----------------------------------------------------------------
 

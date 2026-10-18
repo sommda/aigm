@@ -107,7 +107,8 @@ async def test_text_stream():
     done = events[-1]
     assert isinstance(done, Completed) and done.stop_reason == "end_turn"
     assert done.content == [{"type": "text", "text": "Hello world"}]
-    assert done.usage == {"input_tokens": 150, "output_tokens": 7}  # input includes cached tokens
+    # input includes cached tokens, and the cache use is reported on its own
+    assert done.usage == {"input_tokens": 150, "output_tokens": 7, "cache_read_tokens": 50, "cache_write_tokens": 0}
 
 
 async def test_thinking_text_and_tool_use():

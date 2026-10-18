@@ -235,3 +235,12 @@ def test_cli_handles_saves_with_no_world(tmp_path, capsys):
     (tmp_path / "v2.json").write_text(json.dumps({"version": 2, "messages": []}))
     assert main(["v2", "--save-dir", str(tmp_path)]) == 0
     assert json.loads(capsys.readouterr().out)["entities"] == []
+
+
+def test_the_dump_lists_digests_for_the_gm_view_only():
+    from aigm.world import Digest
+
+    w = World()
+    w.add_digest(Digest(2, 4, 2, "The party met Wren."))
+    assert dump_world(w)["digests"] == ["turn 2 (messages 2-3): The party met Wren."]
+    assert "digests" not in dump_world(w, known_only=True) and "digests" not in dump_world(World())

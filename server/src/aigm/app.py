@@ -7,12 +7,14 @@ from aigm.llm.anthropic_client import AnthropicLLM
 from aigm.llm.base import LLMClient
 from aigm.llm.scripted import ScriptedLLM
 from aigm.game import Game
+from aigm.metrics import MetricsLog
 from aigm.prompts import PromptLibrary
 from aigm.routes import chat, debug, health, history
 from aigm.session.persistence import HistoryRepository
 from aigm.session.store import SessionStore
 from aigm.world.anthropic_curator import AnthropicCurator
 from aigm.world.dump import WorldDumper
+from aigm.world.passes import PassConfig
 from aigm.world.scripted import ScriptedCurator
 from aigm.world.service import CuratorService
 
@@ -27,7 +29,7 @@ def create_app(
     app.state.settings = settings
     app.state.sessions = SessionStore()
     app.state.repo = HistoryRepository(settings.save_dir)
-    app.state.game = Game(PromptLibrary(settings.prompt_dir), settings.world_briefing_tokens)  # prompts are read at startup; restart to pick up edits
+    app.state.game = Game(PromptLibrary(settings.prompt_dir), settings.world_briefing_tokens, settings.history_policy)  # prompts are read at startup; restart to pick up edits
     if llm is None:
         if settings.test_mode:
             llm = ScriptedLLM(delay=settings.test_delay, chunk_size=settings.test_chunk_size)
@@ -40,6 +42,7 @@ def create_app(
                 effort=settings.effort,
             )
     app.state.llm = llm
+    app.state.metrics = MetricsLog(settings.save_dir / "metrics" if settings.metrics else None)
     app.state.dumper = WorldDumper(settings.save_dir / "worlds", settings.world_dump)
     app.state.curator = curator if curator is not None else _make_curator(settings, app.state.game.prompts)
     app.state.model_name = TEST_MODEL_NAME if settings.test_mode else settings.model
@@ -61,7 +64,11 @@ def create_app(
 
 def _make_curator(settings: Settings, prompts: PromptLibrary) -> CuratorService | None:
     """The background world curator: scripted in test mode, model-driven otherwise (or off)."""
-    timing = {"every_pages": settings.world_every_pages, "page_chars": settings.world_page_chars}
+    timing = {
+        "every_pages": settings.world_every_pages,
+        "page_chars": settings.world_page_chars,
+        "config": PassConfig(digests=settings.history_digest),
+    }
     if settings.test_mode:
         return CuratorService(ScriptedCurator(), **timing)
     if not settings.world_curator:

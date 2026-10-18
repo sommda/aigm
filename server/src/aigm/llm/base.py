@@ -39,6 +39,8 @@ class Completed:
 
     content: list[dict[str, Any]]
     stop_reason: str
+    # input_tokens counts everything the model read, cached or not; the cache_* keys say how much of it was
+    # read from or written to the prompt cache.
     usage: dict[str, int] = field(default_factory=lambda: {"input_tokens": 0, "output_tokens": 0})
 
 

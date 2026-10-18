@@ -77,6 +77,7 @@ class MessageEnd:
     usage: dict[str, Any] = field(default_factory=dict)
     phase: str = ""
     ruleset_name: str = ""
+    metrics: dict[str, Any] = field(default_factory=dict)  # timings and token use of the turn
 
 
 @dataclass(frozen=True)
@@ -159,6 +160,7 @@ def parse_event(name: str, data: str) -> Event | None:
                     d.get("usage") or {},
                     d.get("phase", ""),
                     d.get("ruleset_name", ""),
+                    d.get("metrics") or {},
                 )
             case "phase_change":
                 return PhaseChange(d.get("previous", ""), d.get("phase", ""))

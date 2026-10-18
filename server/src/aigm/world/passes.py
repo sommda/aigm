@@ -13,6 +13,8 @@ from typing import Any
 from aigm.world.curator import (
     BootstrapRequest,
     Curator,
+    DigestRequest,
+    DigestTurn,
     EntityProposal,
     EntityQuestion,
     ExpandRequest,
@@ -24,10 +26,13 @@ from aigm.world.curator import (
     ReconcileRequest,
     ReconcileResult,
 )
+from aigm.history import digest_for, turn_chars, turns as split_turns
+from aigm.world.digest import Digest, clean_digest_text
 from aigm.world.independence import independence_problem, standalone_problem
 from aigm.world.model import ASPECTS, DISCLOSURES, KINDS, Entity, Fact, World
 from aigm.world.ops import (
     AddAlias,
+    AddDigest,
     AddEntity,
     AddFact,
     Correct,
@@ -61,6 +66,9 @@ class PassConfig:
     max_facts_per_call: int = 10
     max_entities_per_call: int = 4
     neighbor_hits: int = 5
+    digests: bool = True  # write digests of finished turns (docs/HISTORY.md)
+    max_digest_turns: int = 40  # turns digested per pass (older saves are caught up over several passes)
+    digest_batch: int = 8  # turns per curator call
 
 
 @dataclass
@@ -207,6 +215,9 @@ async def run_pass(
         )
         commit(await _plan_extraction(snap, extraction, curator, turn, config, result))
 
+    if config.digests:
+        await _digest_turns(snap, messages, curator, setting, config, result)
+
     review: dict[str, list[Fact]] = {}  # entity id -> hidden facts to re-check after a correction
     for op in result.ops:
         if isinstance(op, Supersede):
@@ -221,6 +232,39 @@ async def run_pass(
 
     result.ops.append(MarkProcessed(len(messages)))
     return result
+
+
+async def _digest_turns(
+    snap: World, messages: list[dict[str, Any]], curator: Curator, setting: str, config: PassConfig, result: PassResult
+) -> None:
+    """Write digests for finished turns that have none, oldest first. The first turn (the campaign record) is
+    left out. This stage never fails the pass: turns without a digest are picked up again by the next one."""
+    digest = getattr(curator, "digest", None)
+    if digest is None:
+        return
+    todo = [t for t in split_turns(messages)[1:] if digest_for(t, snap.digests) is None][: config.max_digest_turns]
+    for i in range(0, len(todo), max(1, config.digest_batch)):
+        batch = todo[i : i + max(1, config.digest_batch)]
+        request = DigestRequest(
+            [DigestTurn(t.number, transcript(messages[t.start : t.end])) for t in batch], setting=setting
+        )
+        try:
+            texts = await digest(request)
+        except Exception as exc:  # a failed call must not lose the rest of the pass
+            log.warning("digest call failed: %s", exc)
+            result.notes.append(f"digest: {type(exc).__name__}: {exc}")
+            return
+        if len(texts) != len(batch):
+            result.notes.append(f"digest: expected {len(batch)} digests, got {len(texts)}")
+            continue
+        ops: list[Op] = []
+        for turn, text in zip(batch, texts):
+            text = clean_digest_text(text) if isinstance(text, str) else ""
+            if text:
+                ops.append(AddDigest(Digest(turn.start, turn.end, turn.number, text, turn_chars(messages, turn))))
+        applied = apply_ops(snap, ops)
+        result.ops += applied.ops
+        result.notes += applied.skipped
 
 
 async def _expand_frontier(

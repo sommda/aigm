@@ -18,6 +18,7 @@ from aigm.llm.base import (
 )
 from aigm.game import Game
 from aigm import rulesets
+from aigm.metrics import MetricsLog, RequestMetrics, TurnMetrics, request_sizes
 from aigm.models import (
     DiceRoll,
     ErrorEvent,
@@ -81,6 +82,8 @@ async def run_turn(
     stream_thinking: bool = True,
     curator: CuratorService | None = None,
     roll_pause: float = 0.0,
+    metrics: MetricsLog | None = None,
+    model: str = "",
 ) -> AsyncIterator[SSEEvent]:
     """Run one user turn, yielding SSE events.
 
@@ -95,7 +98,9 @@ async def run_turn(
     state = session.state.copy()
     state.turn = turn_number(staged)
     shown_corrections = list(state.world.corrections)  # the GM sees these in this turn's notes
-    usage = {"input_tokens": 0, "output_tokens": 0}
+    usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
+    turn_started = time.monotonic()
+    measured = TurnMetrics(turn=state.turn, phase=state.phase.value, model=model)
     yield MessageStart(
         message_id=message_id,
         session_id=session.id,
@@ -108,6 +113,9 @@ async def run_turn(
             completed: Completed | None = None
             think_started: float | None = None
             request = game.describe(state, staged, user_text)
+            call = RequestMetrics(index=len(measured.requests), sent=request_sizes(request, staged))
+            measured.reduction = request.reduction
+            call_started = time.monotonic()
             async for ev in llm.stream(system=request.system, messages=request.messages, tools=request.tools):
                 if isinstance(ev, ThinkingStarted):
                     think_started = time.monotonic()
@@ -118,18 +126,33 @@ async def run_turn(
                 elif isinstance(ev, ThinkingStopped):
                     ms = int((time.monotonic() - (think_started or time.monotonic())) * 1000)
                     think_started = None
+                    call.thinking_ms += ms
                     yield Thinking(status="end", duration_ms=ms)
                 elif isinstance(ev, TextChunk):
+                    now = time.monotonic()
+                    if call.first_text_ms is None:
+                        call.first_text_ms = int((now - call_started) * 1000)
+                    if measured.first_text_ms is None:
+                        measured.first_text_ms = int((now - turn_started) * 1000)
                     yield TextDelta(delta=ev.text)
                 elif isinstance(ev, Completed):
                     completed = ev
             if think_started is not None:  # model stream ended mid-thinking: close the phase
-                yield Thinking(status="end", duration_ms=int((time.monotonic() - think_started) * 1000))
+                ms = int((time.monotonic() - think_started) * 1000)
+                call.thinking_ms += ms
+                yield Thinking(status="end", duration_ms=ms)
+            call.total_ms = int((time.monotonic() - call_started) * 1000)
+            measured.requests.append(call)
             if completed is None:
                 raise LLMError("The model stream ended without a final message", retryable=True)
             staged.append({"role": "assistant", "content": completed.content})
             for key in usage:
                 usage[key] += completed.usage.get(key, 0)
+            call.input_tokens = completed.usage.get("input_tokens", 0)
+            call.output_tokens = completed.usage.get("output_tokens", 0)
+            call.cache_read_tokens = completed.usage.get("cache_read_tokens", 0)
+            call.cache_write_tokens = completed.usage.get("cache_write_tokens", 0)
+            call.stop_reason = completed.stop_reason
 
             tool_uses = [b for b in completed.content if b.get("type") == "tool_use"]
             if not completed.content:
@@ -144,6 +167,9 @@ async def run_turn(
                 previous, session.messages[:], session.state = session.state.phase, staged, state
                 if state.phase != previous:  # announced only once committed, so it is never rolled back
                     yield PhaseChange(previous=previous.value, phase=state.phase.value)
+                measured.total_ms = int((time.monotonic() - turn_started) * 1000)
+                if metrics is not None:
+                    metrics.record(session.id, measured)
                 yield MessageEnd(
                     message_id=message_id,
                     stop_reason=completed.stop_reason,
@@ -151,6 +177,7 @@ async def run_turn(
                     phase=state.phase.value,
                     ruleset=state.ruleset,
                     ruleset_name=rulesets.get(state.ruleset).short,
+                    metrics=measured.to_dict(),
                 )
                 return
 
@@ -163,6 +190,7 @@ async def run_turn(
                 if outcome.event is not None:
                     if roll_pause > 0 and isinstance(outcome.event, DiceRoll):
                         await asyncio.sleep(roll_pause)  # let the narration sink in before the dice land
+                        measured.pause_ms += int(roll_pause * 1000)
                     yield outcome.event
                 results.append(
                     {

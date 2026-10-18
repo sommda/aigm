@@ -15,6 +15,7 @@ from aigm.prompts import PromptLibrary
 from aigm.world.curator import (
     BootstrapRequest,
     CuratorError,
+    DigestRequest,
     EntityProposal,
     ExpandRequest,
     ExtractRequest,
@@ -25,7 +26,7 @@ from aigm.world.curator import (
     ReconcileResult,
 )
 from aigm.world.model import ASPECTS, DISCLOSURES, KINDS
-from aigm.world.render import render_bootstrap, render_expand, render_extract, render_reconcile
+from aigm.world.render import render_bootstrap, render_digest, render_expand, render_extract, render_reconcile
 
 log = logging.getLogger(__name__)
 LABELS = ("new", "duplicate", "refines", "contradicts")
@@ -83,6 +84,7 @@ EXPAND_SCHEMA = _obj(
         "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT, replaces=_nullable(_STR)),
     },
 )
+DIGEST_SCHEMA = _obj(digests={"type": "array", "items": _obj(turn={"type": "integer"}, text=_STR)})
 JUDGE_SCHEMA = _obj(violations={"type": "array", "items": _obj(index={"type": "integer"}, reason=_STR)})
 
 
@@ -136,7 +138,7 @@ class AnthropicCurator:
         self.effort, self.expand_effort = effort, expand_effort
         self.max_tokens = max_tokens
         self._client = client
-        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap")}
+        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "digest")}
         self.guides = prompts.aspect_guides()
 
     def _get_client(self) -> Any:
@@ -217,3 +219,13 @@ class AnthropicCurator:
         data = await self._ask("independence", self.model, self.effort, numbered, JUDGE_SCHEMA)
         found = data.get("violations")
         return [v["index"] for v in found if isinstance(v, dict) and isinstance(v.get("index"), int)] if isinstance(found, list) else []
+
+    async def digest(self, request: DigestRequest) -> list[str]:
+        data = await self._ask("digest", self.model, self.effort, render_digest(request), DIGEST_SCHEMA)
+        found = data.get("digests")
+        by_number = {
+            d["turn"]: d["text"]
+            for d in (found if isinstance(found, list) else [])
+            if isinstance(d, dict) and isinstance(d.get("turn"), int) and isinstance(d.get("text"), str)
+        }
+        return [by_number.get(t.number, "") for t in request.turns]

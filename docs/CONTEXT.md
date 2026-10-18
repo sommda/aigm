@@ -73,8 +73,8 @@ A **section** is a node in a tree:
 }
 ```
 
-- `kind` selects the color and is one of `system`, `prompt`, `tools`, `briefing`, `history`, `user`, `assistant`,
-  `tool_use`, `tool_result`, `thinking`, `input`.
+- `kind` selects the color and is one of `system`, `prompt`, `tools`, `briefing`, `history`, `digest`, `user`,
+  `assistant`, `tool_use`, `tool_result`, `thinking`, `input`.
 - `text` is the content of a leaf, exactly as the model receives it. A node with `children` has no `text` of its own.
 - `tokens` is an estimate (5) for the node and everything under it.
 - `id` is stable across calls for the same content (a prompt file path, `history/7`, ...), so the client can
@@ -91,7 +91,9 @@ The order is the order of the real request, so reading top to bottom is reading 
      (`prompt`), titled with its path so an override in `AIGM_PROMPT_DIR` is recognizable;
    - the private GM-notes section, only when it is used (an adventure with an empty world, see BACKEND.md).
 2. **Tools** (`tools`): one child per tool with its description and input schema.
-3. **History** (`history`): one child per stored message, `user` or `assistant`, titled with its turn number and a
+3. **History** (`history`): one child per message, as the model receives it (when [HISTORY.md](HISTORY.md)'s reduction
+   is on, old turns appear trimmed or as one `digest` block, and the response says how much that saved; the stored
+   messages themselves are unchanged), `user` or `assistant`, titled with its turn number and a
    first-line preview. Each message has one child per content block: text, `thinking`, `tool_use` (name and input),
    `tool_result`. Stored thinking blocks are sent back to the model, so they are shown; the signature is omitted.
 4. **The pending user message**, in two parts, because the briefing travels in the same message as the player's text:
@@ -157,6 +159,7 @@ the total estimated tokens. The body is a scrollable tree; each row is `▸/▾ 
 | `system` / `prompt` | blue |
 | `tools` | cyan |
 | `briefing` | yellow |
+| `digest` | purple |
 | `history` | (group header) dim white |
 | `user` | green |
 | `assistant` | magenta |

@@ -16,6 +16,7 @@ import re
 
 from aigm.world.curator import (
     BootstrapRequest,
+    DigestRequest,
     EntityProposal,
     ExpandRequest,
     ExtractRequest,
@@ -109,6 +110,19 @@ class ScriptedCurator:
             elif name in ("fact", "hidden") and len(parts) >= 2:
                 subject = entity(parts[0], "npc")
                 out.facts.append(FactProposal(parts[1], [subject], None, "known" if name == "fact" else "hidden"))
+        return out
+
+    async def digest(self, request: DigestRequest) -> list[str]:
+        """The first words of what the player did and of what the GM said, with directives removed."""
+        self.calls.append("digest")
+        out = []
+        for turn in request.turns:
+            said = {"PLAYER": "", "GM": ""}
+            for para in _DIRECTIVE.sub("", turn.text).split("\n\n"):
+                match = _SPEAKER.match(para)
+                if match and not said[match.group(1)]:
+                    said[match.group(1)] = " ".join(para[match.end() :].split()[:14])
+            out.append(f"The player: {said['PLAYER'] or '(nothing)'}. The GM: {said['GM'] or '(nothing)'}")
         return out
 
     async def reconcile(self, request: ReconcileRequest) -> ReconcileResult:

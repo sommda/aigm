@@ -145,6 +145,8 @@ The KB lives in `GameState.world`, next to `phase` and `campaign`. Consequences,
 - Staged-turn semantics come for free: a tool that records a fact mid-turn affects only the working copy, committed only
   if the turn succeeds.
 - `/chat/new` resets it. Restoring a Session 0 save gives an empty world.
+- **Turn digests** (`world.digests`, 4.7) are saved with the world, next to the untouched messages they condense; a
+  save without them loads with none, and later curator passes write them.
 - Save files are written **pretty-printed** (`indent=2`, UTF-8, readable diffs), never a single line. See 2.6 for the
   debug view of the world.
 - It is plain JSON in memory with in-process indexes (entity id, normalized name/alias, token inverted index) rebuilt on
@@ -380,6 +382,22 @@ back like any other failure: the game stays in Session 0 with nothing changed an
 the ops are applied to the turn's working state, the seed is committed atomically with the phase change. If the client
 disconnects during the wait, the work is cancelled.
 
+### 4.7 Turn digests
+
+Each pass also writes a **digest** of every finished turn that has none: one to three sentences, past tense, naming
+people, places, items, promises and the outcome (`prompts/world/digest.md`). They are made by the extraction model
+(`AIGM_WORLD_MODEL`) in batches of 8 turns, oldest first, at most 40 turns per pass, through the optional curator
+method `digest(DigestRequest) -> list[str]`. A curator without it (or a call that fails, or answers the wrong number
+of digests) just leaves those turns without digests; the stage never fails the pass, and the next pass tries again.
+A save from before digests is caught up over the next few passes.
+
+A digest is `{start, end, turn, text, chars}`: the message range of its turn, the turn number, the text, and the size
+of the original text. It is applied with the `AddDigest` op (a turn keeps its first digest; overlaps are refused) and
+saved in `world.digests`. The messages are never removed, so the age-out thresholds (`AIGM_HISTORY_DIGEST_KEEP` and
+`_STEP`) can be changed at any time, also for old saves, and the next request simply shows more or less of the
+history in full. The first turn is never digested. Only what was said in play is digested, so a digest cannot leak
+a hidden fact. `AIGM_HISTORY_DIGEST=false` stops writing them.
+
 ## 5. Generating a world that feels pre-existing
 
 This is the central quality concern, so it is spelled out as rules for the expansion prompts (stored in
@@ -526,8 +544,8 @@ turn that displays it clears it on commit).
 - **Prompts:** new `prompts/world/` for the curator prompts and aspect checklists; the adventure GM prompt gains a short
   "World notes" section (how to read the briefing, the recall-before-inventing rule, the never-reveal-hidden rule). The
   `gm_notes` section is removed: bootstrap stores the notes as hidden facts (4.6).
-- **History compaction (later):** `processed_through` is exactly the watermark compaction needs; messages before it have
-  been digested, so they can be summarized or dropped.
+- **History reduction:** done with turn digests (4.7, [HISTORY.md](HISTORY.md)); the full messages are kept and what
+  the model sees is derived from them at request time.
 - **LLM abstraction:** the curator uses its own `LLMClient`-style interface with structured output (JSON-schema
   structured output), configurable per stage, **cheap models wherever possible**: extraction, reconciliation and the
   independence check default to Haiku 5.5 (`AIGM_WORLD_MODEL`), and only expansion (including the bootstrap expand),

@@ -271,14 +271,37 @@ this event. The history is rewritten at the same time (see `begin_adventure`).
 {
   "message_id": "msg_01",
   "stop_reason": "end_turn",
-  "usage": { "input_tokens": 1234, "output_tokens": 210 },
+  "usage": {
+    "input_tokens": 1234, "output_tokens": 210, "cache_read_tokens": 1000, "cache_write_tokens": 0
+  },
   "phase": "session_zero",
   "ruleset": "dnd55e",
-  "ruleset_name": "D&D 5.5e"
+  "ruleset_name": "D&D 5.5e",
+  "metrics": {
+    "turn": 14, "phase": "session_zero", "model": "claude-sonnet-5-5",
+    "first_text_ms": 1840, "total_ms": 9210, "pause_ms": 800, "model_calls": 2,
+    "input_tokens": 2468, "uncached_input_tokens": 468,
+    "cache_read_tokens": 2000, "cache_write_tokens": 0, "output_tokens": 420,
+    "history": { "turns": 14, "digested_turns": 0, "trimmed_turns": 0 },
+    "requests": [ <request>, ... ]
+  }
 }
 ```
 
-`phase` is the phase after the turn.
+`phase` is the phase after the turn. `usage` sums the turn's model calls: `input_tokens` is everything the model read,
+cached or not, and the two `cache_*` counts say how much of it was read from or written to the prompt cache.
+
+`metrics` measures the turn (docs/HISTORY.md, A). Times are milliseconds. `first_text_ms` runs from the start of the
+turn to the first visible `text` chunk; thinking does not count as text, so a model that thinks first has a later
+first text, and each request's `thinking_ms` says how much of the wait was thinking. `total_ms` is the whole turn,
+`pause_ms` the part of it spent in the deliberate pause before dice rolls (`AIGM_ROLL_PAUSE`). `history` says how much
+of the stored history was condensed for the model. Each entry of `requests` (one per model call) has the same token
+counts, its own `first_text_ms` (from the start of that call; `null` if it wrote no text), `thinking_ms`, `total_ms`,
+`stop_reason`, and `sent`: estimated token sizes (`system`, `tools`, `history`, `briefing`, and `history_stored`, what
+the history would have been without reduction), message counts, and `history_by_kind` (`player`, `gm`, `digests`,
+`thinking`, `tool_calls`, `tool_results`). The same record is appended to
+`{AIGM_SAVE_DIR}/metrics/{session_id}.jsonl` (with a timestamp and the session id) unless `AIGM_METRICS=false`.
+Clients must ignore fields they do not know.
 
 #### `error`
 ```json
@@ -531,9 +554,16 @@ so far, used in place of the unsent message when the world briefing is chosen.
   "model": "claude-sonnet-5-5",
   "turn": 14,
   "estimated_tokens": 18420,
+  "reduction": {
+    "turns": 40, "digested_turns": 23, "trimmed_turns": 12,
+    "history_tokens_stored": 61000, "history_tokens_sent": 14000, "history_tokens_saved": 47000
+  },
   "sections": [ { "id": "system", "kind": "system", "title": "System prompt", "tokens": 5200, "children": [] } ]
 }
 ```
+
+`reduction` says what the history reduction did (docs/HISTORY.md): how many turns are shown as digests or trimmed,
+and the estimated size of the history stored against the history sent.
 
 Each node has `id` (stable between calls for the same content, so a client can keep its collapse state), `kind`,
 `title` and `tokens` (an estimate: characters divided by four, summed over children). A leaf has `text`, exactly as the
@@ -545,9 +575,11 @@ Top-level sections, in order:
 - `system` (kind `system`): one child per prompt file, kind `prompt`, `id` `prompt/<path under prompts/>`. The private
   GM-notes section (`prompt/templates/gm_notes.md`) appears only when the world is empty.
 - `tools` (kind `tools`): one child per tool: its description and input schema.
-- `history` (kind `history`): one child per stored message (kind `user` or `assistant`, `id` `history/<index>`) with
-  one child per content block: text (kind `user`/`assistant`), `thinking` (signatures are not shown), `tool_use` and
-  `tool_result`.
+- `history` (kind `history`): one child per message *as sent* (kind `user` or `assistant`, `id` `history/<index>`
+  counted in the sent list) with one child per content block: text (kind `user`/`assistant`), `thinking` (signatures
+  are not shown), `tool_use` and `tool_result`. When the history is reduced, the titles keep the real turn numbers,
+  trimmed turns say `(trimmed)`, and the digests of the oldest turns are one block of kind `digest` at the start of the
+  oldest turn shown in full.
 - `next` (kind `user`): the pending message, with the `input` placeholder (the draft, or `«your next message goes
   here»`) and, in the adventure once the world is not empty, the `briefing` (the `<world_notes>` block) with one child
   per section: Clock, Location, Present, Nearby, Relevant, Corrections.

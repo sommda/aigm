@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from aigm.history import HistoryPolicy, Reduction, reduce_history
 from aigm.prompts import PromptLibrary, PromptPart
 from aigm.rulesets import RULESETS
 from aigm.session.state import GameState, Phase
@@ -23,8 +24,9 @@ class RequestDescription:
 
     system_parts: tuple[PromptPart, ...]
     tools: list[dict[str, Any]]
-    history: list[dict[str, Any]]  # the stored messages, as in the session (no world notes)
+    history: list[dict[str, Any]]  # the stored messages as reduced for the model (no world notes)
     briefing: str  # the <world_notes> block for this request, "" if none
+    reduction: Reduction = Reduction()  # what the reduction did to the stored messages
 
     @property
     def system(self) -> str:
@@ -51,9 +53,15 @@ class RequestDescription:
 class Game:
     """Per-phase prompts and tools. Prompt files are read once, at construction."""
 
-    def __init__(self, prompts: PromptLibrary | None = None, briefing_tokens: int = 2000) -> None:
+    def __init__(
+        self,
+        prompts: PromptLibrary | None = None,
+        briefing_tokens: int = 2000,
+        history_policy: HistoryPolicy | None = None,
+    ) -> None:
         self.prompts = prompts or PromptLibrary()
         self.briefing_tokens = briefing_tokens
+        self.history_policy = history_policy or HistoryPolicy()
         self._system = {
             (phase, rs.id): tuple(self.prompts.system_parts(phase, rs.id)) for phase in Phase for rs in RULESETS
         }
@@ -73,12 +81,15 @@ class Game:
         return "\n\n".join(part.text for part in self.system_parts(state))
 
     def describe(self, state: GameState, messages: list[dict[str, Any]], user_text: str) -> RequestDescription:
-        """The request for the model: `messages` is the stored history ending with the user's message."""
+        """The request for the model: `messages` is the stored history ending with the user's message.
+        The briefing is chosen from the full history; the history sent is the reduced view of it."""
+        reduced = reduce_history(messages, state.world.digests, self.history_policy)
         return RequestDescription(
             system_parts=self.system_parts(state),
             tools=self.tools(state),
-            history=messages,
+            history=reduced.messages,
             briefing=self.briefing(state, user_text, _last_gm_text(messages)),
+            reduction=reduced.info,
         )
 
     def briefing(self, state: GameState, user_text: str, gm_text: str) -> str:

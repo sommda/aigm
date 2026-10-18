@@ -96,6 +96,7 @@ class AigmApp(App):
             return
         self.connected = True
         self.debug_server = health.get("debug") is True
+        s.show_metrics = self.debug_server
         self.refresh_bindings()
         messages = state["messages"]
         s.load_history(messages, state.get("phase", ""), state.get("ruleset_name", ""))

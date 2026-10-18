@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from aigm.game import BRIEFING_CLOSE, BRIEFING_OPEN, Game
+from aigm.history import STORY_OPEN, Reduction, message_chars
 from aigm.llm.loop import turn_number
 from aigm.session.state import Phase
 from aigm.session.store import Session
@@ -69,6 +70,9 @@ def _block_node(id: str, role: str, block: dict[str, Any]) -> dict:
     kind = block.get("type")
     text = _block_text(block)
     match kind:
+        case "text" if text.startswith(STORY_OPEN):
+            count = sum(1 for line in text.splitlines() if line.startswith("[Turn "))
+            return _node(id, "digest", f"Story so far ({count} earlier turns condensed)", text)
         case "text":
             return _node(id, role, _preview(text) or "(empty)", text)
         case "thinking" | "redacted_thinking":
@@ -82,13 +86,14 @@ def _block_node(id: str, role: str, block: dict[str, Any]) -> dict:
             return _node(id, role, f"Unknown block ({kind})", text)
 
 
-def _message_nodes(messages: list[dict[str, Any]]) -> list[dict]:
-    nodes, turn = [], 0
+def _message_nodes(messages: list[dict[str, Any]], reduction: Reduction) -> list[dict]:
+    nodes = []
     for i, msg in enumerate(messages):
         role = msg["role"]
-        if role == "user" and any(b.get("type") == "text" for b in msg["content"]):
-            turn += 1
+        turn = reduction.turn_of[i] if i < len(reduction.turn_of) else 0
         who = "Player" if role == "user" else "GM"
+        if turn in reduction.trimmed:
+            who += " (trimmed)"
         blocks = [_block_node(f"history/{i}/{j}", role, b) for j, b in enumerate(msg["content"])]
         first = next((b for b in msg["content"] if b.get("type") == "text"), None)
         label = _preview(first["text"]) if first else ", ".join(b["title"] for b in blocks)
@@ -108,6 +113,32 @@ def _briefing_node(briefing: str) -> dict:
     return _node("briefing", "briefing", "World notes (briefing)", children=children, note=BRIEFING_NOTE)
 
 
+def _history_title(stored: int, sent: int, red: Reduction) -> str:
+    if sent == stored:
+        return f"History ({sent} messages)"
+    parts = []
+    if red.digested_turns:
+        parts.append(f"{red.digested_turns} turns as digests")
+    if red.trimmed_turns:
+        parts.append(f"{red.trimmed_turns} trimmed")
+    detail = f"; {', '.join(parts)}" if parts else ""
+    return f"History ({sent} of {stored} messages sent{detail})"
+
+
+def _reduction_summary(stored: list[dict[str, Any]], sent: list[dict[str, Any]], red: Reduction) -> dict[str, Any]:
+    """What the history reduction did, for the viewer's header (docs/HISTORY.md)."""
+    full_tokens = -(-message_chars(stored) // CHARS_PER_TOKEN)
+    sent_tokens = -(-message_chars(sent) // CHARS_PER_TOKEN)
+    return {
+        "turns": red.turns,
+        "digested_turns": red.digested_turns,
+        "trimmed_turns": red.trimmed_turns,
+        "history_tokens_stored": full_tokens,
+        "history_tokens_sent": sent_tokens,
+        "history_tokens_saved": max(0, full_tokens - sent_tokens),
+    }
+
+
 def build_context(*, game: Game, session: Session, model: str, draft: str = "") -> dict[str, Any]:
     """The request the next message would produce, from the session's committed state. Nothing in the
     session is changed: finished curator passes the next turn would apply first are applied to a copy."""
@@ -124,7 +155,7 @@ def build_context(*, game: Game, session: Session, model: str, draft: str = "") 
         for t in request.tools
     ]
     stored = request.history[:-1]  # the last entry is the pending message, shown below
-    history = _message_nodes(stored)
+    history = _message_nodes(stored, request.reduction)
     pending = [_node("input", "input", "Your next message", draft or PLACEHOLDER, cache_breakpoint=True)]
     if request.briefing:
         pending.append(_briefing_node(request.briefing))
@@ -132,7 +163,7 @@ def build_context(*, game: Game, session: Session, model: str, draft: str = "") 
     sections = [
         _node("system", "system", "System prompt", children=parts),
         _node("tools", "tools", f"Tools ({len(tools)})", children=tools),
-        _node("history", "history", f"History ({len(stored)} messages)", children=history),
+        _node("history", "history", _history_title(len(session.messages), len(stored), request.reduction), children=history),
         _node("next", "user", f"Next user message (turn {turn})", children=pending),
     ]
     return {
@@ -141,5 +172,6 @@ def build_context(*, game: Game, session: Session, model: str, draft: str = "") 
         "model": model,
         "turn": turn,
         "estimated_tokens": sum(s["tokens"] for s in sections),
+        "reduction": _reduction_summary(session.messages, request.history[:-1], request.reduction),
         "sections": sections,
     }

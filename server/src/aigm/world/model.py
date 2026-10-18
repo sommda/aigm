@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from aigm.errors import CorruptSave
+from aigm.world.digest import Digest
 from aigm.world.text import normalize_name, normalize_text, tokens, word_count
 
 KINDS = ("location", "npc", "faction", "concept")
@@ -156,6 +157,7 @@ class World:
         self.version = 0  # bumped on every change; lets a background pass detect interference
         self.reported_hours = 0  # hours the GM moved the clock itself (set_scene) since the last pass
         self.corrections: list[dict[str, Any]] = []  # notes for the GM's next briefing: {"text", "turn"}
+        self.digests: dict[int, Digest] = {}  # turn digests by the index of the turn's first message
         self.next_id = {"f": 1, "e": 1}
         self.entities: dict[str, Entity] = {}
         self.facts: dict[str, Fact] = {}
@@ -499,6 +501,14 @@ class World:
         self.processed_through = message_count
         self._touch()
 
+    def add_digest(self, digest: Digest) -> bool:
+        """Record the digest of a turn. A turn keeps the first digest it gets; returns whether this one was added."""
+        if digest.start in self.digests or any(d.start < digest.end and digest.start < d.end for d in self.digests.values()):
+            return False
+        self.digests[digest.start] = digest
+        self._touch()
+        return True
+
     # ---- change helpers ----------------------------------------------------------------
 
     def _entity_or_error(self, entity_id: str) -> Entity:
@@ -590,6 +600,7 @@ class World:
             "version": self.version,
             "reported_hours": self.reported_hours,
             "corrections": [dict(c) for c in self.corrections],
+            "digests": [d.to_dict() for d in sorted(self.digests.values(), key=lambda d: d.start)],
             "next_id": dict(self.next_id),
             "entities": [e.to_dict() for e in self.entities.values()],
             "facts": [f.to_dict() for f in self.facts.values()],
@@ -627,6 +638,16 @@ class World:
             if not isinstance(note, dict) or not isinstance(note["text"], str) or not isinstance(note["turn"], int):
                 raise WorldError("corrections must be objects with text and turn")
             world.corrections.append({"text": note["text"], "turn": note["turn"]})
+        last_end = 0
+        for raw in data.get("digests", []):  # saves from before digests have none
+            try:
+                digest = Digest.from_dict(raw)
+            except ValueError as exc:
+                raise WorldError(str(exc)) from None
+            if digest.start < last_end:
+                raise WorldError("digests must not overlap")
+            world.digests[digest.start] = digest
+            last_end = digest.end
 
         for raw in data["entities"]:
             ent = Entity(

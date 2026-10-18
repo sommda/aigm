@@ -139,7 +139,7 @@ class ContextView(ScrollView):
 class ContextScreen(ModalScreen[None]):
     DEFAULT_CSS = """
     ContextScreen { background: $surface; }
-    #ctx-head { height: 1; padding: 0 1; background: $boost; text-style: bold; }
+    #ctx-head { height: auto; min-height: 1; padding: 0 1; background: $boost; text-style: bold; }
     #ctx-help { height: 1; padding: 0 1; color: $text-muted; }
     """
     BINDINGS = [

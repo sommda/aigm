@@ -10,12 +10,15 @@ from aigm.world import World, WorldTime
 from aigm.world.anthropic_curator import (
     EXPAND_SCHEMA,
     EXTRACT_SCHEMA,
+    DIGEST_SCHEMA,
     JUDGE_SCHEMA,
     RECONCILE_SCHEMA,
     AnthropicCurator,
     CuratorError,
 )
 from aigm.world.curator import (
+    DigestRequest,
+    DigestTurn,
     EntityProposal,
     EntityQuestion,
     ExpandRequest,
@@ -180,7 +183,7 @@ def test_world_prompts_and_aspect_guides_cover_every_aspect():
     from aigm.world.model import ASPECTS
 
     lib = PromptLibrary()
-    for name in ("extract", "reconcile", "expand", "independence"):
+    for name in ("extract", "reconcile", "expand", "independence", "bootstrap", "digest"):
         assert len(lib.world_prompt(name)) > 300
     guides = lib.aspect_guides()
     for kind, aspects in ASPECTS.items():
@@ -243,7 +246,7 @@ def walk(schema, path="$"):
             walk(v, f"{path}[{i}]")
 
 
-@pytest.mark.parametrize("schema", [EXTRACT_SCHEMA, RECONCILE_SCHEMA, EXPAND_SCHEMA, JUDGE_SCHEMA])
+@pytest.mark.parametrize("schema", [EXTRACT_SCHEMA, RECONCILE_SCHEMA, EXPAND_SCHEMA, JUDGE_SCHEMA, DIGEST_SCHEMA])
 def test_schemas_are_closed_and_use_only_supported_features(schema):
     walk(schema)
 
@@ -267,6 +270,21 @@ async def test_extract_request_and_parsing():
     assert ex.entities == [EntityProposal("Wren", "npc", ["the barmaid"], None)]
     assert ex.facts[0] == FactProposal("Wren pours drinks at the Rusty Flagon.", ["Wren"], "role", "known", "Wren waves.", None)
     assert (ex.reveals, ex.location, ex.present, ex.elapsed_hours) == (["f0002"], "Rusty Flagon", ["Wren"], 2)
+
+
+async def test_digest_request_and_parsing():
+    reply = {"digests": [{"turn": 7, "text": "The party reached Ashby."}, {"turn": 99, "text": "stray"},
+                         {"turn": 5, "text": "Wren sold them a map."}, {"turn": "x", "text": "bad"}]}  # fmt: skip
+    cur, calls = curator(reply)
+    turns = [DigestTurn(5, "PLAYER: I ask Wren.\n\nGM: Wren sells a map."), DigestTurn(6, "..."), DigestTurn(7, "...")]
+    out = await cur.digest(DigestRequest(turns, setting="A border region."))
+    (params,) = calls.calls
+    assert params["model"] == "claude-haiku-5-5"
+    assert params["output_config"]["format"]["schema"] == DIGEST_SCHEMA
+    assert params["system"][0]["text"] == PromptLibrary().world_prompt("digest")
+    text = params["messages"][0]["content"]
+    assert "## Turn 5\nPLAYER: I ask Wren." in text and "## Turn 7" in text and "A border region." in text
+    assert out == ["Wren sold them a map.", "", "The party reached Ashby."]  # aligned with the turns; gaps are empty
 
 
 async def test_extract_parsing_is_defensive():

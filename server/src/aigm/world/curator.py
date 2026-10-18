@@ -117,6 +117,18 @@ class ExpandRequest:
     feedback: list[str] = field(default_factory=list)  # why a first attempt was rejected, on the retry
 
 
+@dataclass
+class DigestTurn:
+    number: int  # the turn's number in the whole adventure
+    text: str  # the turn as plain text (see passes.transcript)
+
+
+@dataclass
+class DigestRequest:
+    turns: list[DigestTurn]
+    setting: str = ""
+
+
 class Curator(Protocol):
     async def extract(self, request: ExtractRequest) -> Extraction: ...
 
@@ -125,6 +137,9 @@ class Curator(Protocol):
     async def expand(self, request: ExpandRequest) -> Extraction: ...
 
     async def bootstrap(self, request: BootstrapRequest) -> Extraction: ...
+
+    # Optional: `async def digest(self, request: DigestRequest) -> list[str]` returns one short account per turn,
+    # in order; an empty string means "no digest for this turn".
 
     # Optional: `async def judge_independence(self, texts: list[str]) -> list[int]` returns the
     # indexes of generated facts that depend on the party or the player's actions.

@@ -1,6 +1,6 @@
 """Turns curator requests into the text of a model prompt. Pure functions, so they are easy to test."""
 
-from aigm.world.curator import BootstrapRequest, ExpandRequest, ExtractRequest, ReconcileRequest
+from aigm.world.curator import BootstrapRequest, DigestRequest, ExpandRequest, ExtractRequest, ReconcileRequest
 from aigm.world.model import Entity, Fact
 
 
@@ -77,4 +77,10 @@ def render_bootstrap(req: BootstrapRequest) -> str:
     members = "\n\n".join(f"### {name}\n{sheet.strip()}" for name, sheet in req.party)
     parts.append(f"## Player characters (level {req.level})\n{members}")
     parts.append("## Private GM notes (the player has not been told these)\n" + (req.gm_notes.strip() or "(none)"))
+    return "\n\n".join(parts)
+
+
+def render_digest(req: DigestRequest) -> str:
+    parts = [f"## Setting\n{req.setting.strip()}"] if req.setting else []
+    parts += [f"## Turn {t.number}\n{t.text}" for t in req.turns]
     return "\n\n".join(parts)

@@ -20,6 +20,24 @@ INTRO = {
 }
 
 
+def _seconds(ms: Any) -> str:
+    return f"{ms / 1000:.1f}s" if isinstance(ms, (int, float)) else "-"
+
+
+def _count(n: Any) -> str:
+    return f"{n / 1000:.1f}k" if isinstance(n, int) and n >= 1000 else str(n if isinstance(n, int) else "-")
+
+
+def metrics_line(m: dict[str, Any]) -> str:
+    """One dim line for a finished turn (debug servers only): how long it took and what it cost."""
+    return (
+        f"first text {_seconds(m.get('first_text_ms'))} · total {_seconds(m.get('total_ms'))} · "
+        f"in {_count(m.get('input_tokens'))} (cached {_count(m.get('cache_read_tokens'))}, "
+        f"written {_count(m.get('cache_write_tokens'))}) · out {_count(m.get('output_tokens'))} · "
+        f"{m.get('model_calls', '?')} call(s)"
+    )
+
+
 def intro_text(phase: str) -> str:
     return INTRO.get(phase, "Welcome, adventurer. Describe what you do. Type /help for commands.")
 
@@ -35,6 +53,7 @@ class ChatSession:
         self.ruleset_name = ""  # e.g. "AD&D 1e"; "" when the server does not report it
         self.dirty = False  # unsaved changes since last save/load/new
         self.changed = False  # set whenever anything visible changed; the UI clears it
+        self.show_metrics = False  # a debug server: print each turn's timings and token use
         self._text: MarkdownBlock | None = None
         self._reasoning: ReasoningBlock | None = None
 
@@ -98,11 +117,13 @@ class ChatSession:
                 self._text = self._reasoning = None
                 if phase == "adventure":
                     self.add_system("Session 0 is over. The adventure begins!", "bold green")
-            case ev.MessageEnd(phase=phase, ruleset_name=ruleset):
+            case ev.MessageEnd(phase=phase, ruleset_name=ruleset, metrics=metrics):
                 if phase:
                     self.phase = phase
                 self.ruleset_name = ruleset or self.ruleset_name
                 self._finish_turn()
+                if self.show_metrics and metrics:
+                    self.add_system(metrics_line(metrics))
             case ev.ErrorEvent(message=message):
                 self._finish_turn()
                 self.add_system(
