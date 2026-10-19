@@ -114,7 +114,7 @@ data: <JSON object>
 | `text`         | A chunk of markdown text to append to the reply      | no        |
 | `tool_call`    | The model is invoking a tool (informational)         | no        |
 | `dice_roll`    | Result of a `roll_dice` call (front-end custom event)| no        |
-| `status`       | Progress of a long wait, such as preparing the world after Session 0 | no |
+| `status`       | Progress of a long wait: a tool call being written, or the world after Session 0 | no |
 | `phase_change` | The game moved to a new phase (sent once, at the end of the turn) | no |
 | `message_end`  | Assistant turn complete                              | yes       |
 | `error`        | Unrecoverable error; stream ends after this          | yes       |
@@ -262,6 +262,11 @@ each replacing the last message ("Building the setting...", "Detailing the Rusty
 indicator until `done` (or the end of the stream), and may ignore the event entirely: nothing in the transcript depends
 on it. If world preparation fails the stream ends with an `error` (`upstream_error`, retryable) and the whole turn is
 rolled back, including the phase change, so the player can confirm again.
+
+The same event reports the silent stretch while the model writes a tool call, which shows no text:
+`{ "stage": "tool", "message": "Rolling the dice...", "done": false }` (or `"The GM is making notes..."` for any
+other tool) as soon as the call begins, then `{ "stage": "tool", "message": "", "done": true }` when the model's
+response ends or it goes on to think or write text. Clients show it in place of their "writing" indicator.
 
 #### `phase_change`
 ```json

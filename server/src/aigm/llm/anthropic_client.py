@@ -11,6 +11,7 @@ from aigm.llm.base import (
     LLMError,
     LLMEvent,
     TextChunk,
+    ToolStarted,
     ThinkingChunk,
     ThinkingStarted,
     ThinkingStopped,
@@ -101,6 +102,8 @@ class AnthropicLLM:
                         block_types[event.index] = event.content_block.type
                         if event.content_block.type in ("thinking", "redacted_thinking"):
                             yield ThinkingStarted()
+                        elif event.content_block.type == "tool_use":
+                            yield ToolStarted(event.content_block.name)
                     elif kind == "content_block_delta":
                         delta = event.delta
                         if delta.type == "text_delta":

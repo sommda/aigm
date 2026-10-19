@@ -15,6 +15,7 @@ from aigm.llm.base import (
     ThinkingChunk,
     ThinkingStarted,
     ThinkingStopped,
+    ToolStarted,
 )
 from aigm.game import Game
 from aigm import rulesets
@@ -37,6 +38,11 @@ from aigm.world.ops import apply_ops
 from aigm.world.service import CuratorService
 
 log = logging.getLogger(__name__)
+
+
+def tool_status(name: str) -> str:
+    """What the player is told while the model writes a call to this tool."""
+    return "Rolling the dice..." if name == "roll_dice" else "The GM is making notes..."
 
 
 def turn_number(messages: list[dict[str, Any]]) -> int:
@@ -113,12 +119,19 @@ async def run_turn(
         for _ in range(max_iters):
             completed: Completed | None = None
             think_started: float | None = None
+            noting = False  # a status for a tool call being written is showing
             request = game.describe(state, staged, user_text)
             call = RequestMetrics(index=len(measured.requests), sent=request_sizes(request, staged))
             measured.reduction = request.reduction
             call_started = time.monotonic()
             async for ev in llm.stream(system=request.system, messages=request.messages, tools=request.tools):
-                if isinstance(ev, ThinkingStarted):
+                if noting and isinstance(ev, ThinkingStarted | TextChunk | Completed):
+                    noting = False
+                    yield Status(stage="tool", message="", done=True)
+                if isinstance(ev, ToolStarted):
+                    noting = True
+                    yield Status(stage="tool", message=tool_status(ev.name))
+                elif isinstance(ev, ThinkingStarted):
                     think_started = time.monotonic()
                     yield Thinking(status="start")
                 elif isinstance(ev, ThinkingChunk):

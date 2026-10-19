@@ -17,6 +17,7 @@ from aigm.llm.base import (
     ThinkingChunk,
     ThinkingStarted,
     ThinkingStopped,
+    ToolStarted,
 )
 from aigm.tools import tool_schemas
 from tests.conftest import chat, names, reply_text
@@ -126,6 +127,7 @@ async def test_thinking_text_and_tool_use():
     kinds = [type(e).__name__ for e in events]
     assert kinds[:5] == ["ThinkingStarted", "ThinkingChunk", "ThinkingChunk", "ThinkingStopped", "TextChunk"]
     assert [e.text for e in events if isinstance(e, ThinkingChunk)] == ["Need ", "a roll."]
+    assert [e.name for e in events if isinstance(e, ToolStarted)] == ["roll_dice"]
     done = events[-1]
     assert done.stop_reason == "tool_use"
     thinking, text, tool = done.content

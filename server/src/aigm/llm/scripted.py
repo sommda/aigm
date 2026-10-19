@@ -19,6 +19,7 @@ from aigm.llm.base import (
     ThinkingChunk,
     ThinkingStarted,
     ThinkingStopped,
+    ToolStarted,
 )
 
 
@@ -316,6 +317,7 @@ class ScriptedLLM:
                 else:
                     content.append({"type": "text", "text": step.text})
             elif isinstance(step, UseTool):
+                yield ToolStarted(step.name)
                 content.append(
                     {"type": "tool_use", "id": f"toolu_test_{uuid.uuid4().hex[:10]}", "name": step.name, "input": step.input}
                 )

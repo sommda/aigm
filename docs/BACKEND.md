@@ -374,13 +374,15 @@ history.
 
 The tool loop does not talk to the Anthropic SDK directly. `llm/base.py` defines a small `LLMClient` protocol whose
 `stream(system, messages, tools)` yields normalized events: `ThinkingStarted`, `ThinkingChunk`, `ThinkingStopped`,
-`TextChunk`, and a final `Completed(content, stop_reason, usage)` carrying the assistant message as Anthropic-format
-blocks (exactly what is stored in history). Implementations:
+`ToolStarted(name)` (the model began writing a tool call), `TextChunk`, and a final
+`Completed(content, stop_reason, usage)` carrying the assistant message as Anthropic-format blocks (exactly what is
+stored in history). Implementations:
 
 - `llm/scripted.py`: `ScriptedLLM`, used by `--test` mode (below).
 - `llm/anthropic_client.py`: `AnthropicLLM`, the real client. It calls `messages.stream()` on `AsyncAnthropic` and
   translates SDK events: a `thinking` content block becomes `ThinkingStarted` / `ThinkingChunk`s / `ThinkingStopped` (an
-  omitted-thinking block yields start/stop with no chunks); `text_delta`s become `TextChunk`s; and the SDK's accumulated
+  omitted-thinking block yields start/stop with no chunks); a `tool_use` block start becomes `ToolStarted`
+  (the loop turns it into a `status` event); `text_delta`s become `TextChunk`s; and the SDK's accumulated
   final message becomes `Completed`, with content stored verbatim (`model_dump`), so thinking blocks keep their
   signatures and tool_use blocks keep their parsed input.
   - Requests send: `system` (the assembled prompt), the tool schemas, prompt caching of the growing prefix (a top-level

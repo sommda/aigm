@@ -136,6 +136,7 @@ def make_client(tmp_path, curator=None, **kw):
 def test_begin_streams_progress_then_the_opening(tmp_path):
     client = make_client(tmp_path)
     events = chat(client, "begin")
+    events = [(n, d) for n, d in events if not (n == "status" and d["stage"] == "tool")]  # tool-call notices
     order = names(events)
     first, last = order.index("status"), len(order) - 1 - order[::-1].index("status")
     assert order.index("tool_call") < first < last < order.index("phase_change") < order.index("message_end")
@@ -166,7 +167,7 @@ def test_without_a_curator_the_notes_stay_in_the_prompt_and_no_status_is_sent(tm
     client = make_client(tmp_path)
     client.app.state.curator = None
     events = chat(client, "begin")
-    assert "status" not in names(events) and "phase_change" in names(events)
+    assert not [d for n, d in events if n == "status" and d["stage"] == "world"] and "phase_change" in names(events)
     client.put("/history/n/save")
     assert json.loads((tmp_path / "n.json").read_text())["world"]["entities"] == []
 
@@ -212,7 +213,7 @@ async def test_closing_the_stream_mid_bootstrap_cancels_the_work():
     gen = run_turn(session=session, user_text="begin", llm=ScriptedLLM(delay=0), game=Game(), max_iters=4, curator=CuratorService(Slow()))
     statuses = 0
     async for ev in gen:
-        if isinstance(ev, Status):
+        if isinstance(ev, Status) and ev.stage == "world":
             statuses += 1
             if statuses == 2:  # "Building the setting...": the curator is now running
                 await asyncio.wait_for(started.wait(), 5)

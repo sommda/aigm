@@ -28,6 +28,13 @@ class ThinkingStopped:
 
 
 @dataclass
+class ToolStarted:
+    """The model began writing a tool call (its input is still being generated)."""
+
+    name: str
+
+
+@dataclass
 class TextChunk:
     text: str
 
@@ -44,7 +51,7 @@ class Completed:
     usage: dict[str, int] = field(default_factory=lambda: {"input_tokens": 0, "output_tokens": 0})
 
 
-LLMEvent = ThinkingStarted | ThinkingChunk | ThinkingStopped | TextChunk | Completed
+LLMEvent = ThinkingStarted | ThinkingChunk | ThinkingStopped | ToolStarted | TextChunk | Completed
 
 
 class LLMClient(Protocol):
