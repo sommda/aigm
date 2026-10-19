@@ -5,7 +5,7 @@ and a Textual terminal client plays it like a text adventure.
 
 | Directory | What | Docs |
 |---|---|---|
-| `server/` | FastAPI backend (own uv project) | [docs/API.md](docs/API.md), [docs/BACKEND.md](docs/BACKEND.md), [docs/WORLD.md](docs/WORLD.md) (the persistent world: design and how it works), [docs/RULESETS.md](docs/RULESETS.md) (choosing the game's ruleset), [docs/CONTEXT.md](docs/CONTEXT.md) (the debug context viewer) |
+| `server/` | FastAPI backend (own uv project) | [docs/API.md](docs/API.md), [docs/BACKEND.md](docs/BACKEND.md), [docs/WORLD.md](docs/WORLD.md) (the persistent world: design and how it works), [docs/RULESETS.md](docs/RULESETS.md) (choosing the game's ruleset), [docs/CONTEXT.md](docs/CONTEXT.md) (the debug context viewer), [docs/HISTORY.md](docs/HISTORY.md) (shrinking the history), [docs/NARRATION_STREAMING.md](docs/NARRATION_STREAMING.md) (spec: streaming roll narration) |
 | `client/` | Textual terminal client (own uv project) | [docs/CLIENT.md](docs/CLIENT.md) |
 
 The two projects have separate dependencies, virtualenvs, and lockfiles; they communicate only over HTTP.
