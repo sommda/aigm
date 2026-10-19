@@ -9,6 +9,7 @@ from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
 from aigm.world import DISCLOSURES, KINDS, Entity, Fact, World, WorldError
 from aigm.world.briefing import LABELS
+from aigm.world.text import normalize_name
 
 ADVENTURE = frozenset({Phase.ADVENTURE})
 RECALL_FACTS = 25  # facts listed for one entity
@@ -130,7 +131,7 @@ ESTABLISH_SCHEMA: dict[str, Any] = {
                     "properties": {
                         "text": {
                             "type": "string",
-                            "description": "One self-contained declarative sentence of at most 40 words, using names rather than pronouns.",
+                            "description": "One self-contained declarative sentence of about 40 words or fewer, using names rather than pronouns.",
                         },
                         "about": {
                             "type": "array",
@@ -171,6 +172,8 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     world = state.world.copy()  # all or nothing: only replaces the real world if everything is accepted
     problems: list[str] = []
     done: list[str] = []
+    reused: list[str] = []
+    ignored: list[str] = []
     for raw in entities:
         label = f"entity {raw.get('name')!r}" if isinstance(raw, dict) else "entity"
         try:
@@ -178,15 +181,21 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
                 raise WorldError("each entity must be an object with a name and kind")
             name, kind = raw.get("name"), raw.get("kind")
             aliases = [a for a in _as_list(raw.get("aliases")) if isinstance(a, str)]
-            existing = world.find(name) if isinstance(name, str) else None
+            names = [n for n in (name, *aliases) if isinstance(n, str)]
+            existing = next((e for e in map(world.find, names) if e is not None), None)
             if existing:
                 if existing.kind != kind:
                     raise WorldError(f"already recorded as a {existing.kind} (id {existing.id}), not a {kind}")
-                for alias in aliases:
-                    world.add_alias(existing.id, alias)
+                for other in names:
+                    if world.find(other) is None:
+                        world.add_alias(existing.id, other)  # a new name for something recorded, not a second entity
+                if normalize_name(str(name)) != normalize_name(existing.name):
+                    reused.append(f"{name!r} is the already recorded {existing.name!r}")
                 continue
             parent = None
-            if raw.get("parent"):
+            if raw.get("parent") and kind != "location":
+                ignored.append(f"`parent` of {name!r} (only places have one)")
+            elif raw.get("parent"):
                 parent_ent = world.resolve(str(raw["parent"]))
                 if parent_ent is None:
                     raise WorldError(f"parent {raw['parent']!r} is not recorded")
@@ -247,6 +256,10 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
         parts.append("now known to the player: " + ", ".join(revealed))
     if skipped:
         parts.append("skipped (already recorded): " + "; ".join(skipped))
+    if reused:
+        parts.append("not added again: " + "; ".join(reused))
+    if ignored:
+        parts.append("ignored: " + "; ".join(ignored))
     return ToolOutcome("Recorded. " + ("; ".join(parts) if parts else "Everything was already recorded."))
 
 

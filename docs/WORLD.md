@@ -57,8 +57,9 @@ Rules for fact text (enforced in the extraction/generation prompts and validated
 - **In-world and timeless-ish.** Written as the world's truth, not as a story beat ("The mine was abandoned forty years
   ago after a collapse", not "You discover the mine is abandoned").
 - **No player-centric causation.** A fact never exists *because of* the party. (See 5.4.)
-- Length cap (about 40 words) and a per-entity cap, so facts stay cheap to retrieve and cannot hide a paragraph of
-  prose.
+- Length: the prompts ask for about 40 words and anything over 60 is refused (a small overrun is kept, because a
+  refusal costs the GM a round), plus a per-entity cap, so facts stay cheap to retrieve and cannot hide a paragraph
+  of prose.
 
 The two reserved time fields are what later lets a place change on its own ("from day 10 the lower gallery is flooded")
 without touching the schema; v1 stores them but nothing reads them. Facts are never edited or deleted, only

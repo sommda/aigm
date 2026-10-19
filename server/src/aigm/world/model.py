@@ -32,7 +32,8 @@ ASPECTS: dict[str, tuple[str, ...]] = {
     "concept": ("nature", "origin", "who_believes_it", "effects"),
 }  # fmt: skip
 
-MAX_FACT_WORDS = 40
+MAX_FACT_WORDS = 40  # what the prompts ask for
+FACT_WORDS_LIMIT = 60  # what is refused: a fact a little over the ask is kept, since a refusal costs the GM a whole round
 MIN_FACT_WORDS = 3
 MAX_ENTITY_FACTS = 40  # active facts per entity (counting facts where it is the subject)
 MAX_ABOUT = 4
@@ -545,8 +546,11 @@ class World:
         if not text:
             raise WorldError("fact text is empty")
         words = word_count(text)
-        if words > MAX_FACT_WORDS:
-            raise WorldError(f"fact is {words} words; keep each fact to one claim of at most {MAX_FACT_WORDS} words")
+        if words > FACT_WORDS_LIMIT:
+            raise WorldError(
+                f"fact is {words} words; keep each fact to one claim of about {MAX_FACT_WORDS} words "
+                f"(never more than {FACT_WORDS_LIMIT}); split it into two facts"
+            )
         if words < MIN_FACT_WORDS:
             raise WorldError("fact must be a full declarative sentence")
         if disclosure not in DISCLOSURES:

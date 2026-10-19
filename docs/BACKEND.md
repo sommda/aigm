@@ -251,6 +251,11 @@ change it, all on the turn's working copy of the state, so a failed turn records
 build a copy of the world and swap it in only if every part is accepted. `GameState.turn` (not saved) is set by the loop
 to the number of player messages so far, and stamps the facts. Details in [WORLD.md](WORLD.md) section 6.
 
+Every refused call costs the player a whole model round (about ten seconds in a long game), so `establish` forgives
+what it can: a fact up to 60 words is kept (the prompt asks for about 40; longer is refused), a `parent` on a person
+or group is ignored, and an entity whose name or alias is already recorded is treated as that entity, with its other
+names added as aliases, instead of failing on the name clash. The result lists what was ignored or merged.
+
 **`begin_adventure`** (`session_zero` only): the model must put its whole summary of Session 0 into the arguments,
 because everything else is discarded on success. The handler therefore validates sufficiency, collecting *all* problems
 into one error result so the model can fix them in a single retry: `confirmed is true`; `setting` >= 300 chars;

@@ -131,6 +131,29 @@ def test_establish_reuses_existing_entities_and_skips_repeated_facts(state):
     assert state.world.find("the dig").id == "e003" and len(state.world.entities) == 4
 
 
+def test_establish_ignores_a_parent_given_to_a_person(state):
+    out = run(state, "establish", entities=[{"name": "Joss Tilly", "kind": "npc", "parent": "Ashby"}],
+              facts=[{"text": "Joss Tilly mends boots near the Ashby well.", "about": ["Joss Tilly"]}])  # fmt: skip
+    assert not out.is_error and "ignored:" in out.content and "'Joss Tilly'" in out.content
+    assert state.world.find("Joss Tilly").parent is None
+
+
+def test_establish_treats_a_second_name_for_a_recorded_place_as_that_place(state):
+    out = run(state, "establish",
+              entities=[{"name": "The Harrow Pit", "kind": "location", "aliases": ["Harrow Mine"]}],
+              facts=[{"text": "The Harrow Pit floods every spring.", "about": ["The Harrow Pit"]}])  # fmt: skip
+    assert not out.is_error and "'The Harrow Pit' is the already recorded 'Harrow Mine'" in out.content
+    assert len(state.world.entities) == 4 and state.world.find("The Harrow Pit") is state.world.find("Harrow Mine")
+    assert state.world.facts_about(state.world.find("Harrow Mine").id)[-1].text == "The Harrow Pit floods every spring."
+
+
+def test_a_fact_a_little_over_the_asked_length_is_kept_but_a_long_one_is_refused(state):
+    fact = lambda n: {"text": " ".join(f"w{n}x{i}" for i in range(n)), "about": ["Wren"]}  # noqa: E731
+    assert not run(state, "establish", facts=[fact(48)]).is_error
+    out = run(state, "establish", facts=[fact(70)])
+    assert out.is_error and "70 words" in out.content and "split it into two facts" in out.content
+
+
 def test_establish_reveal_makes_hidden_facts_known(state):
     out = run(state, "establish", reveal=["f0002", "f0001"])
     assert "now known to the player: f0002" in out.content and "f0001" not in out.content.split("known to the player:")[1]

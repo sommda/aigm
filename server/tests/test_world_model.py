@@ -2,7 +2,7 @@ import pytest
 
 from aigm.errors import CorruptSave
 from aigm.world import World, WorldError, WorldTime
-from aigm.world.model import MAX_ENTITY_FACTS, MAX_FACT_WORDS
+from aigm.world.model import FACT_WORDS_LIMIT, MAX_ENTITY_FACTS, MAX_FACT_WORDS
 from aigm.world.text import normalize_name, tokens
 
 
@@ -98,7 +98,7 @@ def test_fact_defaults_and_stamps(w):
     [
         (dict(text=""), "empty"),
         (dict(text="Too short"), "full declarative"),
-        (dict(text=" ".join(["word"] * (MAX_FACT_WORDS + 1))), "words"),
+        (dict(text=" ".join(["word"] * (FACT_WORDS_LIMIT + 1))), "words"),
         (dict(text="The mine is deep.", disclosure="secret"), "disclosure"),
         (dict(text="The mine is deep.", source="dream"), "source"),
         (dict(text="The mine is deep.", about=[]), "at least one"),
