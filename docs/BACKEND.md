@@ -84,7 +84,7 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 | `AIGM_METRICS`         | `true`               | Append one JSON line per turn (timings, token use, request sizes) to `{save_dir}/metrics/{session}.jsonl` |
 | `AIGM_ROLL_PAUSE`      | `0.8`                | Seconds to wait before each `dice_roll` event is sent, after the narration that precedes it (`0` disables) |
 | `AIGM_THINKING_SUMMARIES` | `true`            | Request adaptive thinking with summaries (`false` for models without adaptive thinking) |
-| `AIGM_EFFORT`          | (model default)       | `low` to `max`; maps to `output_config.effort` |
+| `AIGM_EFFORT`          | `low`                 | `low` to `max`; maps to `output_config.effort` (empty: the model's own) |
 | `AIGM_WORLD_DUMP`      | `true`              | Write a readable JSON dump of each session's world to `{save_dir}/worlds/` for debugging |
 | `AIGM_WORLD_CURATOR`   | `true`              | Run the background world curator (model-driven; scripted in `--test` mode) |
 | `AIGM_WORLD_MODEL`     | `claude-haiku-5-5`  | Model for curator extraction, reconciliation and the independence check |

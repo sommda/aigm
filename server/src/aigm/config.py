@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from aigm.history import HistoryPolicy
@@ -20,8 +20,10 @@ class Settings(BaseSettings):
     # Request readable thinking summaries (adaptive thinking). Set false for models that do not
     # support adaptive thinking; the model then uses its own default.
     thinking_summaries: bool = Field(default=True, validation_alias="AIGM_THINKING_SUMMARIES")
+    # How hard the GM model thinks. A fast-paced game does not need much: low keeps the waits down. Set it to an
+    # empty value to use the model's own default.
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
-        default=None, validation_alias="AIGM_EFFORT"
+        default="low", validation_alias="AIGM_EFFORT"
     )
     # Rough size, in tokens, of the world notes shown to the GM with each request.
     world_briefing_tokens: int = Field(default=2000, validation_alias="AIGM_WORLD_BRIEFING_TOKENS")
@@ -60,6 +62,11 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(
         default=["http://localhost", "http://127.0.0.1"], validation_alias="AIGM_CORS_ORIGINS"
     )
+
+    @field_validator("effort", mode="before")
+    @classmethod
+    def _blank_effort_is_the_models_own(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @property
     def history_policy(self) -> HistoryPolicy:
