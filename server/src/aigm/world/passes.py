@@ -266,7 +266,8 @@ async def _digest_turns(
         for turn, text in zip(batch, texts):
             text = clean_digest_text(text) if isinstance(text, str) else ""
             if text:
-                ops.append(AddDigest(Digest(turn.start, turn.end, turn.number, text, turn_chars(messages, turn))))
+                new = Digest(turn.start, turn.end, turn.number, text, turn_chars(messages, turn))
+                ops.append(AddDigest(new, replace_stale=True))  # a mismatched digest of this turn is out of date
         applied = apply_ops(snap, ops)
         result.ops += applied.ops
         result.notes += applied.skipped

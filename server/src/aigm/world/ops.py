@@ -86,6 +86,7 @@ class MarkProcessed:
 @dataclass
 class AddDigest:
     digest: Digest
+    replace_stale: bool = False  # drop digests that overlap this turn but no longer cover its messages
 
 
 Op = (
@@ -201,5 +202,5 @@ def _apply(world: World, op: Op) -> bool:
             return True
         return False
     if isinstance(op, AddDigest):
-        return world.add_digest(op.digest)
+        return world.add_digest(op.digest, op.replace_stale)
     raise WorldError(f"unknown op {op!r}")

@@ -265,6 +265,12 @@ The curator pass writes a digest per finished turn (WORLD.md 4.7). Turns older t
 digests, in a single `<story_so_far>` block at the front of the oldest turn still shown in full. A turn without a
 digest is shown in full, and the cut waits at it.
 
+A digest only counts when it covers exactly the turn's messages (`start` and `end`). If a save is edited so a turn gains
+or loses messages, its digest goes stale and the cut would wait at that turn for good, because the turn would show no
+usable digest. The curator treats such a turn as undigested and its new digest replaces the stale one (and any other
+digest that overlaps the turn). A real save with one stale digest at turn 78 kept 40 turns in full (about 100k tokens
+per request) until this was fixed.
+
 ### Stored in full, shown reduced
 
 The messages are never edited or dropped. Digests are saved in `world.digests` (a list of

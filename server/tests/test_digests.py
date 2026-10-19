@@ -5,7 +5,7 @@ import json
 import pytest
 
 from aigm.errors import CorruptSave
-from aigm.history import turns
+from aigm.history import digest_for, turns
 from aigm.session.persistence import HistoryRepository
 from aigm.session.state import GameState, Phase
 from aigm.session.store import Session
@@ -176,3 +176,29 @@ async def test_the_service_stores_digests_on_the_session():
     assert sorted(d.turn for d in session.state.world.digests.values()) == [2, 3, 4, 5, 6]
     for t in turns(session.messages)[1:]:
         assert session.state.world.digests[t.start].end == t.end
+
+
+def test_a_digest_that_no_longer_covers_its_turn_can_be_replaced():
+    w = World()
+    w.add_digest(Digest(2, 4, 2, "old"))
+    w.add_digest(Digest(4, 6, 3, "next"))  # overlaps the new one too, so it was stale as well
+    assert not w.add_digest(Digest(2, 5, 2, "new"))  # without the flag, overlaps are still refused
+    assert w.add_digest(Digest(2, 5, 2, "new"), replace_stale=True)
+    assert w.digests[2].text == "new" and w.digests[2].end == 5 and 4 not in w.digests
+    assert not w.add_digest(Digest(2, 5, 2, "again"), replace_stale=True) and w.digests[2].text == "new"
+
+
+async def test_a_pass_replaces_the_digest_of_a_turn_whose_messages_changed():
+    from aigm.history import HistoryPolicy, reduce_history
+
+    messages = history(4)
+    world = World()
+    apply_ops(world, (await run_pass(world, messages, ScriptedCurator())).ops)
+    messages = messages[:5] + [messages[4]] + messages[5:]  # an edit adds a message to turn 3: its digest is stale
+    stale_turn = next(t for t in turns(messages) if t.number == 3)
+    assert digest_for(stale_turn, world.digests) is None
+    result = await run_pass(world, messages, ScriptedCurator())
+    apply_ops(world, result.ops)
+    assert digest_for(stale_turn, world.digests) is not None
+    reduced = reduce_history(messages + history(0), world.digests, HistoryPolicy(digest_keep=1, digest_step=1))
+    assert reduced.info.digested_turns >= 2  # the cut can move over the repaired turn

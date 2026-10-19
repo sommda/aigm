@@ -501,9 +501,18 @@ class World:
         self.processed_through = message_count
         self._touch()
 
-    def add_digest(self, digest: Digest) -> bool:
-        """Record the digest of a turn. A turn keeps the first digest it gets; returns whether this one was added."""
-        if digest.start in self.digests or any(d.start < digest.end and digest.start < d.end for d in self.digests.values()):
+    def add_digest(self, digest: Digest, replace_stale: bool = False) -> bool:
+        """Record the digest of a turn. A turn keeps the first digest it gets; returns whether this one was added.
+
+        `replace_stale` is for a turn whose messages changed after it was digested (a save was edited, so the
+        digest no longer covers the turn's messages): the digests it overlaps are dropped in favor of this one.
+        A digest for exactly the same messages is never replaced."""
+        overlapping = [d for d in self.digests.values() if d.start < digest.end and digest.start < d.end]
+        if replace_stale and not any(d.start == digest.start and d.end == digest.end for d in overlapping):
+            for d in overlapping:
+                del self.digests[d.start]
+            overlapping = []
+        if overlapping:
             return False
         self.digests[digest.start] = digest
         self._touch()
