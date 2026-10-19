@@ -11,7 +11,9 @@ from aigm.llm.base import (
     LLMError,
     LLMEvent,
     TextChunk,
-    ToolStarted,
+    ToolInputChunk,
+    ToolInputStarted,
+    ToolInputStopped,
     ThinkingChunk,
     ThinkingStarted,
     ThinkingStopped,
@@ -93,6 +95,7 @@ class AnthropicLLM:
     ) -> AsyncIterator[LLMEvent]:
         params = self.request_params(system, messages, tools)
         block_types: dict[int, str] = {}
+        tool_ids: dict[int, str] = {}
         try:
             client = self._get_client()
             async with client.messages.stream(**params) as stream:
@@ -103,17 +106,26 @@ class AnthropicLLM:
                         if event.content_block.type in ("thinking", "redacted_thinking"):
                             yield ThinkingStarted()
                         elif event.content_block.type == "tool_use":
-                            yield ToolStarted(event.content_block.name)
+                            tool_ids[event.index] = event.content_block.id
+                            yield ToolInputStarted(event.content_block.id, event.content_block.name)
                     elif kind == "content_block_delta":
                         delta = event.delta
                         if delta.type == "text_delta":
                             yield TextChunk(delta.text)
                         elif delta.type == "thinking_delta":
                             yield ThinkingChunk(delta.thinking)
+                        elif delta.type == "input_json_delta" and event.index in tool_ids:
+                            yield ToolInputChunk(tool_ids[event.index], delta.partial_json)
                     elif kind == "content_block_stop":
                         if block_types.get(getattr(event, "index", -1)) in ("thinking", "redacted_thinking"):
                             yield ThinkingStopped()
+                        elif event.index in tool_ids:
+                            yield ToolInputStopped(tool_ids[event.index])
                 final = await stream.get_final_message()
+        except ValueError as exc:
+            # Tools that stream their input eagerly (`eager_input_streaming`) are not validated by the API, so the
+            # SDK can meet JSON it cannot parse at all.
+            raise LLMError("The model produced an unreadable tool call", retryable=True) from exc
         except (anthropic.AnthropicError, TypeError) as exc:
             # TypeError: the SDK raises it when no credentials can be resolved at all.
             if isinstance(exc, TypeError) and "auth" not in str(exc).lower():

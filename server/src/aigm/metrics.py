@@ -72,6 +72,7 @@ class RequestMetrics:
     output_tokens: int = 0
     first_text_ms: int | None = None  # until the first visible text: thinking does not count as text
     thinking_ms: int = 0  # time spent thinking before the response finished
+    narration_chars: int = 0  # characters of roll narration shown while the model was still writing the call
     total_ms: int = 0
     stop_reason: str = ""
     sent: dict[str, Any] = field(default_factory=dict)
@@ -90,6 +91,7 @@ class RequestMetrics:
             "output_tokens": self.output_tokens,
             "first_text_ms": self.first_text_ms,
             "thinking_ms": self.thinking_ms,
+            "narration_chars": self.narration_chars,
             "total_ms": self.total_ms,
             "stop_reason": self.stop_reason,
             "sent": self.sent,

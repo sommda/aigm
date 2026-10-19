@@ -17,7 +17,9 @@ from aigm.llm.base import (
     ThinkingChunk,
     ThinkingStarted,
     ThinkingStopped,
-    ToolStarted,
+    ToolInputChunk,
+    ToolInputStarted,
+    ToolInputStopped,
 )
 from aigm.tools import tool_schemas
 from tests.conftest import chat, names, reply_text
@@ -127,7 +129,7 @@ async def test_thinking_text_and_tool_use():
     kinds = [type(e).__name__ for e in events]
     assert kinds[:5] == ["ThinkingStarted", "ThinkingChunk", "ThinkingChunk", "ThinkingStopped", "TextChunk"]
     assert [e.text for e in events if isinstance(e, ThinkingChunk)] == ["Need ", "a roll."]
-    assert [e.name for e in events if isinstance(e, ToolStarted)] == ["roll_dice"]
+    assert [e.name for e in events if isinstance(e, ToolInputStarted)] == ["roll_dice"]
     done = events[-1]
     assert done.stop_reason == "tool_use"
     thinking, text, tool = done.content
@@ -277,3 +279,35 @@ def test_truncated_tool_call_is_not_committed(tmp_path):
     events = chat(client, "go")
     assert events[-1][0] == "error" and "cut off" in events[-1][1]["message"]
     assert client.get("/chat/history").json()["messages"] == []
+
+
+async def test_tool_input_is_streamed_as_fragments_with_the_call_id():
+    args = '{"expression": "1d20+5", "narration": "You swing."}'
+    fake = FakeAnthropic(
+        message_stream([("text", ["Go."]), ("tool_use", "toolu_9", "roll_dice", args)], stop_reason="tool_use")
+    )
+    events = await collect(make_llm(fake))
+    started = [e for e in events if isinstance(e, ToolInputStarted)]
+    chunks = [e for e in events if isinstance(e, ToolInputChunk)]
+    stopped = [e for e in events if isinstance(e, ToolInputStopped)]
+    assert [(e.tool_use_id, e.name) for e in started] == [("toolu_9", "roll_dice")]
+    assert len(chunks) > 1 and {e.tool_use_id for e in chunks} == {"toolu_9"}
+    assert "".join(e.partial_json for e in chunks) == args
+    assert [e.tool_use_id for e in stopped] == ["toolu_9"]
+    order = [type(e).__name__ for e in events]
+    assert order.index("ToolInputStarted") < order.index("ToolInputChunk") < order.index("ToolInputStopped")
+
+
+async def test_only_the_roll_tool_asks_for_eager_input_streaming():
+    fake = FakeAnthropic(message_stream([("text", ["x"])]))
+    await collect(make_llm(fake))
+    flags = {t["name"]: t.get("eager_input_streaming") for t in fake.requests[0]["tools"]}
+    assert flags.pop("roll_dice") is True
+    assert not any(flags.values())
+
+
+async def test_unparseable_tool_input_is_a_retryable_error():
+    fake = FakeAnthropic(message_stream([("tool_use", "toolu_9", "roll_dice", '{"expression" 1d20}')], stop_reason="tool_use"))
+    with pytest.raises(LLMError) as err:
+        await collect(make_llm(fake))
+    assert err.value.retryable and "unreadable tool call" in str(err.value)

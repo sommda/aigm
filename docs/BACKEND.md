@@ -265,10 +265,21 @@ the server verifies the player's confirmation beyond the `confirmed` flag; that 
 - Input: `{"expression": str, "narration": str}`.
 - Validate: `narration` is a string of at least 10 characters (otherwise the call is refused, nothing is rolled and the
   error asks the model to call again with one); `expression` is a string, non-empty, ≤ 200 chars.
-- The outcome carries the stripped narration as `say`. The loop sends it as a `text` delta (starting a new paragraph if
-  text was already shown, and ending with a blank line) right before the `dice_roll` event, and before the roll pause.
-  This guarantees the player reads what the roll is for. The narration is the model's own words, written as part of
-  the tool call, so it stays in history; the curator's transcript includes it as GM text.
+- The player reads the narration while the model is still writing it. The tool schema has `eager_input_streaming`
+  (the API then sends the input as it is generated and no longer validates it), the Anthropic client turns the
+  `input_json_delta` fragments into `ToolInput*` events, and the loop feeds a roll's fragments to a `NarrationStream`
+  (`llm/narration.py`), an incremental JSON reader that returns the decoded `narration` text as it arrives whatever the
+  fragment boundaries. The loop sends it as `text` deltas (starting a new paragraph if text was already shown, and
+  ending with a blank line). Tools still run after the response completes, so with several rolls the narrations come
+  first, then the dice (docs/NARRATION_STREAMING.md, phase 2, would run each roll when its block closes).
+- The outcome carries the stripped narration as `say`. The loop shows it at dispatch only when nothing of the call's
+  narration was streamed (a client without tool input events, or the narration was unreadable from the start). When a
+  streamed call is refused (bad expression, too short a narration) the error result also says the narration was
+  already shown. The narration is the model's own words, written as part of the tool call, so it stays in history; the
+  curator's transcript includes it as GM text.
+- While the call is being written the loop sends a `status` event ("Rolling the dice...") that ends when the first
+  piece of narration appears. `first_text_ms` counts that piece, and each request's `narration_chars` says how much
+  came this way.
 - Call `d20.roll(expression)`; build content from `str(result)` (the same markdown string as the event's `result`),
   total from `result.total`.
 - Build the structured `dice_roll` payload from the `RollResult`: `crit` from `result.crit` (`CritType`: NONE/CRIT/FAIL
@@ -374,17 +385,18 @@ history.
 
 The tool loop does not talk to the Anthropic SDK directly. `llm/base.py` defines a small `LLMClient` protocol whose
 `stream(system, messages, tools)` yields normalized events: `ThinkingStarted`, `ThinkingChunk`, `ThinkingStopped`,
-`ToolStarted(name)` (the model began writing a tool call), `TextChunk`, and a final
+`ToolInputStarted(tool_use_id, name)`, `ToolInputChunk(tool_use_id, partial_json)` and `ToolInputStopped(tool_use_id)`
+(the model is writing a tool call), `TextChunk`, and a final
 `Completed(content, stop_reason, usage)` carrying the assistant message as Anthropic-format blocks (exactly what is
 stored in history). Implementations:
 
 - `llm/scripted.py`: `ScriptedLLM`, used by `--test` mode (below).
 - `llm/anthropic_client.py`: `AnthropicLLM`, the real client. It calls `messages.stream()` on `AsyncAnthropic` and
   translates SDK events: a `thinking` content block becomes `ThinkingStarted` / `ThinkingChunk`s / `ThinkingStopped` (an
-  omitted-thinking block yields start/stop with no chunks); a `tool_use` block start becomes `ToolStarted`
-  (the loop turns it into a `status` event); `text_delta`s become `TextChunk`s; and the SDK's accumulated
-  final message becomes `Completed`, with content stored verbatim (`model_dump`), so thinking blocks keep their
-  signatures and tool_use blocks keep their parsed input.
+  omitted-thinking block yields start/stop with no chunks); a `tool_use` block becomes `ToolInputStarted` /
+  `ToolInputChunk`s (the `input_json_delta` fragments) / `ToolInputStopped`; `text_delta`s become `TextChunk`s; and
+  the SDK's accumulated final message becomes `Completed`, with content stored verbatim (`model_dump`), so thinking
+  blocks keep their signatures and tool_use blocks keep their parsed input.
   - Requests send: `system` (the assembled prompt), the tool schemas, prompt caching of the growing prefix (a top-level
     `cache_control`, or, when the request carries world notes, an explicit breakpoint on the block before them, see
     WORLD.md 6.1), `thinking={"type": "adaptive", "display": "summarized"}` unless `AIGM_THINKING_SUMMARIES=false`, and
@@ -412,7 +424,7 @@ results the scripted model narrates them, so the full request -> tool -> follow-
 | Message | Behavior |
 |---|---|
 | `help` | List the commands (markdown) |
-| `roll <expr>` | A real `roll_dice` call with a narration (`roll 4d6kh3+2 # strength`; default `1d20`), then narration of the result |
+| `roll <expr>` | A real `roll_dice` call, its input streamed in fragments, with a narration (`roll 4d6kh3+2 # strength`; default `1d20`), then narration of the result |
 | `multiroll` | Two `roll_dice` calls in one response |
 | `badroll [expr]` | A malformed roll (default `2x20`): tool error is returned to the model, no `dice_roll` event |
 | `markdown` | Sampler of every markup form below |

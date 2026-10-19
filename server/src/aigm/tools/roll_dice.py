@@ -14,6 +14,10 @@ SYNTAX_HINT = "Expected syntax like '1d20+5' or '4d6kh3'."
 # `aigm.tools.tool_schemas()`.
 SCHEMA: dict[str, Any] = {
     "name": "roll_dice",
+    # The API normally buffers each parameter until it is complete; this sends the narration as it is written, so
+    # it can be shown to the player word by word (docs/NARRATION_STREAMING.md). The input is then not validated by
+    # the API, so the tool checks it itself.
+    "eager_input_streaming": True,
     "input_schema": {
         "type": "object",
         "properties": {

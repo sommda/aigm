@@ -181,8 +181,10 @@ Emitted when the model finishes specifying a tool call, before it runs.
 }
 ```
 
-For `roll_dice`, the `narration` in the input is also sent as ordinary `text` events straight after this event and
-before `dice_roll`, so a client does not need to read it from `input` (see Tool: `roll_dice`).
+For `roll_dice`, the `narration` in the input has already been sent as ordinary `text` events, a few words at a time
+as the model wrote it, so it arrives before this event, and a client does not need to read it from `input` (see Tool:
+`roll_dice`). `tool_call` and `dice_roll` follow once the model's response is complete. When the response holds several
+rolls the order is each roll's narration, then each `tool_call` and `dice_roll` in turn.
 
 #### `dice_roll`
 Emitted after `roll_dice` succeeds. Intended for front-end rendering (animations, roll log). Carries everything the
@@ -609,6 +611,7 @@ and history.
 ```json
 {
   "name": "roll_dice",
+  "eager_input_streaming": true,
   "description": "Roll dice using d20 expression syntax (e.g. '1d20+5', '4d6kh3', '2d8+1d4+3'; use '2d20kh1' for
     advantage). Use for any random outcome: attacks, checks, saves, damage, random tables.",
   "input_schema": {
@@ -625,15 +628,17 @@ and history.
 ### Results
 
 - Success: tool result text is the d20 breakdown string (e.g. ``1d20 (12) + 5 = `17` ``); `is_error: false`; the
-  `narration` is streamed as `text` events (its own paragraph, ending with a blank line) and then a `dice_roll` SSE
-  event is emitted. The narration is shown as story text, so the player reads what is happening before the dice land.
-  It stays in the saved `tool_use` input, so the model sees it in later turns and history replay can show it.
+  `narration` was streamed as `text` events while the model wrote it (its own paragraph, ending with a blank line),
+  and a `dice_roll` SSE event is emitted after the response completes. The narration is shown as story text, so the
+  player reads what is happening before the dice land. It stays in the saved `tool_use` input, so the model sees it
+  in later turns and history replay can show it.
 - Missing or too short `narration` (under 10 characters): nothing is rolled. The tool result is an error that tells the
-  model to call again with a narration, `is_error: true`, no `text` and no `dice_roll` event.
+  model to call again with a narration, `is_error: true`, and no `dice_roll` event. A short narration has already been
+  streamed by then, so the error also says it was shown.
 - Malformed expression (with a valid narration): tool result is an error message such as
   `Invalid dice expression '2x20': <d20 error text>. Expected syntax like '1d20+5' or '4d6kh3'.` with `is_error: true`.
-  The model sees this and may retry. No `dice_roll` event, and the narration is not shown, so the retry does not
-  repeat it.
+  The model sees this and may retry. No `dice_roll` event. The narration was already shown, so the error says so and
+  asks the retry not to repeat it.
 - Guardrails: expression length limit (200 chars) and d20's own roll-count limits; violations are reported as the same
   error form.
 

@@ -105,3 +105,27 @@ def test_a_rolls_narration_is_replayed_as_story_text_before_the_dice():
     blocks = history_to_blocks(messages)
     kinds = [type(b) for b in blocks]
     assert kinds[-4:] == [MarkdownBlock, MarkdownBlock, DiceBlock, MarkdownBlock]
+
+
+def test_streamed_roll_narration_reads_as_story_text_between_the_reply_and_the_dice():
+    """Narration arrives as ordinary text events, a few characters at a time (docs/NARRATION_STREAMING.md)."""
+    from aigm_client import events as ev
+    from aigm_client.blocks import MarkdownBlock, DiceBlock
+    from aigm_client.session import ChatSession
+    from aigm_client.transcript import Transcript
+
+    s = ChatSession(Transcript())
+    s.begin_turn("I swing.")
+    s.apply(ev.Text("You edge forward."))
+    s.apply(ev.Status("tool", "Rolling the dice..."))
+    s.apply(ev.Status("tool", "", True))
+    for piece in ("\n\nThe blade ", "flashes ", "in the torchlight.", "\n\n"):
+        s.apply(ev.Text(piece))
+    s.apply(ev.ToolCall("r1", "roll_dice", {}))
+    s.apply(ev.DiceRoll(tool_use_id="r1", expression="1d20+5", total=17, result="1d20 (12) + 5 = `17`"))
+    s.apply(ev.Text("A solid hit!"))
+    s.apply(ev.MessageEnd("m", "end_turn", {}))
+    kinds = [type(b) for b in s.transcript.blocks[1:]]
+    assert kinds == [MarkdownBlock, DiceBlock, MarkdownBlock]
+    assert s.transcript.blocks[1].raw == "You edge forward.\n\nThe blade flashes in the torchlight.\n\n"
+    assert s.status == ""

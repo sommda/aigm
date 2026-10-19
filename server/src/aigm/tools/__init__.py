@@ -15,7 +15,12 @@ def tool_schemas(prompts: PromptLibrary | None = None, phase: Phase = Phase.ADVE
     """Tool definitions offered to the model in a phase, with descriptions loaded from prompt files."""
     prompts = prompts or PromptLibrary()
     return [
-        {"name": name, "description": prompts.tool_description(name), "input_schema": tool.schema["input_schema"]}
+        {
+            "name": name,
+            "description": prompts.tool_description(name),
+            "input_schema": tool.schema["input_schema"],
+            **({"eager_input_streaming": True} if tool.schema.get("eager_input_streaming") else {}),
+        }
         for name, tool in REGISTRY.items()
         if phase in tool.phases
     ]

@@ -6,6 +6,7 @@ Send `help` to list the commands.
 """
 
 import asyncio
+import json
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -19,7 +20,9 @@ from aigm.llm.base import (
     ThinkingChunk,
     ThinkingStarted,
     ThinkingStopped,
-    ToolStarted,
+    ToolInputChunk,
+    ToolInputStarted,
+    ToolInputStopped,
 )
 
 
@@ -317,10 +320,16 @@ class ScriptedLLM:
                 else:
                     content.append({"type": "text", "text": step.text})
             elif isinstance(step, UseTool):
-                yield ToolStarted(step.name)
-                content.append(
-                    {"type": "tool_use", "id": f"toolu_test_{uuid.uuid4().hex[:10]}", "name": step.name, "input": step.input}
-                )
+                tool_id = f"toolu_test_{uuid.uuid4().hex[:10]}"
+                yield ToolInputStarted(tool_id, step.name)
+                # the input goes out as JSON fragments, expression first like the real model writes it
+                ordered = {k: v for k, v in step.input.items() if k != "narration"}
+                ordered.update({k: v for k, v in step.input.items() if k == "narration"})
+                for chunk in self._chunks(json.dumps(ordered)):
+                    yield ToolInputChunk(tool_id, chunk)
+                    await self._sleep(self.delay)
+                yield ToolInputStopped(tool_id)
+                content.append({"type": "tool_use", "id": tool_id, "name": step.name, "input": step.input})
             elif isinstance(step, Fail):
                 raise LLMError(step.message, retryable=step.retryable)
         has_tool = any(b["type"] == "tool_use" for b in content)

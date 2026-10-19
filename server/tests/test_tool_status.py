@@ -33,3 +33,11 @@ def test_every_status_is_ended(tmp_path):
     for command in ("roll", "multiroll", "begin"):
         shown = tool_statuses(chat(client(tmp_path), command, session_id=command))
         assert [s["done"] for s in shown].count(True) == len(shown) // 2
+
+
+def test_test_mode_streams_the_roll_narration_in_pieces_before_the_tool_call(tmp_path):
+    events = chat(client(tmp_path), "roll")
+    order = names(events)
+    before = [d["delta"] for n, d in events[: order.index("tool_call")] if n == "text"]
+    assert len(before) > 3 and "".join(before).strip().endswith(".")  # the narration, in pieces of a few characters
+    assert order.index("tool_call") < order.index("dice_roll")

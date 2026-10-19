@@ -28,10 +28,24 @@ class ThinkingStopped:
 
 
 @dataclass
-class ToolStarted:
-    """The model began writing a tool call (its input is still being generated)."""
+class ToolInputStarted:
+    """The model began writing a tool call; its input is still being generated."""
 
+    tool_use_id: str
     name: str
+
+
+@dataclass
+class ToolInputChunk:
+    """A fragment of the tool call's input JSON. It can end anywhere, even inside an escape sequence."""
+
+    tool_use_id: str
+    partial_json: str
+
+
+@dataclass
+class ToolInputStopped:
+    tool_use_id: str
 
 
 @dataclass
@@ -51,7 +65,17 @@ class Completed:
     usage: dict[str, int] = field(default_factory=lambda: {"input_tokens": 0, "output_tokens": 0})
 
 
-LLMEvent = ThinkingStarted | ThinkingChunk | ThinkingStopped | ToolStarted | TextChunk | Completed
+LLMEvent = (
+    ThinkingStarted
+    | ThinkingChunk
+    | ThinkingStopped
+    | ToolInputStarted
+    | ToolInputChunk
+    | ToolInputStopped
+    | TextChunk
+    | Completed
+)
+
 
 
 class LLMClient(Protocol):

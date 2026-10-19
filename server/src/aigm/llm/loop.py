@@ -5,6 +5,7 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from aigm.llm.base import (
@@ -15,10 +16,13 @@ from aigm.llm.base import (
     ThinkingChunk,
     ThinkingStarted,
     ThinkingStopped,
-    ToolStarted,
+    ToolInputChunk,
+    ToolInputStarted,
+    ToolInputStopped,
 )
 from aigm.game import Game
 from aigm import rulesets
+from aigm.llm.narration import NarrationStream
 from aigm.metrics import MetricsLog, RequestMetrics, TurnMetrics, request_sizes
 from aigm.models import (
     DiceRoll,
@@ -38,6 +42,27 @@ from aigm.world.ops import apply_ops
 from aigm.world.service import CuratorService
 
 log = logging.getLogger(__name__)
+
+
+STREAMED_TOOLS = frozenset({"roll_dice"})  # tools whose `narration` is shown while the model is still writing it
+ALREADY_SHOWN = (
+    "The narration in that call was already shown to the player. Call the tool again with the corrected input, and "
+    "make its narration a short continuation that does not repeat what was shown."
+)
+
+
+@dataclass
+class Narrating:
+    """The narration of one streamed tool call, on its way to the player."""
+
+    stream: NarrationStream = field(default_factory=NarrationStream)
+    began: bool = False  # some of it was shown
+    closed: bool = False  # the paragraph break after it was sent
+
+
+def paragraph_lead(tail: str) -> str:
+    """What to send before a block of story text so it starts a new paragraph (`tail`: the last 2 characters shown)."""
+    return "" if not tail or tail == "\n\n" else "\n\n"
 
 
 def tool_status(name: str) -> str:
@@ -120,17 +145,50 @@ async def run_turn(
             completed: Completed | None = None
             think_started: float | None = None
             noting = False  # a status for a tool call being written is showing
+            narrating: dict[str, Narrating] = {}
             request = game.describe(state, staged, user_text)
             call = RequestMetrics(index=len(measured.requests), sent=request_sizes(request, staged))
             measured.reduction = request.reduction
             call_started = time.monotonic()
+
+            def text_shown(text: str, first: bool = True) -> None:
+                nonlocal tail
+                now = time.monotonic()
+                if first and call.first_text_ms is None:
+                    call.first_text_ms = int((now - call_started) * 1000)
+                if first and measured.first_text_ms is None:
+                    measured.first_text_ms = int((now - turn_started) * 1000)
+                tail = (tail + text)[-2:]
+
             async for ev in llm.stream(system=request.system, messages=request.messages, tools=request.tools):
                 if noting and isinstance(ev, ThinkingStarted | TextChunk | Completed):
                     noting = False
                     yield Status(stage="tool", message="", done=True)
-                if isinstance(ev, ToolStarted):
+                if isinstance(ev, ToolInputStarted):
                     noting = True
                     yield Status(stage="tool", message=tool_status(ev.name))
+                    if ev.name in STREAMED_TOOLS:
+                        narrating[ev.tool_use_id] = Narrating()
+                elif isinstance(ev, ToolInputChunk):
+                    rec = narrating.get(ev.tool_use_id)
+                    piece = rec.stream.feed(ev.partial_json) if rec is not None else ""
+                    if rec is not None and piece:
+                        if noting:
+                            noting = False
+                            yield Status(stage="tool", message="", done=True)
+                        text = piece if rec.began else paragraph_lead(tail) + piece
+                        rec.began = True
+                        call.narration_chars += len(piece)
+                        text_shown(text)
+                        yield TextDelta(delta=text)
+                elif isinstance(ev, ToolInputStopped):
+                    rec = narrating.get(ev.tool_use_id)
+                    if rec is not None:
+                        rec.stream.finish()
+                        if rec.began and not rec.closed:
+                            rec.closed = True
+                            text_shown("\n\n", first=False)
+                            yield TextDelta(delta="\n\n")
                 elif isinstance(ev, ThinkingStarted):
                     think_started = time.monotonic()
                     yield Thinking(status="start")
@@ -143,12 +201,7 @@ async def run_turn(
                     call.thinking_ms += ms
                     yield Thinking(status="end", duration_ms=ms)
                 elif isinstance(ev, TextChunk):
-                    now = time.monotonic()
-                    if call.first_text_ms is None:
-                        call.first_text_ms = int((now - call_started) * 1000)
-                    if measured.first_text_ms is None:
-                        measured.first_text_ms = int((now - turn_started) * 1000)
-                    tail = (tail + ev.text)[-2:]
+                    text_shown(ev.text)
                     yield TextDelta(delta=ev.text)
                 elif isinstance(ev, Completed):
                     completed = ev
@@ -202,10 +255,13 @@ async def run_turn(
                 tool_input = block.get("input") or {}
                 yield ToolCall(tool_use_id=block["id"], name=block["name"], input=tool_input)
                 outcome = game.dispatch(state, block["name"], block["id"], tool_input)
-                if outcome.say:
+                rec = narrating.get(block["id"])
+                streamed = rec is not None and rec.began  # the player has already read its narration
+                if streamed and outcome.is_error:
+                    outcome = replace(outcome, content=f"{outcome.content}\n\n{ALREADY_SHOWN}")
+                if outcome.say and not streamed:
                     # the narration that leads into a roll is shown as story text, ahead of the dice
-                    lead = "" if not tail or tail == "\n\n" else "\n\n"  # start a new paragraph unless one just began
-                    yield TextDelta(delta=f"{lead}{outcome.say}\n\n")
+                    yield TextDelta(delta=f"{paragraph_lead(tail)}{outcome.say}\n\n")
                     tail = "\n\n"
                 if outcome.event is not None:
                     if roll_pause > 0 and isinstance(outcome.event, DiceRoll):

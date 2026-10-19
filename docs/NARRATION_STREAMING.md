@@ -1,7 +1,7 @@
 # Streaming roll narration (spec)
 
-Status: proposed. Nothing in this document is implemented yet. It builds on the roll `narration` field (BACKEND.md,
-Tools, `roll_dice`; API.md, Tool: `roll_dice`).
+Status: phase 1 is implemented (sections 4 to 8, 10); phase 2 (section 4.3) is not. It builds on the roll
+`narration` field (BACKEND.md, Tools, `roll_dice`; API.md, Tool: `roll_dice`).
 
 ## 1. Problem
 
@@ -126,10 +126,11 @@ the narration path.
 Phase 1 (this spec's required scope): tool calls still run after the response completes. For a single roll that is
 exactly right: the narration streams, the model ends its response a moment later, the pause runs, the dice appear.
 
-For a response with several rolls (an attack and its damage) the order the player sees is narration A, narration B,
-dice A, dice B, because the dice are only shown once the response is complete. The prompts already ask for the first
-roll's narration to set up the beat and for later dependent rolls to carry a short conditional line, so this reads
-acceptably, and it matches today's order of reply text followed by dice.
+For a response with several rolls the order the player sees is narration A, narration B, dice A, dice B, because the
+dice are only shown once the response is complete. The dice prompt now keeps dependent rolls out of one response:
+damage is rolled only after the attack has hit, in the next call, so a response holds several rolls only when they do
+not depend on each other (initiative for several creatures, saves for several targets). That makes the order above
+rare and removes the "if it lands" lines the model wrote for damage rolled ahead of the attack's result.
 
 Phase 2 (optional, decided after play-testing phase 1): run each `roll_dice` call as soon as its block stops, so the
 order becomes narration A, dice A, narration B, dice B. This needs care:
@@ -318,10 +319,20 @@ hold up in play (rolls appeared with no lead-in, often in combat), and the check
 each time it fires, which is why the narration was moved into the call. It is recorded here so the trade-off is not
 lost.
 
-## 13. Open questions
+## 13. Decisions
 
-1. Phase 2 (rolls run when their block stops): wanted from the start, or only if multi-roll responses read badly in
-   phase 1?
-2. Should the client style roll narration differently from reply text (section 7), or is one voice right?
-3. Should a refused short narration be allowed through when the roll is otherwise valid, since the player has already
-   read it? It is simpler to keep the refusal, and the model then writes a longer one.
+1. **Phase 2** waits until play-testing phase 1. A live run with four rolls in one response (attack and damage for each
+   side) showed the effect described in section 4.3: four narrations in a row, then four dice at once, half a second
+   after the last narration.
+2. **Roll narration looks the same as reply text.** No `source` field on `text` events.
+3. **A too-short narration is refused** even though the player has already read it, and the error tells the model so.
+
+## 14. As built
+
+- The events are `ToolInputStarted`, `ToolInputChunk` and `ToolInputStopped` (`llm/base.py`). The `status` event for
+  "the model is writing a tool call" (`stage: "tool"`) is sent from `ToolInputStarted`, and ends when the first
+  narration appears or the response goes on.
+- `roll_dice` keeps its schema order. The spike found the model writes `expression` first anyway (section 5.3).
+- The tool schema carries `eager_input_streaming: true`; `tool_schemas()` passes it through.
+- The extractor is `llm/narration.py` and its tests are `tests/test_narration_stream.py`; the loop's behavior is in
+  `tests/test_narration_streaming.py`.
