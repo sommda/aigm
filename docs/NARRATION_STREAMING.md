@@ -52,8 +52,8 @@ Facts about the Messages API, checked against the installed SDK (`anthropic` 1.1
 - Fragments are arbitrary pieces of the JSON text. They can end in the middle of an escape sequence (`\` then `n`, or
   half of a `\uXXXX`), in the middle of a key, or between a key and its value.
 
-Not yet verified (the spike in section 9 settles these first): that the model in use accepts the field, how fine the
-fragments are in practice, and whether they stream in the order the schema lists the properties.
+The spike (section 9.1) checked the rest against the real model: it accepts the field, the fragments are fine enough,
+and it writes `expression` before `narration` whatever order the schema lists them in.
 
 ## 4. Design overview
 
@@ -183,10 +183,9 @@ It is a pure, synchronous state machine: no I/O, no clock, no knowledge of the l
 
 ### 5.3 Property order in the schema
 
-The model writes JSON keys in the order the schema lists them in practice. The `narration` property is therefore moved
-before `expression` in the tool schema, and the field description says to write it first. If the model writes
-`expression` first, nothing breaks: the extractor ignores it and starts streaming when `narration` begins, the player
-simply waits through the expression. The change in the schema order does not change the stored history format.
+The spike found that the model writes `expression` first even when the schema lists `narration` first (every call
+measured). This costs nothing: the expression is about 25 characters, so `narration` begins within the first few
+fragments. The schema order is therefore left as it is, and the extractor must not depend on key order.
 
 ## 6. Validation and failure handling
 
@@ -247,6 +246,29 @@ roll with a long narration. It records for each `input_json` event the time and 
 
 Its measurements go into this document before the implementation starts.
 
+### 9.1 Results
+
+Run against `claude-sonnet-5-5` with adaptive thinking (summarized), the real `roll_dice` schema and a prompt asking
+for two rolls (the player's attack and the ogre's reply), two to three runs per setting.
+
+1. **The model accepts `eager_input_streaming: true`.** No request was rejected.
+2. **Fragments.** With the flag on, a call arrived in 22 to 36 fragments (median 7 to 11 characters, largest about 25)
+   spread over 0.6 to 1.2 seconds, which clears the acceptance bar of 8 fragments for 300 characters. With the flag
+   off the fragments were smaller (7 characters) but the delivery varied: in one run a whole call (40 fragments)
+   arrived within 3 ms, in another within 0.4 seconds, so the flag is what makes the streaming reliable. The first
+   fragment arrives the moment thinking stops, so the narration starts within a fraction of a second of the end of
+   thinking, instead of after the whole response.
+3. **Key order.** `expression` came first in every call, `narration` after it (see section 5.3).
+4. **Pausing the consumer is safe.** With the flag off, holding the stream consumer for 1.5 seconds after the first
+   tool block closed did not disturb the stream: the second call and the final message arrived intact. (This was
+   measured without the flag; the flag does not change the transport.) Phase 2 is therefore possible.
+5. **Timing of a two-roll response.** The first call closed 0.3 to 1.2 seconds before the second, so in phase 1 the
+   player would read narration A and B in a row, then both dice. This is the case phase 2 improves.
+
+Two new facts for the design: a narration is typically 180 to 300 characters and takes under a second to generate, so
+streaming mostly moves the narration earlier (before the rest of the response and the dice) rather than slowing it
+down for the reader; and the fallback in section 12 is not needed.
+
 ## 10. Tests
 
 Server:
@@ -285,7 +307,7 @@ fails the turn; results still go back in the original order.
 |---|---|---|
 | The model rejects `eager_input_streaming` | No streaming from the API | Keep the buffered tool input; narration still shows at dispatch (today's behavior) |
 | Fragments are too coarse even with the flag | Streaming looks like bursts | Same fallback; consider asking for the narration as ordinary text again (see below) |
-| The model puts `expression` before `narration` | Narration starts late | Schema order and the field description; no correctness issue |
+| The model puts `expression` before `narration` | Narration starts a few fragments late | Seen in the spike; harmless |
 | Invalid JSON from the model | A turn fails or a roll is refused | Existing validation; retryable `LLMError` for unparseable input |
 | Duplicate narration text (shown while streaming, then again) | The player reads it twice | The loop tracks shown characters per call; tested |
 
