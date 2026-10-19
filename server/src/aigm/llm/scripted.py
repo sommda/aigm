@@ -192,15 +192,15 @@ def plan_for(text: str, tools: tuple[str, ...] = ()) -> list[Step]:
         return [Say(arg or "Echo what?")]
     if cmd == "roll":
         expr = arg or "1d20"
-        return [Say(f"You reach for the dice and roll **{expr.split('#')[0].strip()}**... "), UseTool("roll_dice", {"expression": expr})]
+        lead = f"You reach for the dice and roll **{expr.split('#')[0].strip()}**..."
+        return [UseTool("roll_dice", {"expression": expr, "narration": lead})]
     if cmd == "multiroll":
         return [
-            Say("Attack and damage, coming up. "),
-            UseTool("roll_dice", {"expression": "1d20+5 # attack"}),
-            UseTool("roll_dice", {"expression": "2d6+3 # damage"}),
+            UseTool("roll_dice", {"expression": "1d20+5 # attack", "narration": "Attack and damage, coming up."}),
+            UseTool("roll_dice", {"expression": "2d6+3 # damage", "narration": "If it lands, it bites deep."}),
         ]
     if cmd == "badroll":
-        return [Say("Trying a strange roll... "), UseTool("roll_dice", {"expression": arg or "2x20"})]
+        return [UseTool("roll_dice", {"expression": arg or "2x20", "narration": "Trying a strange roll..."})]
     if cmd == "markdown":
         return [Say(markdown_sampler())]
     if cmd in SAMPLES:
@@ -216,7 +216,7 @@ def plan_for(text: str, tools: tuple[str, ...] = ()) -> list[Step]:
     if cmd == "error":
         return [Say("Starting to answer, and then "), Fail("Simulated upstream failure")]
     if cmd == "loop":
-        return [UseTool("roll_dice", {"expression": "1d6"})]
+        return [UseTool("roll_dice", {"expression": "1d6", "narration": "Rolling again."})]
     mode = "Session 0" if "begin_adventure" in tools else "Adventure"
     return [Say(f"[test mode: {mode}] You said: {text.strip()}\n\nType `help` to see the test commands.")]
 
@@ -288,7 +288,7 @@ class ScriptedLLM:
         if command.startswith("[System: The adventure begins"):  # the server's cue after Session 0
             plan: list[Step] = [Say(OPENING_SCENE)]
         elif after_tools and command.strip().lower().startswith("loop"):
-            plan = [UseTool("roll_dice", {"expression": "1d6"})]
+            plan = [UseTool("roll_dice", {"expression": "1d6", "narration": "Rolling again."})]
         elif after_tools:
             plan = narrate_tool_results(messages)
         else:

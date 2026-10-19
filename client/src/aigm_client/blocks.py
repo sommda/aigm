@@ -181,5 +181,9 @@ def history_to_blocks(messages: list[dict[str, Any]]) -> list[Block]:
                 if b.get("type") == "text" and b.get("text", "").strip():
                     blocks.append(MarkdownBlock(b["text"], final=True))
                 elif b.get("type") == "tool_use" and b.get("name") == "roll_dice":
-                    roll_inputs[b.get("id", "")] = str(b.get("input", {}).get("expression", ""))
+                    given = b.get("input") or {}
+                    roll_inputs[b.get("id", "")] = str(given.get("expression", ""))
+                    narration = str(given.get("narration", "")).strip()
+                    if narration:  # shown as story text just before the dice, as it was live
+                        blocks.append(MarkdownBlock(narration, final=True))
     return blocks

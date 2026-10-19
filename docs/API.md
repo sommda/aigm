@@ -175,8 +175,14 @@ rendering.
 #### `tool_call`
 Emitted when the model finishes specifying a tool call, before it runs.
 ```json
-{ "tool_use_id": "toolu_abc", "name": "roll_dice", "input": { "expression": "1d20+5" } }
+{
+  "tool_use_id": "toolu_abc", "name": "roll_dice",
+  "input": { "expression": "1d20+5", "narration": "You lunge at the goblin." }
+}
 ```
+
+For `roll_dice`, the `narration` in the input is also sent as ordinary `text` events straight after this event and
+before `dice_roll`, so a client does not need to read it from `input` (see Tool: `roll_dice`).
 
 #### `dice_roll`
 Emitted after `roll_dice` succeeds. Intended for front-end rendering (animations, roll log). Carries everything the
@@ -297,9 +303,9 @@ first text, and each request's `thinking_ms` says how much of the wait was think
 `pause_ms` the part of it spent in the deliberate pause before dice rolls (`AIGM_ROLL_PAUSE`). `history` says how much
 of the stored history was condensed for the model. Each entry of `requests` (one per model call) has the same token
 counts, its own `first_text_ms` (from the start of that call; `null` if it wrote no text), `thinking_ms`, `total_ms`,
-`stop_reason`, and `sent`: estimated token sizes (`system`, `tools`, `history`, `briefing`, and `history_stored`, what
-the history would have been without reduction), message counts, and `history_by_kind` (`player`, `gm`, `digests`,
-`thinking`, `tool_calls`, `tool_results`). The same record is appended to
+`stop_reason`, and `sent`: estimated token sizes (`system`, `tools`, `history`,
+`briefing`, and `history_stored`, what the history would have been without reduction), message counts, and
+`history_by_kind` (`player`, `gm`, `digests`, `thinking`, `tool_calls`, `tool_results`). The same record is appended to
 `{AIGM_SAVE_DIR}/metrics/{session_id}.jsonl` (with a timestamp and the session id) unless `AIGM_METRICS=false`.
 Clients must ignore fields they do not know.
 
@@ -603,20 +609,26 @@ and history.
   "input_schema": {
     "type": "object",
     "properties": {
-      "expression": { "type": "string", "description": "A dice expression supported by the Python d20 library." }
+      "expression": { "type": "string", "description": "A dice expression supported by the Python d20 library." },
+      "narration": { "type": "string", "description": "Narration shown to the player just before the dice." }
     },
-    "required": ["expression"]
+    "required": ["expression", "narration"]
   }
 }
 ```
 
 ### Results
 
-- Success: tool result text is the d20 breakdown string (e.g. ``1d20 (12) + 5 = `17` ``); `is_error: false`; a
-  `dice_roll` SSE event is emitted.
-- Malformed expression: tool result is an error message such as
+- Success: tool result text is the d20 breakdown string (e.g. ``1d20 (12) + 5 = `17` ``); `is_error: false`; the
+  `narration` is streamed as `text` events (its own paragraph, ending with a blank line) and then a `dice_roll` SSE
+  event is emitted. The narration is shown as story text, so the player reads what is happening before the dice land.
+  It stays in the saved `tool_use` input, so the model sees it in later turns and history replay can show it.
+- Missing or too short `narration` (under 10 characters): nothing is rolled. The tool result is an error that tells the
+  model to call again with a narration, `is_error: true`, no `text` and no `dice_roll` event.
+- Malformed expression (with a valid narration): tool result is an error message such as
   `Invalid dice expression '2x20': <d20 error text>. Expected syntax like '1d20+5' or '4d6kh3'.` with `is_error: true`.
-  The model sees this and may retry. No `dice_roll` event.
+  The model sees this and may retry. No `dice_roll` event, and the narration is not shown, so the retry does not
+  repeat it.
 - Guardrails: expression length limit (200 chars) and d20's own roll-count limits; violations are reported as the same
   error form.
 

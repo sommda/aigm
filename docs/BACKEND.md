@@ -262,8 +262,13 @@ it sets `phase = adventure` and stores the fields as `campaign`; the loop then r
 the server verifies the player's confirmation beyond the `confirmed` flag; that rule lives in the Session 0 prompt.
 
 **`roll_dice`**
-- Input: `{"expression": str}`.
-- Validate: string, non-empty, ≤ 200 chars.
+- Input: `{"expression": str, "narration": str}`.
+- Validate: `narration` is a string of at least 10 characters (otherwise the call is refused, nothing is rolled and the
+  error asks the model to call again with one); `expression` is a string, non-empty, ≤ 200 chars.
+- The outcome carries the stripped narration as `say`. The loop sends it as a `text` delta (starting a new paragraph if
+  text was already shown, and ending with a blank line) right before the `dice_roll` event, and before the roll pause.
+  This guarantees the player reads what the roll is for. The narration is the model's own words, written as part of
+  the tool call, so it stays in history; the curator's transcript includes it as GM text.
 - Call `d20.roll(expression)`; build content from `str(result)` (the same markdown string as the event's `result`),
   total from `result.total`.
 - Build the structured `dice_roll` payload from the `RollResult`: `crit` from `result.crit` (`CritType`: NONE/CRIT/FAIL
@@ -360,9 +365,9 @@ history.
   that is still shown in full (so the roles keep alternating). The cut stops at the first turn without a digest, so
   a lagging curator only delays the reduction.
 - **Trim cut** (`AIGM_HISTORY_TRIM_KEEP`/`_STEP`): turns between the digest cut and this one lose their `thinking`
-  blocks, and each tool call with its result is folded into a note inside the GM's message, for example
-  `(Rolled 1d20+5: 1d20 (13) + 5 = 18)`. The messages around it merge, so no `tool_use` is left unanswered. The
-  turn in progress is never touched, because thinking must go back unmodified while its tool calls are answered.
+  blocks. Tool calls and results stay exactly as stored: an earlier version folded them into text notes such as
+  `(Rolled 1d20+5: ...)`, and the model then began writing rolls as text instead of calling the tool. The turn in
+  progress is never touched, because thinking must go back unmodified while its tool calls are answered.
 - With both switches off the stored list is returned as it is.
 
 ## LLM abstraction
@@ -405,7 +410,7 @@ results the scripted model narrates them, so the full request -> tool -> follow-
 | Message | Behavior |
 |---|---|
 | `help` | List the commands (markdown) |
-| `roll <expr>` | Text, then a real `roll_dice` call (`roll 4d6kh3+2 # strength`; default `1d20`), then narration of the result |
+| `roll <expr>` | A real `roll_dice` call with a narration (`roll 4d6kh3+2 # strength`; default `1d20`), then narration of the result |
 | `multiroll` | Two `roll_dice` calls in one response |
 | `badroll [expr]` | A malformed roll (default `2x20`): tool error is returned to the model, no `dice_roll` event |
 | `markdown` | Sampler of every markup form below |

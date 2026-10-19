@@ -247,16 +247,17 @@ A debug server's client prints a dim line after each turn (CLIENT.md).
 **First look at a real save** (a 66-turn game, 394 messages, estimated tokens, thinking signatures excluded because
 they are opaque data about five times the size of the thinking text): the stored history is about 107k tokens, of
 which GM narration 47k, thinking 30k, tool calls and results 27k, player messages under 1k. Trimming alone at the
-defaults brings it to about 64k (thinking 3k, dice notes added to the narration), and digests would replace most of
-the remaining 54k of narration older than the newest 12 to 23 turns. These are estimates (characters divided by
+defaults brings it to about 80k (thinking 3k; tool calls and results are kept, see B), and digests would replace
+most of the narration older than the newest 12 to 23 turns. These are estimates (characters divided by
 four); the metrics file has the real token counts from the API for new turns.
 
 ### B. Trimming old turns
 
-Thinking blocks of old turns are dropped, and each tool call and its result become one note in the GM's message, such
-as `(Rolled 1d20+5: 1d20 (13) + 5 = 18)`. The notes are in parentheses and start with a capital so they read as
-narration of a roll, not as a call format to imitate. Applied only to turns older than the trim cut, never to the turn
-in progress.
+Thinking blocks of old turns are dropped. Tool calls and results are kept exactly as stored. The first version also
+folded each call and result into a text note in the GM's message, such as `(Rolled 1d20+5: 1d20 (13) + 5 = 18)`.
+In play the model copied the notes and began printing roll summaries itself instead of calling `roll_dice`, so the
+folding was removed. Any future compaction of tool traffic must not leave text that looks like a roll or a call.
+Applied only to turns older than the trim cut, never to the turn in progress.
 
 ### E. Digests
 

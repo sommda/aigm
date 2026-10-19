@@ -28,7 +28,7 @@ cp server/.env.example server/.env   # then edit it
 | `AIGM_EFFORT` | (model default) | Thinking depth: `low`, `medium`, `high`, `xhigh`, `max` |
 | `AIGM_STREAM_THINKING` | `true` | Forward reasoning text to the client |
 | `AIGM_DEBUG` | `false` | Same as `aigm --debug`: let a client inspect the full model context (shows spoilers; see [docs/CONTEXT.md](docs/CONTEXT.md)) |
-| `AIGM_HISTORY_TRIM` / `AIGM_HISTORY_DIGEST` | `true` / `true` | Old turns are trimmed (thinking dropped, dice folded into notes) or replaced by short digests in what the model is sent; saves keep everything (see [docs/HISTORY.md](docs/HISTORY.md)) |
+| `AIGM_HISTORY_TRIM` / `AIGM_HISTORY_DIGEST` | `true` / `true` | Old turns are trimmed (thinking dropped) or replaced by short digests in what the model is sent; saves keep everything (see [docs/HISTORY.md](docs/HISTORY.md)) |
 | `AIGM_HISTORY_TRIM_KEEP` / `_STEP`, `AIGM_HISTORY_DIGEST_KEEP` / `_STEP` | `4` / `6`, `12` / `12` | How many recent turns stay untouched, and how many turns the cut moves at a time (keeps the prompt cache warm) |
 | `AIGM_METRICS` | `true` | One JSON line per turn (time to first text, total time, token and cache use) in `{AIGM_SAVE_DIR}/metrics/` |
 | `AIGM_ROLL_PAUSE` | `0.8` | Seconds to pause before each dice roll is shown, so the narration leading up to it can be read (`0` disables) |

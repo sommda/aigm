@@ -7,6 +7,7 @@ from aigm.session.state import GameState
 from aigm.tools.base import Tool, ToolOutcome
 
 MAX_EXPRESSION_LENGTH = 200
+MIN_NARRATION_CHARS = 10
 SYNTAX_HINT = "Expected syntax like '1d20+5' or '4d6kh3'."
 
 # The tool description is a prompt: it lives in prompts/tools/roll_dice.md and is added by
@@ -19,9 +20,17 @@ SCHEMA: dict[str, Any] = {
             "expression": {
                 "type": "string",
                 "description": "A dice expression in d20 syntax, e.g. '1d20+5' or '4d6kh3'.",
-            }
+            },
+            "narration": {
+                "type": "string",
+                "description": (
+                    "The narration the player reads just before the dice appear: what is happening, what the "
+                    "character attempts and what is at stake, in the story's voice. It is shown as part of the "
+                    "story, so do not repeat it in your reply."
+                ),
+            },
         },
-        "required": ["expression"],
+        "required": ["expression", "narration"],
     },
 }
 
@@ -81,7 +90,21 @@ def _error(expression: Any, detail: str) -> ToolOutcome:
     )
 
 
+def _missing_narration() -> ToolOutcome:
+    return ToolOutcome(
+        content=(
+            "Nothing was rolled: every roll_dice call needs a `narration` (at least a sentence) that tells the player "
+            "what is happening and what is at stake. It is shown as story text just before the dice. Call it again "
+            "with the narration, and do not mention this error to the player."
+        ),
+        is_error=True,
+    )
+
+
 def roll_dice(tool_use_id: str, tool_input: dict[str, Any], state: GameState | None = None) -> ToolOutcome:
+    narration = tool_input.get("narration")
+    if not isinstance(narration, str) or len(narration.strip()) < MIN_NARRATION_CHARS:
+        return _missing_narration()
     expression = tool_input.get("expression")
     if not isinstance(expression, str) or not expression.strip():
         return _error(expression, "expression must be a non-empty string")
@@ -100,7 +123,7 @@ def roll_dice(tool_use_id: str, tool_input: dict[str, Any], state: GameState | N
         return _error(expression, str(exc).strip().splitlines()[0] if str(exc).strip() else "roll failed")
     except Exception as exc:  # d20/lark can raise unexpected errors on odd input
         return _error(expression, f"could not evaluate ({type(exc).__name__})")
-    return ToolOutcome(content=result.result, event=payload)
+    return ToolOutcome(content=result.result, event=payload, say=narration.strip())
 
 
 ROLL_DICE = Tool(schema=SCHEMA, handler=roll_dice)

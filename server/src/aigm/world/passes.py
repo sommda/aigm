@@ -107,8 +107,9 @@ WORLD_TOOLS = ("establish", "set_scene")
 
 
 def transcript(messages: list[dict[str, Any]]) -> str:
-    """The conversation as plain text for the curator: what the player and GM said, plus a note of
-    the GM's own world-tool calls. Dice, tool results and the server's [System: ...] notes are left out."""
+    """The conversation as plain text for the curator: what the player and GM said (including the
+    narration that comes with each dice roll), plus a note of the GM's own world-tool calls. Dice, tool results and
+    the server's [System: ...] notes are left out."""
     lines: list[str] = []
     for m in messages:
         for b in m.get("content", []):
@@ -118,6 +119,10 @@ def transcript(messages: list[dict[str, Any]]) -> str:
                 lines.append(f"GM: {text}")
             elif kind == "text" and text and m["role"] == "user" and not text.startswith("[System:"):
                 lines.append(f"PLAYER: {text}")
+            elif kind == "tool_use" and b.get("name") == "roll_dice" and m["role"] == "assistant":
+                narration = str((b.get("input") or {}).get("narration", "")).strip()
+                if narration:  # the narration that leads into a roll was shown to the player as story text
+                    lines.append(f"GM: {narration}")
             elif kind == "tool_use" and b.get("name") in WORLD_TOOLS:
                 lines.append(f"[GM called {b['name']}: {b.get('input')}]")
     return "\n\n".join(lines)

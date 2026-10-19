@@ -5,3 +5,5 @@ Tell the world notes where the party is now and who is with them, and how much i
 - `elapsed_hours`: whole hours passed since your last reply (use your best estimate, rounded to the nearest hour; for a night's sleep, 8).
 
 Places and people must already be recorded; use `establish` first for new ones. Your next world notes will reflect the change.
+
+Call it before the message that holds your final reply, never in that message and never after it. If you are about to roll, roll first, then call this once you have seen the results. Once the result is back, do not repeat or add to your reply.

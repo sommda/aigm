@@ -80,3 +80,28 @@ def test_digest_blocks_have_their_own_color_and_show_as_text():
     m.toggle("history/9/0")
     text = "\n".join(t.plain for t in m.lines(80)[0])
     assert "digest · ~80 tok" in text and "[Turn 2] The party met Wren." in text
+
+
+def test_a_rolls_narration_is_replayed_as_story_text_before_the_dice():
+    from aigm_client.blocks import DiceBlock, MarkdownBlock, history_to_blocks
+
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "crawl on"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "You edge forward."},
+                {
+                    "type": "tool_use",
+                    "id": "r1",
+                    "name": "roll_dice",
+                    "input": {"expression": "1d20+3", "narration": "The counterweight lurches loose."},
+                },
+            ],
+        },
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "r1", "content": "1d20 (9) + 3 = `12`"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "You dive clear."}]},
+    ]
+    blocks = history_to_blocks(messages)
+    kinds = [type(b) for b in blocks]
+    assert kinds[-4:] == [MarkdownBlock, MarkdownBlock, DiceBlock, MarkdownBlock]

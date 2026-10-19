@@ -81,8 +81,11 @@ async def test_the_current_turns_tool_loop_is_never_trimmed():
             if Rolls.calls == 1:
                 content = [
                     {"type": "thinking", "thinking": "why", "signature": "SIG"},
-                    {"type": "tool_use", "id": "x1", "name": "roll_dice", "input": {"expression": "1d20"}},
+                    {"type": "text", "text": "You swing at the goblin."},
+                    {"type": "tool_use", "id": "x1", "name": "roll_dice",
+                     "input": {"expression": "1d20", "narration": "The goblin steps in."}},
                 ]
+                yield TextChunk("You swing at the goblin.")
                 yield Completed(content=content, stop_reason="tool_use")
             else:
                 self.second = messages
@@ -93,7 +96,7 @@ async def test_the_current_turns_tool_loop_is_never_trimmed():
         pass
     tail = llm.second[-3:]
     assert tail[1]["content"][0] == {"type": "thinking", "thinking": "why", "signature": "SIG"}
-    assert tail[1]["content"][1]["type"] == "tool_use" and tail[2]["content"][0]["type"] == "tool_result"
+    assert tail[1]["content"][2]["type"] == "tool_use" and tail[2]["content"][0]["type"] == "tool_result"
 
 
 def test_the_viewer_shows_the_reduced_history_and_what_it_saved(tmp_path):

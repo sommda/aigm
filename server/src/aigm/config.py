@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # Rough size, in tokens, of the world notes shown to the GM with each request.
     world_briefing_tokens: int = Field(default=2000, validation_alias="AIGM_WORLD_BRIEFING_TOKENS")
     # Shrinking the history the model sees (docs/HISTORY.md). The stored messages are never changed. Turns older than
-    # *_keep are trimmed (thinking dropped, tool calls folded into notes) or replaced by their digests; the cuts move
+    # *_keep are trimmed (thinking dropped) or replaced by their digests; the cuts move
     # every *_step turns, so the start of the request stays the same in between and the prompt cache keeps hitting.
     history_trim: bool = Field(default=True, validation_alias="AIGM_HISTORY_TRIM")
     history_trim_keep: int = Field(default=4, ge=1, validation_alias="AIGM_HISTORY_TRIM_KEEP")

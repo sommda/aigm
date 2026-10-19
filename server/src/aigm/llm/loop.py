@@ -97,6 +97,7 @@ async def run_turn(
     staged = [*session.messages, {"role": "user", "content": [{"type": "text", "text": user_text}]}]
     state = session.state.copy()
     state.turn = turn_number(staged)
+    tail = ""  # the last characters of the text shown so far this turn, to keep paragraphs apart
     shown_corrections = list(state.world.corrections)  # the GM sees these in this turn's notes
     usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
     turn_started = time.monotonic()
@@ -134,6 +135,7 @@ async def run_turn(
                         call.first_text_ms = int((now - call_started) * 1000)
                     if measured.first_text_ms is None:
                         measured.first_text_ms = int((now - turn_started) * 1000)
+                    tail = (tail + ev.text)[-2:]
                     yield TextDelta(delta=ev.text)
                 elif isinstance(ev, Completed):
                     completed = ev
@@ -187,6 +189,11 @@ async def run_turn(
                 tool_input = block.get("input") or {}
                 yield ToolCall(tool_use_id=block["id"], name=block["name"], input=tool_input)
                 outcome = game.dispatch(state, block["name"], block["id"], tool_input)
+                if outcome.say:
+                    # the narration that leads into a roll is shown as story text, ahead of the dice
+                    lead = "" if not tail or tail == "\n\n" else "\n\n"  # start a new paragraph unless one just began
+                    yield TextDelta(delta=f"{lead}{outcome.say}\n\n")
+                    tail = "\n\n"
                 if outcome.event is not None:
                     if roll_pause > 0 and isinstance(outcome.event, DiceRoll):
                         await asyncio.sleep(roll_pause)  # let the narration sink in before the dice land

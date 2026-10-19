@@ -6,7 +6,7 @@ from aigm.tools.roll_dice import MAX_EXPRESSION_LENGTH, roll_dice
 
 
 def roll(expr):
-    return roll_dice("toolu_1", {"expression": expr})
+    return roll_dice("toolu_1", {"expression": expr, "narration": "The dice tumble across the table."})
 
 
 def test_simple_roll():
@@ -60,7 +60,7 @@ def test_comment_and_annotation_survive():
 
 @pytest.mark.parametrize("expr", ["2x20", "", "   ", "1d", "((", "d", "1d20+", None, 5])
 def test_malformed(expr):
-    out = roll_dice("toolu_1", {"expression": expr})
+    out = roll(expr)
     assert out.is_error and out.event is None
     assert out.content.startswith("Invalid dice expression")
     assert "Expected syntax" in out.content
@@ -82,5 +82,5 @@ def test_too_many_rolls():
 
 def test_registry():
     assert [s["name"] for s in tool_schemas()] == ["roll_dice", "recall", "establish", "set_scene"]
-    assert not dispatch("roll_dice", "t", {"expression": "1d6"}).is_error
+    assert not dispatch("roll_dice", "t", {"expression": "1d6", "narration": "The die spins."}).is_error
     assert dispatch("nope", "t", {}).is_error

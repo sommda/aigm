@@ -33,7 +33,7 @@ class TimedLLM:
             yield Completed(
                 content=[
                     {"type": "text", "text": "Steel rings out. "},
-                    {"type": "tool_use", "id": "t1", "name": "roll_dice", "input": {"expression": "1d20"}},
+                    {"type": "tool_use", "id": "t1", "name": "roll_dice", "input": {"expression": "1d20", "narration": "The blade flashes."}},
                 ],
                 stop_reason="tool_use",
                 usage={"input_tokens": 1000, "output_tokens": 30, "cache_read_tokens": 800, "cache_write_tokens": 100},

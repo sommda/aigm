@@ -11,6 +11,7 @@ class ToolOutcome:
     content: str
     is_error: bool = False
     event: SSEEvent | None = None
+    say: str = ""  # story text the player is shown just before `event` (the narration that leads into a roll)
 
 
 @dataclass

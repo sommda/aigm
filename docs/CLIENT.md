@@ -285,9 +285,9 @@ History is Anthropic content blocks. Mapping to display blocks:
 
 - `user` + `text` → "You:" block.
 - `assistant` + `text` → markdown block.
-- `assistant` + `tool_use(roll_dice)` → paired with the following `tool_result`; shown as a compact dice line using the
-  result string (the structured `dice` data is **not** stored in history, so historical rolls show less detail than live
-  ones).
+- `assistant` + `tool_use(roll_dice)` → the call's `narration` as a markdown block (as it was shown live), then, paired
+  with the following `tool_result`, a compact dice line using the result string (the structured `dice` data is **not**
+  stored in history, so historical rolls show less detail than live ones).
 - `thinking` / `redacted_thinking` blocks → skipped.
 - `tool_result` with `is_error: true` → short dim "roll failed" line.
 

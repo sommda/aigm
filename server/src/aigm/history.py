@@ -3,8 +3,7 @@
 The stored messages are the transcript and are never changed. `reduce_history` derives the view that is
 sent, with two steps that only touch old turns:
 
-- **Trim** (older than `trim_keep` turns): thinking blocks are dropped and tool calls with their results are
-  folded into a short note inside the GM's message.
+- **Trim** (older than `trim_keep` turns): thinking blocks are dropped. Tool calls and results stay as they are.
 - **Digest** (older than `digest_keep` turns): a turn is replaced by its digest, a line or two written by the
   curator. The digests go into one `<story_so_far>` block at the start of the oldest turn still shown in full.
 
@@ -25,8 +24,6 @@ STORY_INTRO = (
     "The earlier turns of this adventure, condensed. Their full text is no longer shown; treat what is "
     "written here as having happened."
 )
-_NOTE_ARGS_CHARS = 120
-_NOTE_RESULT_CHARS = 160
 
 
 @dataclass(frozen=True)
@@ -174,55 +171,15 @@ def reduce_history(
 
 
 def trim_turn(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop thinking blocks and fold each tool call and its result into a note in the GM's message.
+    """Drop the thinking blocks. Tool calls and their results are kept exactly as stored: when they were folded
+    into text notes ("(Rolled 1d20+5: ...)") the model began writing such notes itself instead of rolling.
 
-    The result is a valid conversation again: the GM message that held a tool call continues straight into
-    the one that followed the result, so the roles still alternate and no tool call is left unanswered."""
+    A message that holds nothing but thinking is kept as it is, because an empty message is not valid."""
     out: list[dict[str, Any]] = []
-    gm: list[dict[str, Any]] | None = None  # the GM message being built
-    notes: dict[str, dict[str, Any]] = {}  # tool_use id -> the placeholder block waiting for its result
     for msg in msgs:
-        if msg["role"] == "assistant":
-            blocks = [b for b in msg["content"] if b.get("type") not in ("thinking", "redacted_thinking")]
-            gm = gm if gm is not None else []
-            for block in blocks or msg["content"]:
-                if block.get("type") == "tool_use":
-                    note = {"type": "text", "text": _call_note(block, None)}
-                    notes[block["id"]] = {"block": note, "use": block}
-                    gm.append(note)
-                else:
-                    gm.append(block)
+        if msg["role"] != "assistant":
+            out.append(msg)
             continue
-        rest = []
-        for block in msg["content"]:
-            if block.get("type") == "tool_result" and block.get("tool_use_id") in notes:
-                held = notes.pop(block["tool_use_id"])
-                held["block"]["text"] = _call_note(held["use"], block)
-            else:
-                rest.append(block)
-        if rest:  # a real user message: close the GM message before it
-            if gm:
-                out.append({"role": "assistant", "content": gm})
-            gm = None
-            out.append({**msg, "content": rest})
-    if gm:
-        out.append({"role": "assistant", "content": gm})
+        blocks = [b for b in msg["content"] if b.get("type") not in ("thinking", "redacted_thinking")]
+        out.append({**msg, "content": blocks} if blocks else msg)
     return out
-
-
-def _squash(value: Any, limit: int) -> str:
-    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-    text = " ".join(text.replace("`", "").split())
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
-
-
-def _call_note(use: dict[str, Any], result: dict[str, Any] | None) -> str:
-    name = str(use.get("name", "tool"))
-    args = use.get("input") or {}
-    outcome = _squash(result.get("content", ""), _NOTE_RESULT_CHARS) if result else "no result"
-    if result and result.get("is_error"):
-        outcome = f"error: {outcome}"
-    if name == "roll_dice" and isinstance(args.get("expression"), str):
-        return f"(Rolled {_squash(args['expression'], _NOTE_ARGS_CHARS)}: {outcome})"
-    shown = _squash(args, _NOTE_ARGS_CHARS) if args else ""
-    return f"(Used {name}{' ' + shown if shown else ''}: {outcome})"

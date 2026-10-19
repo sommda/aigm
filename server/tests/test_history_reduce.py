@@ -2,9 +2,12 @@
 
 import copy
 
+import json
+
 import pytest
 
 from aigm.history import (
+    message_chars,
     STORY_OPEN,
     HistoryPolicy,
     cut,
@@ -77,38 +80,17 @@ def test_nothing_to_reduce_returns_the_same_list():
     assert reduce_history([], {}, HistoryPolicy()).messages == []
 
 
-def test_trim_drops_thinking_and_folds_tool_calls_into_notes():
+def test_trim_drops_thinking_and_leaves_tool_calls_and_results_as_they_are():
     msgs = make_history(3)
     out = trim_turn(msgs[2:6])
-    assert [m["role"] for m in out] == ["user", "assistant"]
-    blocks = out[1]["content"]
-    assert [b["type"] for b in blocks] == ["text", "text", "text"]
-    assert blocks[0]["text"] == "GM 2 before"
-    assert blocks[1]["text"] == "(Rolled 1d20+5: 1d20 (13) + 5 = 18)"
-    assert blocks[2]["text"] == "GM 2 after"
-
-
-def test_trim_handles_several_calls_in_a_row_and_unanswered_calls():
-    use = lambda i, name, inp: {"type": "tool_use", "id": i, "name": name, "input": inp}  # noqa: E731
-    res = lambda i, c, **kw: {"type": "tool_result", "tool_use_id": i, "content": c, **kw}  # noqa: E731
-    msgs = [
-        {"role": "user", "content": text("go")},
-        {"role": "assistant", "content": [use("a", "roll_dice", {"expression": "1d4"}), use("b", "lookup", {"q": "x"})]},
-        {"role": "user", "content": [res("a", "1d4 (2) = `2`"), res("b", "no such thing", is_error=True)]},
-        {"role": "assistant", "content": [use("c", "roll_dice", {"expression": "bad"})]},
-        {"role": "user", "content": [res("c", "Invalid dice expression", is_error=True)]},
-        {"role": "assistant", "content": text("done")},
+    assert [m["role"] for m in out] == [m["role"] for m in msgs[2:6]]
+    assert not any(b["type"] == "thinking" for m in out for b in m["content"])
+    assert [b for m in out for b in m["content"] if b["type"] != "thinking"] == [
+        b for m in msgs[2:6] for b in m["content"] if b["type"] != "thinking"
     ]
-    out = trim_turn(msgs)
-    assert [m["role"] for m in out] == ["user", "assistant"]
-    notes = [b["text"] for b in out[1]["content"]]
-    assert notes == [
-        "(Rolled 1d4: 1d4 (2) = 2)",
-        '(Used lookup {"q": "x"}: error: no such thing)',
-        "(Rolled bad: error: Invalid dice expression)",
-        "done",
-    ]
-    assert trim_turn(msgs[:2])[1]["content"][0]["text"].endswith("no result)")
+    kinds = [b["type"] for m in out for b in m["content"]]
+    assert "tool_use" in kinds and "tool_result" in kinds
+    assert "(Rolled" not in json.dumps(out)  # no text notes standing in for rolls that the model might copy
 
 
 def test_trim_keeps_a_message_that_is_only_thinking():
@@ -129,8 +111,8 @@ def test_trim_only_touches_turns_older_than_the_cut():
     verbatim = len(msgs) - ts[12].start
     assert reduced.messages[-verbatim:] == msgs[ts[12].start :]  # the newest turns are verbatim
     older = {b["type"] for m in reduced.messages[2:-verbatim] for b in m["content"]}
-    assert older == {"text"}
-    assert len(reduced.messages) < len(msgs)
+    assert "thinking" not in older and {"tool_use", "tool_result"} <= older
+    assert len(reduced.messages) == len(msgs) and message_chars(reduced.messages) < message_chars(msgs)
     validate_messages(reduced.messages)
 
 

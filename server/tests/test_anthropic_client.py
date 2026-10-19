@@ -232,7 +232,7 @@ def test_full_turn_with_tool_loop(tmp_path):
     fake = FakeAnthropic(
         message_stream(
             [("thinking", ["Attack roll."], "sig-1"), ("text", ["You swing. "]),
-             ("tool_use", "toolu_1", "roll_dice", '{"expression": "1d20+5"}')],
+             ("tool_use", "toolu_1", "roll_dice", '{"expression": "1d20+5", "narration": "The blade flashes."}')],
             stop_reason="tool_use",
         ),
         message_stream([("text", ["A solid hit!"])]),
@@ -241,7 +241,7 @@ def test_full_turn_with_tool_loop(tmp_path):
     events = chat(client, "I attack the goblin")
     assert names(events)[0] == "message_start" and names(events)[-1] == "message_end"
     assert "dice_roll" in names(events) and "tool_call" in names(events)
-    assert reply_text(events) == "You swing. A solid hit!"
+    assert reply_text(events) == "You swing. \n\nThe blade flashes.\n\nA solid hit!"
     assert [d["status"] for n, d in events if n == "thinking"] == ["start", "delta", "end"]
     roll = next(d for n, d in events if n == "dice_roll")
 
