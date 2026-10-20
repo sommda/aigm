@@ -45,7 +45,7 @@ async def test_saves_are_pretty_printed_not_one_line(repo):
     text = (repo.dir / "g.json").read_text(encoding="utf-8")
     assert text.count("\n") > 50 and text.endswith("}\n")
     assert '\n    "facts": [' in text or '\n  "world": {' in text
-    assert json.loads(text)["version"] == 3
+    assert json.loads(text)["version"] == 4
 
 
 async def test_listing_includes_world_counts(repo):
@@ -103,3 +103,19 @@ def test_save_and_restore_over_http(client):
     client.put("/history/s0/save")
     info = client.get("/history/s0").json()
     assert info["fact_count"] == 0 and info["world_time"] == {"day": 1, "hour": 8}
+
+
+async def test_a_story_is_saved_and_loaded(repo):
+    from aigm.story import Goal, Story
+
+    state = adventure_state()
+    state.structure, state.story = "short", Story("short", goal=Goal("The Crown", "It binds the river."))
+    await repo.save("s", MESSAGES, state, "m")
+    _, loaded, _ = await repo.load("s")
+    assert loaded.structure == "short" and loaded.story == state.story
+    write_raw(repo, "v3", phase="adventure", campaign={"setting": "x"})  # a version 3 save has neither
+    _, old, _ = await repo.load("v3")
+    assert old.structure == "endless" and old.story is None
+    write_raw(repo, "bad", phase="adventure", campaign={}, structure="short", story={**state.story.to_dict(), "length": "long"})
+    with pytest.raises(CorruptSave, match="short game cannot have a long"):
+        await repo.load("bad")

@@ -7,6 +7,7 @@ from typing import Any
 
 from aigm.errors import CorruptSave
 from aigm.rulesets import BY_ID, DEFAULT_RULESET
+from aigm.story import ENDLESS, STRUCTURES, Story
 from aigm.world import World
 
 
@@ -32,10 +33,21 @@ class GameState:
     turn: int = field(default=0, compare=False)
     # Set when the GM looked up something unrecorded: ask for a curator pass soon. Not saved.
     pass_requested: bool = field(default=False, compare=False)
+    # How the game is shaped (docs/STORY.md): "endless", or the length of a structured story. Chosen in Session 0.
+    structure: str = ENDLESS
+    # The story plan of a structured game; None while the plotter has not written it, and always None when endless.
+    story: Story | None = None
 
     def copy(self) -> "GameState":
         return GameState(
-            self.phase, copy.deepcopy(self.campaign), self.world.copy(), self.ruleset, self.turn, self.pass_requested
+            self.phase,
+            copy.deepcopy(self.campaign),
+            self.world.copy(),
+            self.ruleset,
+            self.turn,
+            self.pass_requested,
+            self.structure,
+            self.story.copy() if self.story else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +56,8 @@ class GameState:
             "campaign": self.campaign,
             "world": self.world.to_dict(),
             "ruleset": self.ruleset,
+            "structure": self.structure,
+            "story": self.story.to_dict() if self.story else None,
         }
 
     @classmethod
@@ -66,4 +80,12 @@ class GameState:
         ruleset = data.get("ruleset", DEFAULT_RULESET)  # saves from before rulesets were all D&D 2024
         if ruleset not in BY_ID:
             raise CorruptSave(f"unknown ruleset {ruleset!r}")
-        return cls(phase, campaign, world, ruleset)
+        structure = data.get("structure", ENDLESS)  # saves from before stories were all endless
+        if structure not in STRUCTURES:
+            raise CorruptSave(f"unknown game structure {structure!r}")
+        story = Story.from_dict(data["story"]) if data.get("story") is not None else None
+        if story is not None and story.length != structure:
+            raise CorruptSave(f"a {structure} game cannot have a {story.length} story")
+        if phase is Phase.SESSION_ZERO and story is not None:
+            raise CorruptSave("a session_zero save cannot have a story")
+        return cls(phase, campaign, world, ruleset, structure=structure, story=story)

@@ -1,6 +1,7 @@
 # AIGM Narrative Structure: Design
 
-Status: **proposal, nothing built.** The questions that were open are settled in section 12. This builds on
+Status: **step 1 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
+section 12. This builds on
 [WORLD.md](WORLD.md) (the knowledge base and the curator), [BACKEND.md](BACKEND.md) (game state, tools, prompts, saves)
 and [RULESETS.md](RULESETS.md) (a Session 0 choice that is stored in the game state, which is the pattern this feature
 follows).
@@ -72,6 +73,9 @@ Stored in the game state as `GameState.story` (`None` for an endless game), save
   "chapter": 1,                      // 1, 2 or 3; 4 once an ending has been reached
   "chapter_started_turn": 1,
   "last_progress_turn": 1,           // for pacing (section 6.3)
+  "chapters": [                      // titles for the status line, a purpose line for the GM, a level to aim for
+    { "title": "Ashby and the vale", "purpose": "Learn the vale; build the party", "target_level": 3 }
+  ],
   "goal": {
     "title": "Break the Ashen Crown",           // hidden until the end of chapter 1
     "summary": "The Ashen Crown, kept in the sunken Vault of Orrin, is binding the river spirit and flooding the vale.",
@@ -87,7 +91,7 @@ Stored in the game state as `GameState.story` (`None` for an endless game), save
       "brief": "One or two sentences for the GM: what must happen, and the ways it can happen.",
       "gives": "the party meets the river folk; level 3; clue to the Vault",   // what it builds (section 7)
       "requires": ["m01"],           // milestones that must be done first (ids)
-      "status": "active",            // pending | active | done | skipped
+      "status": "active",            // pending | active | done | skipped | failed
       "scale": "small",              // small | medium | large: how much play the quest holds (section 6.1)
       "required": true,              // counts toward ending the chapter
       "entities": ["e017", "e020"],  // where and with whom it lives
@@ -424,8 +428,8 @@ Taken as recommended, still open to change in review:
 
 ## 14. Build order
 
-1. **State and pure logic.** `GameState.structure` and `story`, `aigm/story.py` (plan validation, chapters, pace,
-   addition rule, `LENGTHS`), save and load. No behavior change.
+1. **State and pure logic.** *Built.* `GameState.structure` and `story`, `aigm/story.py` (plan validation, chapters,
+   pace, addition rule, `LENGTHS`), save and load (format version 4; older saves are endless). No behavior change.
 2. **Session 0.** `set_structure`, the prompt, the campaign record line, the summary. Structured games begin with an
    empty plan; a stub plan for tests.
 3. **The plotter.** Prompt, structured output, validation, scripted version; first pass after bootstrap, goal and cast

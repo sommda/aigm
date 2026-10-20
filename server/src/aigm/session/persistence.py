@@ -14,8 +14,8 @@ from aigm.models import ID_RE
 from aigm.session.state import GameState
 
 log = logging.getLogger(__name__)
-FORMAT_VERSION = 3  # 1: messages only (read as mid-adventure); 2: adds game state; 3: adds the world
-READABLE_VERSIONS = (1, 2, 3)
+FORMAT_VERSION = 4  # 1: messages only (read as mid-adventure); 2: adds game state; 3: adds the world; 4: adds the story
+READABLE_VERSIONS = (1, 2, 3, 4)
 
 
 def validate_name(name: str) -> str:
