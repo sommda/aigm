@@ -309,7 +309,7 @@ All prompt text lives in Markdown files, never in Python. `aigm.prompts.PromptLi
 
 ```
 prompts/system/common/      01_role 02_rules 03_dice 04_formatting     # every phase
-prompts/system/session_zero/ 01_mode 01a_ruleset 02_party 03_scaling 04_wrapup  # Session 0 only
+prompts/system/session_zero/ 01_mode 01a_ruleset 01b_structure 02_party 03_scaling 04_wrapup  # Session 0 only
 prompts/rulesets/<id>/       01_rules.md 02_era.md                       # the chosen ruleset, see RULESETS.md
 prompts/system/adventure/    01_role 02_rules 03_style 04_world          # Adventure only
 prompts/templates/           campaign_record.md party_member.md gm_notes.md session_zero_done.md begin_cue.md
