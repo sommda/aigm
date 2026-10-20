@@ -358,7 +358,8 @@ Everything the GM is shown about the story is **private**. The player never sees
   ```
   ## Story (private)
   Chapter 2 of 3, "The road to the Vault": the goal is known; steer toward it. No new regions, settlements or factions.
-  Active: [m07] Win the river folk's trust (at Lowmeet, with Silt; medium). [m08] Find the key to the sluice gate (small).
+  Active: [m07] Win the river folk's trust (at Lowmeet, with Silt; medium).
+          [m08] Find the key to the sluice gate (small).
   Pace: 14 turns without progress. Offer a concrete hook toward an active quest in this scene.
   Party should be about level 6 by the end of this chapter.
   ```
