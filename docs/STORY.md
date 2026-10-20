@@ -234,7 +234,8 @@ game is far more than four times as long in play; medium sits between them. The 
 The plan is a destination, not a rail. The briefing (section 10) tells the GM, each turn:
 
 - the chapter and its one-line purpose,
-- the active milestones (title, brief, scale, where, who), at most three, so the GM sizes each quest to match, and in chapter 1 whether the goal is known yet,
+- the active milestones (title, brief, scale, where, who), at most three, so the GM sizes each quest to match, and in
+  chapter 1 whether the goal is known yet,
 - a **pace note** that escalates: nothing while the party is making progress; a gentle "offer the next hook in this
   scene" after the party has gone `AIGM_STORY_NUDGE_TURNS` player turns without progress (default 12); a firm "bring a
   concrete consequence or opportunity to the player now" after twice that. Progress means a milestone changing state;
