@@ -614,7 +614,8 @@ be tried from the same save with and without the model's thinking.
 `{ "thinking": false }`; a non-boolean `enabled` is `422`. When thinking is off the GM's requests send
 `thinking: {"type": "between_tools"}`. The setting belongs to the server, not to a session: it applies to every session
 until it is changed again or the server restarts (it then starts on). The model then writes no thinking before
-its answer; the short updates it writes between tool calls still come back as thinking blocks. Thinking blocks already in a history stay as
+its answer; the short updates it writes between tool calls still come back as thinking blocks. The system prompt
+gets a closing note asking it not to plan out loud in its visible text. Thinking blocks already in a history stay as
 they are. The world curator's own requests are not affected.
 
 ---

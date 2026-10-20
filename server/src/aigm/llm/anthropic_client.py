@@ -41,6 +41,13 @@ def to_llm_error(exc: Exception) -> LLMError:
     return LLMError(f"Anthropic request failed: {exc}", retryable=False)
 
 
+# Without thinking the model tends to plan out loud in its visible text ("I'll record the way home first...").
+NO_THINKING_NOTE = (
+    "\n\nYou are not thinking before you answer. Do not plan, explain your bookkeeping or comment on your tool calls "
+    "in your reply: everything you write is shown to the player as the story, so write only the story."
+)
+
+
 def _has_cache_breakpoint(messages: list[dict[str, Any]]) -> bool:
     return any(isinstance(b, dict) and "cache_control" in b for m in messages for b in m.get("content", []))
 
@@ -76,7 +83,7 @@ class AnthropicLLM:
         params: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "system": system,
+            "system": system if self.thinking else system + NO_THINKING_NOTE,
             "messages": messages,
             "tools": tools,
         }

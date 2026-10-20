@@ -175,6 +175,7 @@ async def test_thinking_off_is_sent_as_between_tools():
     llm.thinking = False
     await collect(llm)
     assert fake.requests[0]["thinking"] == {"type": "between_tools"}
+    assert "write only the story" in fake.requests[0]["system"]
 
 
 async def test_history_is_sent_verbatim_including_thinking_signature():
