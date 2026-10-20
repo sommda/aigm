@@ -73,7 +73,8 @@ Stored in the game state as `GameState.story` (`None` for an endless game), save
   "chapter": 1,                      // 1, 2 or 3; 4 once an ending has been reached
   "chapter_started_turn": 1,
   "last_progress_turn": 1,           // for pacing (section 6.3)
-  "chapters": [                      // titles for the status line, a purpose line for the GM, a level to aim for
+  // titles for the status line, a purpose line for the GM, a level to aim for
+  "chapters": [
     { "title": "Ashby and the vale", "purpose": "Learn the vale; build the party", "target_level": 3 }
   ],
   "goal": {
