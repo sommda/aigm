@@ -162,3 +162,25 @@ async def test_an_unreadable_call_keeps_what_was_shown_and_does_not_repeat_it_at
 
     events, _ = await play(Broken())
     assert shown(events) == "You step out, then\n\nOk."  # the partial text stays; the dispatch does not add it again
+
+
+def note(name="recall", id="n1"):
+    return {"type": "tool_use", "id": id, "name": name, "input": {"query": "Bessa"}}
+
+
+async def test_a_remark_before_a_bookkeeping_call_is_neither_shown_nor_kept():
+    remark = "Before I write the scene, I'll check what is recorded."
+    events, session = await play(Streaming((remark, [note()], "tool_use"), ("The door opens.", [], "end_turn")))
+    assert shown(events) == "The door opens."
+    assert remark not in json.dumps(session.messages)
+
+
+async def test_a_remark_before_a_roll_is_story_and_is_shown():
+    events, _ = await play(Streaming(("You edge forward.", [call()], "tool_use"), ("Done.", [], "end_turn")))
+    assert "You edge forward." in shown(events)
+
+
+async def test_long_text_is_shown_as_it_arrives_even_if_a_bookkeeping_call_follows():
+    scene = "The hall is cold and long. " * 20
+    events, _ = await play(Streaming((scene, [note("set_scene")], "tool_use"), ("Done.", [], "end_turn")))
+    assert shown(events).startswith("The hall is cold")

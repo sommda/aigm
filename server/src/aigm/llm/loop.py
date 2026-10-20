@@ -46,6 +46,8 @@ from aigm.world.service import CuratorService
 log = logging.getLogger(__name__)
 
 
+SILENT_TOOLS = frozenset({"recall", "establish", "set_scene"})  # bookkeeping: text written beside these is dropped
+HELD_CHARS = 240  # text this long before any tool call is story, not a remark about bookkeeping; it is shown at once
 STREAMED_TOOLS = frozenset({"roll_dice"})  # tools whose `narration` is shown while the model is still writing it
 ALREADY_SHOWN = (
     "The narration in that call was already shown to the player. Call the tool again with the corrected input, and "
@@ -160,6 +162,9 @@ async def run_turn(
             completed: Completed | None = None
             think_started: float | None = None
             noting = False  # a status for a tool call being written is showing
+            held: list[str] = []  # opening text not shown yet: a remark before a bookkeeping call is dropped
+            holding = True
+            dropped = False
             narrating: dict[str, Narrating] = {}
             request = game.describe(state, staged, user_text)
             call = RequestMetrics(index=len(measured.requests), sent=request_sizes(request, staged))
@@ -175,11 +180,24 @@ async def run_turn(
                     measured.first_text_ms = int((now - turn_started) * 1000)
                 tail = (tail + text)[-2:]
 
+            def release() -> list[str]:
+                nonlocal holding
+                holding = False
+                out, held[:] = list(held), []
+                return out
+
             async for ev in llm.stream(system=request.system, messages=request.messages, tools=request.tools):
                 if noting and isinstance(ev, ThinkingStarted | TextChunk | Completed):
                     noting = False
                     yield Status(stage="tool", message="", done=True)
                 if isinstance(ev, ToolInputStarted):
+                    if ev.name in SILENT_TOOLS:
+                        held.clear()
+                        dropped = True  # anything more written beside it is dropped with it
+                    else:
+                        for text in release():
+                            text_shown(text)
+                            yield TextDelta(delta=text)
                     noting = True
                     yield Status(stage="tool", message=tool_status(ev.name))
                     if ev.name in STREAMED_TOOLS:
@@ -216,9 +234,22 @@ async def run_turn(
                     call.thinking_ms += ms
                     yield Thinking(status="end", duration_ms=ms)
                 elif isinstance(ev, TextChunk):
-                    text_shown(ev.text)
-                    yield TextDelta(delta=ev.text)
+                    if dropped:
+                        continue
+                    if holding:
+                        held.append(ev.text)
+                        if sum(map(len, held)) <= HELD_CHARS:
+                            continue
+                        pieces = release()
+                    else:
+                        pieces = [ev.text]
+                    for text in pieces:
+                        text_shown(text)
+                        yield TextDelta(delta=text)
                 elif isinstance(ev, Completed):
+                    for text in release():
+                        text_shown(text)
+                        yield TextDelta(delta=text)
                     completed = ev
             if think_started is not None:  # model stream ended mid-thinking: close the phase
                 ms = int((time.monotonic() - think_started) * 1000)
@@ -228,6 +259,8 @@ async def run_turn(
             measured.requests.append(call)
             if completed is None:
                 raise LLMError("The model stream ended without a final message", retryable=True)
+            if dropped and all(b["name"] in SILENT_TOOLS for b in completed.content if b.get("type") == "tool_use"):
+                completed = replace(completed, content=[b for b in completed.content if b.get("type") != "text"])
             staged.append({"role": "assistant", "content": completed.content})
             for key in usage:
                 usage[key] += completed.usage.get(key, 0)
