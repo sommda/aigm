@@ -70,6 +70,7 @@ The server is running with `--test`: replies are scripted, not from a model. Try
 - `begin`: end Session 0 and start the adventure (calls the real `begin_adventure` tool; a new game starts in Session 0)
 - `establish <name>`: record a new person in the world (adventure only; calls the real `establish` tool)
 - `recall <name>`: look a name up in the world (adventure only; calls `recall`)
+- `quest <id> <done|skipped|failed> [outcome]` or `quest goal`: report story progress (story games; calls `set_scene`)
 - `scene <place> [hours]`: set the scene and pass time (adventure only; calls `set_scene`)
 - `badroll [expr]`: a malformed roll (shows the tool-error path)
 - `markdown`: a sampler of every markup form below
@@ -171,7 +172,18 @@ def _scene_plan(arg: str) -> list[Step]:
     return [Say("You move on. "), UseTool("set_scene", payload)]
 
 
+def _quest_plan(arg: str) -> list[Step]:
+    """`quest m01 done [outcome]` reports a quest; `quest goal` reports that the player learned the goal."""
+    if arg.strip() == "goal":
+        return [Say("It comes together. "), UseTool("set_scene", {"story": {"goal_revealed": True}})]
+    quest, _, rest = arg.partition(" ")
+    status, _, outcome = rest.partition(" ")
+    report = {"id": quest, "status": status or "done", "outcome": outcome or "It happened."}
+    return [Say("That settles it. "), UseTool("set_scene", {"story": {"quests": [report]}})]
+
+
 WORLD_COMMANDS: dict[str, Callable[[str], list[Step]]] = {
+    "quest": _quest_plan,
     "establish": _establish_plan,
     "recall": lambda arg: [Say("Let me think... "), UseTool("recall", {"about": arg or "Wren"})],
     "scene": _scene_plan,

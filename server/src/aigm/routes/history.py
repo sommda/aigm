@@ -6,6 +6,7 @@ from aigm.deps import get_repo, get_session
 from aigm.errors import Conflict
 from aigm.session.persistence import HistoryRepository
 from aigm.session.store import Session
+from aigm.story import public_summary
 
 router = APIRouter(prefix="/history")
 RepoDep = Annotated[HistoryRepository, Depends(get_repo)]
@@ -53,6 +54,7 @@ async def restore_history(name: str, request: Request, repo: RepoDep, session: S
         "session_id": session.id,
         "phase": state.phase.value,
         "ruleset": state.ruleset,
+        "story": public_summary(state.story),
         "message_count": len(messages),
         "saved_at": info["saved_at"],
         "replaced_message_count": replaced,

@@ -470,6 +470,21 @@ def summary_so_far(story: Story) -> str:
     return "\n".join(lines)
 
 
+def public_summary(story: Story | None) -> dict[str, Any] | None:
+    """What a client may be told about the story: no goal, quests or endings (docs/STORY.md 11)."""
+    if story is None or not story.planned:
+        return None
+    out: dict[str, Any] = {
+        "length": story.length,
+        "chapter": story.chapter,
+        "chapter_title": chapter_label(story),
+        "ended": story.concluded,
+    }
+    if story.concluded:
+        out["ending"] = next((e.title for e in story.endings if e.id == story.ending), "")
+    return out
+
+
 def chapter_label(story: Story) -> str:
     """The chapter's title for status lines and the public summary ("" while the plan is unwritten)."""
     if story.concluded:

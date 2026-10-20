@@ -29,6 +29,7 @@ from aigm.models import (
     ErrorEvent,
     MessageEnd,
     MessageStart,
+    ChapterChange,
     PhaseChange,
     SSEEvent,
     Status,
@@ -37,7 +38,7 @@ from aigm.models import (
     ToolCall,
 )
 from aigm.session.state import GameState
-from aigm.story import LENGTHS, ENDLESS
+from aigm.story import ENDLESS, LENGTHS, chapter_label, public_summary
 from aigm.session.store import Session
 from aigm.world.ops import apply_ops
 from aigm.world.service import CuratorService
@@ -143,7 +144,10 @@ async def run_turn(
     shown_corrections = list(state.world.corrections)  # the GM sees these in this turn's notes
     usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
     turn_started = time.monotonic()
-    measured = TurnMetrics(turn=state.turn, phase=state.phase.value, model=model)
+    chapter_before = state.story.chapter if state.story else 0
+    measured = TurnMetrics(
+        turn=state.turn, phase=state.phase.value, model=model, chapter=state.story.chapter if state.story else None
+    )
     yield MessageStart(
         message_id=message_id,
         session_id=session.id,
@@ -246,6 +250,10 @@ async def run_turn(
                 previous, session.messages[:], session.state = session.state.phase, staged, state
                 if state.phase != previous:  # announced only once committed, so it is never rolled back
                     yield PhaseChange(previous=previous.value, phase=state.phase.value)
+                if state.story is not None and state.story.chapter != chapter_before:
+                    yield ChapterChange(
+                        previous=chapter_before, chapter=state.story.chapter, title=chapter_label(state.story)
+                    )
                 measured.total_ms = int((time.monotonic() - turn_started) * 1000)
                 if metrics is not None:
                     metrics.record(session.id, measured)
@@ -257,6 +265,7 @@ async def run_turn(
                     ruleset=state.ruleset,
                     ruleset_name=rulesets.get(state.ruleset).short,
                     metrics=measured.to_dict(),
+                    story=public_summary(state.story),
                 )
                 return
 

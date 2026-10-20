@@ -78,6 +78,8 @@ class FakeServer:
         self.debug: bool | None = None  # None = an older server whose /health has no debug field
         self.context = sample_context()
         self.thinking = True
+        self.story: dict | None = None  # the public summary a story game reports
+        self.story_text = ""
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -103,8 +105,12 @@ class FakeServer:
         if path == "/debug/thinking" and method == "PUT" and self.debug:
             self.thinking = body["enabled"]
             return self._json(200, {"thinking": self.thinking})
+        if path == "/debug/story" and self.debug:
+            return self._json(200, {"story": None, "text": self.story_text})
         if path == "/chat/history":
             body = {"session_id": "default", "messages": self.messages}
+            if self.story:
+                body["story"] = self.story
             if self.phase:
                 body["phase"] = self.phase
             if self.ruleset_name:

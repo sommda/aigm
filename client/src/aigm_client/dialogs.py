@@ -10,6 +10,7 @@ from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from aigm_client.api import ApiClient, ApiError
+from aigm_client.session import story_note
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -30,7 +31,9 @@ def suggest_name() -> str:
 
 
 def describe(h: dict) -> str:
-    return f"{h['name']:<24} {h.get('message_count', '?'):>4} msgs  {str(h.get('saved_at', ''))[:16].replace('T', ' ')}"
+    row = f"{h['name']:<24} {h.get('message_count', '?'):>4} msgs  {str(h.get('saved_at', ''))[:16].replace('T', ' ')}"
+    story = story_note(h.get("story"))
+    return f"{row}  {story}" if story else row
 
 
 class _Dialog(ModalScreen):
@@ -173,7 +176,9 @@ class LoadDialog(_Dialog):
             preview.update(e.message)
             return
         last = info.get("last_message_preview")
-        preview.update(f'Last: "{last}"' if last else f"{info.get('message_count', 0)} messages")
+        text = f'Last: "{last}"' if last else f"{info.get('message_count', 0)} messages"
+        story = story_note(info.get("story"))
+        preview.update(f"{text}\n{story.capitalize()}" if story else text)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option.id:

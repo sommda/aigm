@@ -78,12 +78,20 @@ class MessageEnd:
     phase: str = ""
     ruleset_name: str = ""
     metrics: dict[str, Any] = field(default_factory=dict)  # timings and token use of the turn
+    story: dict[str, Any] | None = None  # story games: {"length", "chapter", "chapter_title", "ended"}
 
 
 @dataclass(frozen=True)
 class PhaseChange:
     previous: str = ""
     phase: str = ""
+
+
+@dataclass(frozen=True)
+class ChapterChange:
+    previous: int = 0
+    chapter: int = 0
+    title: str = ""
 
 
 @dataclass(frozen=True)
@@ -99,7 +107,7 @@ class Unknown:
     data: Any = None
 
 
-Event = MessageStart | Thinking | Text | ToolCall | DiceRoll | Status | MessageEnd | PhaseChange | ErrorEvent | Unknown
+Event = MessageStart | Thinking | Text | ToolCall | DiceRoll | Status | MessageEnd | PhaseChange | ChapterChange | ErrorEvent | Unknown
 
 
 def _die(d: dict[str, Any]) -> DieRoll:
@@ -161,9 +169,12 @@ def parse_event(name: str, data: str) -> Event | None:
                     d.get("phase", ""),
                     d.get("ruleset_name", ""),
                     d.get("metrics") or {},
+                    d["story"] if isinstance(d.get("story"), dict) else None,
                 )
             case "phase_change":
                 return PhaseChange(d.get("previous", ""), d.get("phase", ""))
+            case "chapter":
+                return ChapterChange(int(d.get("previous", 0)), int(d.get("chapter", 0)), str(d.get("title", "")))
             case "error":
                 return ErrorEvent(
                     d.get("code", "internal_error"), d.get("message", ""), bool(d.get("retryable", False))

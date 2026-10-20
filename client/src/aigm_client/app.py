@@ -11,7 +11,7 @@ from aigm_client.blocks import MarkdownBlock, UserBlock
 from aigm_client.commands import Command, parse_command
 from aigm_client.context_screen import ContextScreen
 from aigm_client.dialogs import ConfirmDialog, LoadDialog, NewGameDialog, SaveDialog, suggest_name
-from aigm_client.session import ChatSession, intro_text
+from aigm_client.session import ChatSession, intro_text, story_note
 from aigm_client.transcript import Transcript
 from aigm_client.widgets import PromptInput, TranscriptView, decode_prompt
 
@@ -29,6 +29,7 @@ Keys: Space/Enter = next page, PageUp/PageDown/arrows/wheel = scroll back,
       End = back to the current page, Esc = cancel the current turn, Ctrl+T = show/hide reasoning."""
 DEBUG_HELP = (
     "\nDebug server: /context (Ctrl+K) shows exactly what the model will be sent for your next message."
+    "\n  /story  prints the whole story plan (spoilers)"
     "\n  /thinking [on|off]  (F6) turn the model's thinking on or off, to compare a move both ways"
 )
 
@@ -105,7 +106,7 @@ class AigmApp(App):
         s.show_metrics = self.debug_server
         self.refresh_bindings()
         messages = state["messages"]
-        s.load_history(messages, state.get("phase", ""), state.get("ruleset_name", ""))
+        s.load_history(messages, state.get("phase", ""), state.get("ruleset_name", ""), state.get("story"))
         s.dirty = bool(messages)
         if not messages:
             s.add_system(intro_text(s.phase))
@@ -154,8 +155,9 @@ class AigmApp(App):
         mode = f"   mode: {s.phase_label}" if s.phase_label else ""
         if mode and s.ruleset_name:
             mode += f" · {s.ruleset_name}"
+        story = f"   story: {s.story_label}" if s.story_label else ""
         debug = ("   DEBUG" + ("" if self.model_thinking else " (no thinking)")) if self.debug_server else ""
-        self.query_one("#status", Static).update(f"{left}{mode}   game: {game}   {conn}{debug}")
+        self.query_one("#status", Static).update(f"{left}{mode}{story}   game: {game}   {conn}{debug}")
 
     def _sync_input(self) -> None:
         prompt = self.query_one("#prompt", Input)
@@ -273,6 +275,20 @@ class AigmApp(App):
                 s.add_system("Model thinking is now " + ("on." if self.model_thinking else "off."))
         self._kick()
 
+    async def _story_flow(self) -> None:
+        """Print the whole story plan (debug servers only: it is all spoilers)."""
+        s = self.session
+        if not self.debug_server:
+            s.add_system("The server is not in debug mode (start it with --debug).", "yellow")
+        else:
+            try:
+                plan = await self.api.debug_story()
+            except ApiError as e:
+                s.add_system(e.message, "red")
+            else:
+                s.add_system(plan.get("text") or "This game has no story plan.", "yellow")
+        self._kick()
+
     def action_cancel_turn(self) -> None:
         if self._turn is not None and self.session.busy:
             self._turn.cancel()
@@ -374,7 +390,7 @@ class AigmApp(App):
             s.add_system(f"Load failed: {e.message}", "red")
             self._kick()
             return
-        s.load_history(state["messages"], state.get("phase", ""), state.get("ruleset_name", ""))
+        s.load_history(state["messages"], state.get("phase", ""), state.get("ruleset_name", ""), state.get("story"))
         s.mark_loaded(name)
         s.add_system(f"Loaded '{name}'." + (f" ({s.phase_label})" if s.phase_label else ""))
         self._kick()
@@ -410,6 +426,8 @@ class AigmApp(App):
                 s.add_system(HELP + (DEBUG_HELP if self.debug_server else ""))
             case "context":
                 await self._context_flow()
+            case "story":
+                await self._story_flow()
             case "thinking":
                 words = {"on": True, "off": False}
                 if cmd.arg is not None and cmd.arg.lower() not in words:
@@ -448,7 +466,11 @@ class AigmApp(App):
         if not saves:
             self.session.add_system("No saved games.")
         for h in saves:
-            self.session.add_system(f"  {h['name']}  ({h.get('message_count', '?')} messages, {h.get('saved_at', '')})")
+            note = story_note(h.get("story"))
+            self.session.add_system(
+                f"  {h['name']}  ({h.get('message_count', '?')} messages, {h.get('saved_at', '')})"
+                + (f", {note}" if note else "")
+            )
 
     async def _info(self, name: str) -> None:
         try:
@@ -459,6 +481,7 @@ class AigmApp(App):
         self.session.add_system(
             f"{info['name']}: {info.get('message_count')} messages, saved {info.get('saved_at')}, "
             f"model {info.get('model')}\n  last: {info.get('last_message_preview', '(none)')}"
+            + (f"\n  {story_note(info.get('story'))}" if story_note(info.get("story")) else "")
         )
 
     async def _delete(self, name: str) -> None:

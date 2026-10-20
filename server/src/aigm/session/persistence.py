@@ -12,6 +12,7 @@ from typing import Any
 from aigm.errors import AlreadyExists, BadRequest, CorruptSave, NotFound
 from aigm.models import ID_RE
 from aigm.session.state import GameState
+from aigm.story import public_summary
 
 log = logging.getLogger(__name__)
 FORMAT_VERSION = 4  # 1: messages only (read as mid-adventure); 2: adds game state; 3: adds the world; 4: adds the story
@@ -92,6 +93,8 @@ class HistoryRepository:
             "saved_at": data.get("saved_at"),
             "model": data.get("model"),
             "phase": data["state"].phase.value,
+            "structure": data["state"].structure,
+            "story": public_summary(data["state"].story),
             "entity_count": counts["entities"],
             "fact_count": counts["facts"],
             "world_time": data["state"].world.time.to_dict(),

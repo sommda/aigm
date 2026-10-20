@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from aigm.context_view import build_context
 from aigm.deps import get_session
 from aigm.session.store import Session
+from aigm.story import needs_plan, summary_so_far
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/debug")
@@ -43,3 +44,17 @@ def set_thinking(request: Request, body: ThinkingSetting) -> dict[str, bool]:
     request.app.state.llm.thinking = body.enabled
     log.info("model thinking %s", "on" if body.enabled else "off")
     return {"thinking": body.enabled}
+
+
+@router.get("/story")
+def story(session: Annotated[Session, Depends(get_session)]) -> dict[str, Any]:
+    """The whole story plan, spoilers and all, and the same as readable text."""
+    state = session.state
+    plan = state.story
+    return {
+        "session_id": session.id,
+        "structure": state.structure,
+        "story": plan.to_dict() if plan else None,
+        "text": summary_so_far(plan) if plan else "",
+        "waiting_for_plan": needs_plan(plan) if plan else None,
+    }

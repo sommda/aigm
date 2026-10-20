@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-KNOWN = {"new", "save", "load", "saves", "info", "delete", "help", "quit", "reconnect", "context", "thinking"}
+KNOWN = {"new", "save", "load", "saves", "info", "delete", "help", "quit", "reconnect", "context", "thinking", "story"}
 
 
 @dataclass(frozen=True)

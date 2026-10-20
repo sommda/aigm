@@ -97,6 +97,15 @@ class PhaseChange(SSEEvent):
     phase: str
 
 
+class ChapterChange(SSEEvent):
+    """The story moved into a new chapter (chapter 4, "The end", once it has ended). Sent once the turn has committed."""
+
+    event: ClassVar[str] = "chapter"
+    previous: int
+    chapter: int
+    title: str
+
+
 class Status(SSEEvent):
     """Progress of a long wait, such as preparing the world after Session 0. `done` ends it."""
 
@@ -115,6 +124,7 @@ class MessageEnd(SSEEvent):
     ruleset: str = ""
     ruleset_name: str = ""
     metrics: dict[str, Any] | None = None  # timings and token use of the turn (see aigm.metrics)
+    story: dict[str, Any] | None = None  # story games: the public summary (aigm.story.public_summary)
 
 
 class ErrorEvent(SSEEvent):

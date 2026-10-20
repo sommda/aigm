@@ -110,6 +110,7 @@ class TurnMetrics:
     total_ms: int = 0  # the whole turn, including the pauses before dice rolls
     pause_ms: int = 0  # of which the deliberate pauses before dice rolls
     reduction: Reduction | None = None
+    chapter: int | None = None  # story games: the chapter the turn began in
 
     def to_dict(self) -> dict[str, Any]:
         def total(key: str) -> int:
@@ -130,6 +131,8 @@ class TurnMetrics:
             "output_tokens": total("output_tokens"),
             "requests": [r.to_dict() for r in self.requests],
         }
+        if self.chapter is not None:
+            out["chapter"] = self.chapter
         if self.reduction is not None:
             red = self.reduction
             out["history"] = {

@@ -1,6 +1,6 @@
 # AIGM Narrative Structure: Design
 
-Status: **steps 1 to 5 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
+Status: **steps 1 to 6 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
 section 12. This builds on
 [WORLD.md](WORLD.md) (the knowledge base and the curator), [BACKEND.md](BACKEND.md) (game state, tools, prompts, saves)
 and [RULESETS.md](RULESETS.md) (a Session 0 choice that is stored in the game state, which is the pattern this feature
@@ -477,7 +477,13 @@ Taken as recommended, still open to change in review:
      faction, concept, region or settlement in chapters 2 and 3; rooms, caves and people are accepted. The expand pass
      applies the same rule (`story.addition_allowed`) and takes at most `AIGM_STORY_EXPAND_ENTITIES` new entities per
      pass in those chapters. Narration-extraction, which records what the player was already told, is not limited.
-6. **Surfaces.** API summary and `chapter` event, client status line and banner, debug plan view, metrics.
+6. **Surfaces.** *Built.* The public summary (`story.public_summary`) is in `GET /chat/history`, the restore
+   response, every `message_end`, and the saved-game list and info; the `chapter` event announces a change made during
+   a turn. The client shows `story: Ch 2/3: Title` in the status line, a one-line banner per chapter, and the story
+   in `/saves`, `/info` and the load dialog. In debug mode `GET /debug/story` and the client's `/story` command
+   print the whole plan (it is not a section of the context viewer, because it is not sent to the model). Turn
+   metrics carry `chapter`. A chapter moved by the curator between turns has no event; the next `message_end` shows it
+   and the client prints the banner then.
 7. **Repair.** The repair pass and the stall timeout.
 8. **Live play and tuning.**
 

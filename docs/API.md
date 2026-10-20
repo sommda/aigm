@@ -52,6 +52,7 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | DELETE | `/history/{name}`             | Delete one saved history                             | JSON       |
 | GET    | `/health`                     | Liveness check; reports whether debug mode is on     | JSON       |
 | GET    | `/debug/context`              | The next request's context (**debug mode only**)     | JSON       |
+| GET    | `/debug/story`                | The whole story plan (**debug mode only**)           | JSON       |
 | GET    | `/debug/thinking`             | Whether model thinking is on (**debug mode only**)   | JSON       |
 | PUT    | `/debug/thinking`             | Turn model thinking on or off (**debug mode only**)  | JSON       |
 
@@ -282,6 +283,15 @@ turn has succeeded: a turn that fails after calling `begin_adventure` is rolled 
 and the game stays in `session_zero`. The opening scene of the adventure is part of the same turn, so it streams before
 this event. The history is rewritten at the same time (see `begin_adventure`).
 
+#### `chapter`
+```json
+{ "previous": 1, "chapter": 2, "title": "The road to the Vault" }
+```
+Story games only (docs/STORY.md). Sent when the turn moved the story into a new chapter, after the last `text` and
+before `message_end`, and only once the turn has succeeded. When the story ends it is sent with `chapter` 4 and the
+title "The end". A chapter can also change between turns, when the background curator reports a finished quest; then
+there is no event and the next `message_end` simply shows the new chapter in `story`.
+
 #### `message_end`
 ```json
 {
@@ -293,6 +303,7 @@ this event. The history is rewritten at the same time (see `begin_adventure`).
   "phase": "session_zero",
   "ruleset": "dnd55e",
   "ruleset_name": "D&D 5.5e",
+  "story": { "length": "short", "chapter": 2, "chapter_title": "The road to the Vault", "ended": false },
   "metrics": {
     "turn": 14, "phase": "session_zero", "model": "claude-sonnet-5-5",
     "first_text_ms": 1840, "total_ms": 9210, "pause_ms": 800, "model_calls": 2,
@@ -304,20 +315,21 @@ this event. The history is rewritten at the same time (see `begin_adventure`).
 }
 ```
 
-`phase` is the phase after the turn. `usage` sums the turn's model calls: `input_tokens` is everything the model read,
+`phase` is the phase after the turn. `story` is the public summary of a story game and `null` for an endless game (see
+`GET /chat/history`). `usage` sums the turn's model calls: `input_tokens` is everything the model read,
 cached or not, and the two `cache_*` counts say how much of it was read from or written to the prompt cache.
 
 `metrics` measures the turn (docs/HISTORY.md, A). Times are milliseconds. `first_text_ms` runs from the start of the
 turn to the first visible `text` chunk; thinking does not count as text, so a model that thinks first has a later
 first text, and each request's `thinking_ms` says how much of the wait was thinking. `total_ms` is the whole turn,
-`pause_ms` the part of it spent in the deliberate pause before dice rolls (`AIGM_ROLL_PAUSE`). `history` says how much
-of the stored history was condensed for the model. Each entry of `requests` (one per model call) has the same token
-counts, its own `first_text_ms` (from the start of that call; `null` if it wrote no text), `thinking_ms`, `total_ms`,
-`stop_reason`, and `sent`: estimated token sizes (`system`, `tools`, `history`,
-`briefing`, and `history_stored`, what the history would have been without reduction), message counts, and
-`history_by_kind` (`player`, `gm`, `digests`, `thinking`, `tool_calls`, `tool_results`). The same record is appended to
-`{AIGM_SAVE_DIR}/metrics/{session_id}.jsonl` (with a timestamp and the session id) unless `AIGM_METRICS=false`.
-Clients must ignore fields they do not know.
+`pause_ms` the part of it spent in the deliberate pause before dice rolls (`AIGM_ROLL_PAUSE`). In a story game the
+record also has `chapter`, the chapter the turn began in. `history` says how much of the stored history was condensed
+for the model. Each entry of `requests` (one per model call) has the same token counts, its own `first_text_ms` (from
+the start of that call; `null` if it wrote no text), `thinking_ms`, `total_ms`, `stop_reason`, and `sent`: estimated
+token sizes (`system`, `tools`, `history`, `briefing`, and `history_stored`, what the history would have been without
+reduction), message counts, and `history_by_kind` (`player`, `gm`, `digests`, `thinking`, `tool_calls`, `tool_results`).
+The same record is appended to `{AIGM_SAVE_DIR}/metrics/{session_id}.jsonl` (with a timestamp and the session id) unless
+`AIGM_METRICS=false`. Clients must ignore fields they do not know.
 
 #### `error`
 ```json
@@ -435,6 +447,12 @@ and for adventures loaded from older saves). It includes the private `gm_notes`,
 player. History uses the Anthropic Messages API content-block format verbatim, so it round-trips to the model with no
 translation. An unknown/empty session returns `200` with `"messages": []`.
 
+
+`story` is the public summary of a story game, and `null` for an endless one (or before the plan is written):
+`{ "length", "chapter", "chapter_title", "ended" }`, plus `ending` (the title of the ending reached) once `ended` is
+true; `chapter` is 4 after the end. It never contains the goal, the quests or the endings. `POST
+/history/{name}/restore` returns it too. Both the summary and the `chapter` event are what a client shows.
+
 ---
 
 ## GET `/history`
@@ -446,14 +464,16 @@ List all saved histories (the "save slots"). Sorted by `saved_at`, newest first.
 {
   "histories": [
     { "name": "tavern-brawl", "phase": "adventure", "message_count": 14,
-      "saved_at": "2026-10-15T18:22:04Z", "model": "claude-sonnet-5-5" },
+      "saved_at": "2026-10-15T18:22:04Z", "model": "claude-sonnet-5-5",
+      "structure": "short", "story": { "length": "short", "chapter": 2, "chapter_title": "The road", "ended": false } },
     { "name": "act-1", "phase": "session_zero", "message_count": 52,
       "saved_at": "2026-10-14T21:03:40Z", "model": "claude-sonnet-5-5" }
   ]
 }
 ```
 
-No saves yields `{ "histories": [] }`.
+`structure` is `endless`, `short`, `medium` or `long`, and `story` is the public summary (below) or `null`. No saves
+yields `{ "histories": [] }`.
 
 ---
 
@@ -603,6 +623,15 @@ Top-level sections, in order:
 
 Unknown `kind` values may be added later; clients should show them as plain text.
 
+
+---
+
+## GET `/debug/story`
+
+**Debug mode only** (absent otherwise, like `/debug/context`). The whole story plan, spoilers and all: `structure`,
+`story` (the plan as saved: goal, chapters, quests with their statuses and outcomes, endings, choices, or `null`),
+`text` (the same as readable lines) and `waiting_for_plan` (the chapter whose quests the background plotter has not
+written yet, or `null`). Query parameter: `session_id`.
 
 ---
 

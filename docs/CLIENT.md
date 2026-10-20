@@ -125,6 +125,7 @@ The client implements exactly the contract in API.md.
 | `dice_roll` | Render a dice block (see Dice Rendering). Closes the current markdown segment. |
 | `status` | Show `message` in the status line in place of "GM is writing..." (with the spinner) until a `status` with `done: true`, or until the turn ends or fails. Nothing is added to the transcript. This is the pause while the world is built after Session 0. |
 | `phase_change` | (When history is reloaded after the switch it is three server-inserted messages plus the new play; user messages starting `[System:` are shown as dim system lines, not as player speech.) Update the mode shown in the status line and add a line "Session 0 is over. The adventure begins!" to the transcript. The status line also follows `phase` on `message_start`/`message_end`. After a startup, load or new game, the phase comes from `GET /chat/history` and `POST /chat/new`; the welcome line and prompt placeholder differ in Session 0. Servers that send no phase are tolerated (no mode is shown). |
+| `chapter` | Story games. Print a one-line banner "Chapter 2: The road" (or "The story has ended. You can keep playing in this world." for chapter 4) and update the chapter in the status line (`story: Ch 2/3: The road`, or `story: Story over`). `message_end` and `GET /chat/history` carry a `story` summary that sets the same status; if it shows a chapter the client has not announced (the curator moved it between turns) the banner is printed then, once. Endless games and servers that send no `story` show nothing. |
 | `message_end` | Finalize the segment (final un-healed render), stop spinner, re-enable input once all held text has been paged through. |
 | `error` | Show a red error block with `message`; clear spinner; note the turn was discarded server-side (the user's message needs resending). |
 | Unknown event types / unknown fields | Ignored (forward compatibility, as API.md requires). |
@@ -238,6 +239,7 @@ when it is given.
 | `/saves` | `GET /history` | Prints the list of saved games into the transcript. |
 | `/info NAME` | `GET /history/{NAME}` | Prints metadata and last-message preview. |
 | `/delete NAME` | `DELETE /history/{NAME}` | Confirms first. |
+| `/story` | `GET /debug/story` | Debug servers only: prints the whole story plan (spoilers) into the transcript. |
 | `/context` | `GET /debug/context` | Debug servers only: opens the context viewer (same as `Ctrl+K`). See below. |
 | `/thinking [on\|off]` | `PUT /debug/thinking` | Debug servers only: turns the model's thinking on or off, or flips it (same as `F6`). The status line shows `DEBUG (no thinking)` while it is off. |
 | `/help`, `/quit` | local | |

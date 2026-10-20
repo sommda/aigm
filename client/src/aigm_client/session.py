@@ -38,6 +38,16 @@ def metrics_line(m: dict[str, Any]) -> str:
     )
 
 
+def story_note(story: dict[str, Any] | None) -> str:
+    """"short story, chapter 2: The road" for a saved or live story game; "" for an endless game."""
+    if not story:
+        return ""
+    if story.get("ended"):
+        return f"{story.get('length', '')} story, finished".strip()
+    title = story.get("chapter_title") or ""
+    return f"{story.get('length', '')} story, chapter {story.get('chapter', '?')}" + (f": {title}" if title else "")
+
+
 def intro_text(phase: str) -> str:
     return INTRO.get(phase, "Welcome, adventurer. Describe what you do. Type /help for commands.")
 
@@ -51,6 +61,7 @@ class ChatSession:
         self.game_name: str | None = None
         self.phase = ""  # "session_zero" | "adventure" | "" (unknown)
         self.ruleset_name = ""  # e.g. "AD&D 1e"; "" when the server does not report it
+        self.story: dict[str, Any] | None = None  # the server's public story summary (docs/STORY.md 11)
         self.dirty = False  # unsaved changes since last save/load/new
         self.changed = False  # set whenever anything visible changed; the UI clears it
         self.show_metrics = False  # a debug server: print each turn's timings and token use
@@ -62,6 +73,17 @@ class ChatSession:
     @property
     def phase_label(self) -> str:
         return PHASE_LABELS.get(self.phase, "")
+
+    @property
+    def story_label(self) -> str:
+        """"Ch 2: The road" for a story game, "Story over" once it has ended, "" for an endless game."""
+        story = self.story
+        if not story:
+            return ""
+        if story.get("ended"):
+            return "Story over"
+        title = story.get("chapter_title") or ""
+        return f"Ch {story.get('chapter', '?')}/3" + (f": {title}" if title else "")
 
     @property
     def can_input(self) -> bool:
@@ -117,10 +139,16 @@ class ChatSession:
                 self._text = self._reasoning = None
                 if phase == "adventure":
                     self.add_system("Session 0 is over. The adventure begins!", "bold green")
-            case ev.MessageEnd(phase=phase, ruleset_name=ruleset, metrics=metrics):
+            case ev.ChapterChange(chapter=chapter, title=title):
+                self._announce_chapter(chapter, title)
+            case ev.MessageEnd(phase=phase, ruleset_name=ruleset, metrics=metrics, story=story):
                 if phase:
                     self.phase = phase
                 self.ruleset_name = ruleset or self.ruleset_name
+                if story is not None:  # a chapter that changed between turns shows up only here
+                    if self.story and story.get("chapter") != self.story.get("chapter"):
+                        self._announce_chapter(int(story.get("chapter", 0)), str(story.get("chapter_title", "")))
+                    self.story = story
                 self._finish_turn()
                 if self.show_metrics and metrics:
                     self.add_system(metrics_line(metrics))
@@ -132,6 +160,16 @@ class ChatSession:
             case _:  # MessageStart, Unknown: nothing to show
                 pass
         self._touch()
+
+    def _announce_chapter(self, chapter: int, title: str) -> None:
+        """One banner per chapter: the event and the next message_end both report the same change."""
+        if self.story and self.story.get("chapter") == chapter:
+            return
+        self.story = {**(self.story or {}), "chapter": chapter, "chapter_title": title, "ended": chapter > 3}
+        if chapter > 3:
+            self.add_system("The story has ended. You can keep playing in this world.", "bold green")
+        else:
+            self.add_system(f"Chapter {chapter}: {title}" if title else f"Chapter {chapter}", "bold green")
 
     def _finish_turn(self) -> None:
         self.busy = False
@@ -156,10 +194,13 @@ class ChatSession:
             self.transcript.add(SystemBlock(line, style))
         self._touch()
 
-    def load_history(self, messages: list[dict[str, Any]], phase: str = "", ruleset_name: str = "") -> None:
+    def load_history(
+        self, messages: list[dict[str, Any]], phase: str = "", ruleset_name: str = "", story: dict[str, Any] | None = None
+    ) -> None:
         """Replace the transcript with a server history and open on its last page."""
         self.phase = phase
         self.ruleset_name = ruleset_name
+        self.story = story
         self.transcript.replace_blocks(history_to_blocks(messages))
         self.busy = self.thinking = False
         self.status = ""
@@ -170,6 +211,7 @@ class ChatSession:
     def new_game(self, phase: str = "session_zero", ruleset_name: str = "") -> None:
         self.phase = phase
         self.ruleset_name = ruleset_name
+        self.story = None
         self.transcript.clear()
         self.busy = self.thinking = False
         self.status = ""
