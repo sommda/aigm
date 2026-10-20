@@ -1,15 +1,16 @@
 # AIGM Narrative Structure: Design
 
-Status: **proposal, nothing built.** Open questions are in section 12; I have written down a recommendation for each so
-the build can start from this document once they are settled. This builds on [WORLD.md](WORLD.md) (the knowledge base
-and the curator), [BACKEND.md](BACKEND.md) (game state, tools, prompts, saves) and [RULESETS.md](RULESETS.md) (a
-Session 0 choice that is stored in the game state, which is the pattern this feature follows).
+Status: **proposal, nothing built.** The questions that were open are settled in section 12. This builds on
+[WORLD.md](WORLD.md) (the knowledge base and the curator), [BACKEND.md](BACKEND.md) (game state, tools, prompts, saves)
+and [RULESETS.md](RULESETS.md) (a Session 0 choice that is stored in the game state, which is the pattern this feature
+follows).
 
 ## 1. Goal
 
 Today a game is an *endless* sandbox: story shape only emerges from what the player does. This feature adds an
 optional **structured campaign** with a clear beginning, middle and end, and more than one possible ending depending
-on what the party does. It is chosen in Session 0. If the player does not choose it, nothing about the game changes.
+on what the party does. It is chosen in Session 0, where the GM always asks (unless the player has already made the
+choice clear). An *endless* choice leaves the game exactly as it is today.
 
 The shape is three chapters:
 
@@ -25,7 +26,7 @@ an endless game.
 
 ### Requirements taken from the request
 
-1. Optional. Chosen in Session 0. Endless play stays exactly as it is now.
+1. Optional. Chosen in Session 0; the GM always asks. Endless play stays exactly as it is now.
 2. Three chapters with the rules for the world in the table above.
 3. Three lengths: **short** (a session or two; 2 or 3 major quests to advance a chapter), **long** (about ten times
    that), **medium** (between).
@@ -126,14 +127,20 @@ once, and the last call wins.
 { "mode": "endless" | "short" | "medium" | "long" }
 ```
 
-- The Session 0 prompt (a new `session_zero/01b_structure.md`) has the GM ask once, after the setting is roughly
-  agreed: a story with a beginning, middle and end, or an endless campaign? And if a story, how long: short (one or
-  two sittings), medium, or long. It describes each in a sentence, and names the default.
-- The player may also steer the story in Session 0 ("I want a lich", "something about a stolen crown"). The GM puts
-  that in `gm_notes`/the setting, and the plotter (section 5) uses it. The GM must not decide the whole plot there:
-  the goal stays secret from the player.
-- `begin_adventure` does not require the choice: if `set_structure` was never called, the default (open question 1)
-  applies silently, so existing flows and tests do not change.
+- **The GM always asks before leaving Session 0**, unless the player's own words already make the choice plain ("an
+  endless sandbox", "a short story-driven adventure I can finish this weekend"). The Session 0 prompt (a new
+  `session_zero/01b_structure.md`) has the GM raise it once the setting is roughly agreed: a story with a beginning,
+  middle and end, or an endless campaign? And if a story, how long: short (one or two sittings), medium, or long. It
+  describes each in a sentence. Nothing is assumed on the player's behalf: a vague "whatever" gets a short
+  recommendation and a question, not a silent default.
+- If the player chose a story they may also steer it in Session 0 ("I want a lich", "something about a stolen crown").
+  The GM puts that in `gm_notes`/the setting, and the plotter (section 5) uses it. The GM must not decide the whole plot
+  there: the goal stays secret from the player.
+- **The server enforces the question.** `begin_adventure` is refused until `set_structure` has been called in this
+  Session 0 ("ask the player what kind of game they want, then record it with set_structure"). When the player's
+  prompt made the choice obvious, the GM calls `set_structure` itself without asking. The existing tests and the
+  scripted model that call `begin_adventure` directly are updated to choose a mode first, endless where they do not
+  care. The Session 0 wrap-up prompt lists the choice among the things to confirm in its summary.
 - The chosen mode is shown in the Session 0 summary the GM gives before `begin_adventure`, and it goes into the
   campaign record (`campaign.structure`) as one line, so the first adventure request knows it.
 - `/new` and the client need no change for this: Session 0 is a conversation.
@@ -176,14 +183,15 @@ A plot pass costs about one expand call. The hidden facts it adds go through the
 | | Short | Medium | Long |
 |---|---|---|---|
 | Target play | one or two sittings | a handful of sittings | a long campaign |
-| Major quests to finish a chapter | 2 to 3 | 6 to 8 | 20 to 30 |
-| Required milestones, whole game | about 7 to 9 | about 20 to 24 | about 60 to 90 |
+| Major quests to finish a chapter | 2 to 3 | 5 to 6 | 10 to 12 |
+| Required milestones, whole game | about 7 to 9 | about 16 to 18 | about 30 to 36 |
 | Path to the goal | direct: the goal is known early and few steps away | a few branches; one revelation | convoluted: clues point to clues, false leads, a goal that has to be uncovered in pieces |
 | Party strength gap at the start | may be small or none | clear | large |
 
-Long is "about ten times" short by the request; medium sits between them on a logarithmic scale, not at the
-midpoint. The numbers are the plotter's targets; `aigm/story.py` holds them as data (`LENGTHS`) so they are tuned in
-one place. Optional milestones (side quests, `required: false`) are in addition to these.
+Long is about four times short in quests and, because each long quest is also bigger and the path is convoluted, much
+longer in play; medium sits between them. The numbers are the plotter's targets; `aigm/story.py` holds them as data
+(`LENGTHS`) so they are tuned in one place after a play test. Optional milestones (side quests, `required: false`) are
+in addition to these.
 
 ### 6.2 What each chapter changes
 
@@ -191,10 +199,17 @@ one place. Optional milestones (side quests, `required: false`) are in addition 
 - The world expands as it does now. The curator's expand pass is also told which milestones are active so that places
   and people they need get generated ahead of the party.
 - Foreshadowing: clue facts about the goal are `hinted`/`known` in rumors, in the first quest's findings, in an NPC's
-  fear. The goal is not named.
-- **Ends** when the chapter's required milestones are done. The last required milestone of chapter 1 is a
-  **revelation** by design: the party learns what the goal is, why it matters and roughly where it lies. The goal's
-  `revealed` flag is set by that event and its hidden facts become `known` as the GM narrates them.
+  fear. The goal is not handed over, but an astute player who follows the clues and asks the right people can work it
+  out, or be told, before the chapter ends. The GM never lies about it and never blocks a good question.
+- **Ends** when the chapter's required milestones are done *and the goal is known to the player.* The last required
+  milestone of chapter 1 is a **revelation** by design: the party learns what the goal is, why it matters and roughly
+  where it lies. The chapter cannot end without it. The goal's `revealed` flag is set when it is learned (by that
+  milestone or earlier, through play), and its hidden facts become `known` as the GM narrates them.
+- **The nudge for knowledge.** The pace note (6.3) also covers the goal: while the goal is unrevealed, the briefing
+  tells the GM how many of chapter 1's required milestones are done, and as the chapter nears its end the instruction
+  to let the goal come out gets stronger: clues become plainer, an NPC who knows speaks up, the next quest's
+  findings name it. Once the other milestones are done and the goal is still unknown, the revelation is the only thing
+  left and the GM is told to deliver it in the next scenes.
 
 **Chapter 2 — the road to the goal.**
 - The GM nudges: every scene may carry a hook toward the active milestone (section 6.3). New *details* are welcome:
@@ -213,7 +228,7 @@ one place. Optional milestones (side quests, `required: false`) are in addition 
 The plan is a destination, not a rail. The briefing (section 10) tells the GM, each turn:
 
 - the chapter and its one-line purpose,
-- the active milestones (title, brief, where, who), at most three,
+- the active milestones (title, brief, where, who), at most three, and in chapter 1 whether the goal is known yet,
 - a **pace note** that escalates: nothing while the party is making progress; a gentle "offer the next hook in this
   scene" after the party has gone `AIGM_STORY_NUDGE_TURNS` player turns without progress (default 12); a firm "bring a
   concrete consequence or opportunity to the player now" after twice that. Progress means a milestone changing state;
@@ -358,37 +373,35 @@ Everything the GM is shown about the story is **private**. The player never sees
 - **Metrics.** The turn's metrics line gains `chapter`; plot passes are logged like other curator passes.
 - **Configuration** (all optional): `AIGM_STORY_NUDGE_TURNS` (12), `AIGM_STORY_STALL_TURNS` (40),
   `AIGM_STORY_EXPAND_ENTITIES` (3, chapter 2 and 3 cap). Structured games need the curator; with
-  `AIGM_WORLD_CURATOR=false`, `set_structure` answers that the choice is unavailable and the game is endless.
+`AIGM_WORLD_CURATOR=false`, `set_structure` answers that only endless is available, which also satisfies the
+  `begin_adventure` check.
 
-## 12. Open questions
+## 12. Decisions
 
-Each has a recommendation; I will use it unless you say otherwise.
+Settled in review:
 
-1. **Default.** Is the default **endless** (current behavior; the GM only offers the structure) or **structured:
-   medium**? *Recommended: endless, with the GM offering the choice in Session 0, so the game does not change under
-   existing habits.*
-2. **Who ends a chapter.** The GM reports milestones on `set_scene`; the curator is the backstop. Alternatively only
-   the curator decides (no GM field, slower, more accurate). *Recommended: the GM, with the curator.*
-3. **Length numbers.** The table in 6.1 reads "ten times" as 2 to 3 per chapter, about 8, and about 25 per chapter. A
-   long game is then a very long campaign (60 or more required quests). Is that the intent, or should "long" be around
-   10 to 12 quests per chapter? *Recommended: build with the table, since the numbers are data (`LENGTHS`) and easy to
-   tune after a play test.*
-4. **The goal's reveal.** The goal becomes known when chapter 1 ends. Should the player be able to learn it earlier by
-   asking (say, from the right NPC), or is the reveal always the last milestone of chapter 1? *Recommended: the
-   revelation milestone is a gate, but earlier partial clues are welcome; the player is never lied to.*
-5. **Chapter 2 and 3 additions.** Is the rule in 6.4 (new regions, settlements, factions and concepts refused; rooms,
-   caves and people allowed) the right line for "major"? *Recommended: yes, tune in play.*
-6. **Level tracking.** Leave leveling to the GM and the ruleset, with only a target per chapter (section 7), or have
-   the server track the party level? *Recommended: the GM, with targets; tracking needs per-edition rules.*
-7. **After the ending.** Offer to continue as an endless game, or end the session? *Recommended: offer to continue.*
-8. **Where story lives while the curator is down.** Structured games require the curator. Is that acceptable?
-   *Recommended: yes; the plotter is a curator pass, and the fallback is endless play.*
+1. **No default mode.** The GM always asks what sort of game the player wants before leaving Session 0, unless the
+   player's prompt already makes it obvious. The server enforces it (section 4).
+2. **Long means 10 to 12 quests per chapter** (short 2 to 3, medium 5 to 6; section 6.1).
+3. **Levels** stay with the GM and the ruleset, with a target level per chapter and no server tracking (section 7).
+4. **The goal** may be learned and hinted at during chapter 1 by an astute player, but it **must be known to leave
+   chapter 1**, and the GM's nudges make learning it increasingly likely as the chapter goes on (section 6.2).
+
+Taken as recommended, still open to change in review:
+
+5. **Who ends a chapter.** The GM reports milestones on `set_scene`; the curator is the backstop (section 8.1).
+6. **Chapter 2 and 3 additions.** New regions, settlements, factions and concepts are refused; rooms, caves and people
+   are allowed (section 6.4). Tune in play.
+7. **After the ending** the GM offers to continue as an endless game (section 9).
+8. **The curator is required.** Structured games need it; with `AIGM_WORLD_CURATOR=false` the choice is unavailable and
+   the game is endless (section 11).
 
 ## 13. Testing
 
 - **Pure logic** (`tests/test_story.py`): chapter completion, availability through `requires`, validation of a plan
   (cycles, dead ends, unknown ids, counts per length), the pace note thresholds, `addition_allowed`, `LENGTHS`.
-- **Tools:** `set_structure` (session zero only, last wins, rejects bad modes); `set_scene` story field (unknown or
+- **Tools:** `set_structure` (session zero only, last wins, rejects bad modes); `begin_adventure` refused until it has
+  been called; `set_scene` story field (unknown or
   inactive milestone, chapter advance, outcome required); `end_story` (wrong chapter, unknown ending, success);
   `establish` refusals in chapters 2 and 3.
 - **State:** save round trip, old saves load as endless, corrupt story records rejected.
