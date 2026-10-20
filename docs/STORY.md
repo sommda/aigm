@@ -88,6 +88,7 @@ Stored in the game state as `GameState.story` (`None` for an endless game), save
       "gives": "the party meets the river folk; level 3; clue to the Vault",   // what it builds (section 7)
       "requires": ["m01"],           // milestones that must be done first (ids)
       "status": "active",            // pending | active | done | skipped
+      "scale": "small",              // small | medium | large: how much play the quest holds (section 6.1)
       "required": true,              // counts toward ending the chapter
       "entities": ["e017", "e020"],  // where and with whom it lives
       "done_turn": null,
@@ -166,6 +167,10 @@ Rules the plotter is held to (checked by the server, as the curator's other outp
 
 - The goal and each milestone must connect to existing entities (the same "no floating entities" rule as expand).
 - Milestone counts follow the length table in section 6.1; the server rejects a plan that is far outside it.
+- Each milestone has a `scale` (`small`, `medium` or `large`) and its `brief` is sized to match the game's length: in a
+  short game every quest is small (one or two combats or challenges, a simple site), in a long game most are large
+  (an involved dungeon crawl). The server checks that the scales fit the length; the exact encounter counts are the
+  plotter's judgment, guided by its prompt.
 - Every `required` milestone is reachable: it has a `requires` path from a milestone that is available at the start of
   the chapter. No dead ends, no cycles.
 - The goal's `min_strength` is above the party's starting strength (except for a short game, which may be set to
@@ -186,12 +191,13 @@ A plot pass costs about one expand call. The hidden facts it adds go through the
 | Major quests to finish a chapter | 2 to 3 | 5 to 6 | 10 to 12 |
 | Required milestones, whole game | about 7 to 9 | about 16 to 18 | about 30 to 36 |
 | Path to the goal | direct: the goal is known early and few steps away | a few branches; one revelation | convoluted: clues point to clues, false leads, a goal that has to be uncovered in pieces |
+| Size of a quest | small: one or two combats or challenges, a simple site (one main room with a band of monsters) | a few encounters; a modest dungeon, a short journey with a complication | an involved crawl: a multi-room dungeon or a long journey with several encounters, choices and a boss |
 | Party strength gap at the start | may be small or none | clear | large |
 
-Long is about four times short in quests and, because each long quest is also bigger and the path is convoluted, much
-longer in play; medium sits between them. The numbers are the plotter's targets; `aigm/story.py` holds them as data
-(`LENGTHS`) so they are tuned in one place after a play test. Optional milestones (side quests, `required: false`) are
-in addition to these.
+Long is about four times short in quests, and each long quest is itself bigger (the "Size of a quest" row), so a long
+game is far more than four times as long in play; medium sits between them. The numbers are the plotter's targets;
+`aigm/story.py` holds them as data (`LENGTHS`) so they are tuned in one place after a play test. Optional milestones
+(side quests, `required: false`) are in addition to these.
 
 ### 6.2 What each chapter changes
 
@@ -228,7 +234,7 @@ in addition to these.
 The plan is a destination, not a rail. The briefing (section 10) tells the GM, each turn:
 
 - the chapter and its one-line purpose,
-- the active milestones (title, brief, where, who), at most three, and in chapter 1 whether the goal is known yet,
+- the active milestones (title, brief, scale, where, who), at most three, so the GM sizes each quest to match, and in chapter 1 whether the goal is known yet,
 - a **pace note** that escalates: nothing while the party is making progress; a gentle "offer the next hook in this
   scene" after the party has gone `AIGM_STORY_NUDGE_TURNS` player turns without progress (default 12); a firm "bring a
   concrete consequence or opportunity to the player now" after twice that. Progress means a milestone changing state;
@@ -346,7 +352,7 @@ Everything the GM is shown about the story is **private**. The player never sees
   ```
   ## Story (private)
   Chapter 2 of 3, "The road to the Vault": the goal is known; steer toward it. No new regions, settlements or factions.
-  Active: [m07] Win the river folk's trust (at Lowmeet, with Silt). [m08] Find the key to the sluice gate.
+  Active: [m07] Win the river folk's trust (at Lowmeet, with Silt; medium). [m08] Find the key to the sluice gate (small).
   Pace: 14 turns without progress. Offer a concrete hook toward an active quest in this scene.
   Party should be about level 6 by the end of this chapter.
   ```
