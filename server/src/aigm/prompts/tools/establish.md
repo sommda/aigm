@@ -7,3 +7,5 @@ Record things you have introduced or settled in the world, so they stay true for
 If any part is rejected nothing is recorded, and the error says what to fix. Do not record anything that exists because of the party's actions rather than the world, and do not contradict recorded facts.
 
 Call it before the message that holds your final reply, never in that message and never after it. If you are about to roll, roll first, then call this once you have seen the results. Once the result is back, do not repeat or add to your reply.
+
+Write no text in the same response as this call: not even a remark such as "I'll record that". Anything you write is shown to the player as story.

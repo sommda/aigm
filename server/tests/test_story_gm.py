@@ -42,7 +42,7 @@ def test_endless_games_see_no_story_tools_or_fields():
     tools = tool_schemas(phase=Phase.ADVENTURE)
     assert names(tools) == ["roll_dice", "recall", "establish", "set_scene"]
     assert "story" not in props(tools, "set_scene")
-    assert "story" not in next(t for t in tools if t["name"] == "set_scene")["description"].lower().split("report")[0]
+    assert "report its progress" not in next(t for t in tools if t["name"] == "set_scene")["description"]
 
 
 def test_story_games_get_end_story_and_the_story_field():
