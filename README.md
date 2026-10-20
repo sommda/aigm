@@ -76,7 +76,7 @@ cd server && uv run aigm --test     # scripted replies, no LLM/API key needed (t
 cd server && uv run aigm --debug    # also allow clients to inspect the model's context (shows spoilers)
 
 # client (default server URL http://127.0.0.1:8000)
-# options: --url http://host:8000, --session NAME, --ascii; or AIGM_URL
+# options: --url http://host:8000, --session NAME, --ascii, --no-mouse (select and copy text); or AIGM_URL
 cd client && uv sync && uv run aigm-client
 ```
 
