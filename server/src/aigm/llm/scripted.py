@@ -277,6 +277,7 @@ class ScriptedLLM:
     def __init__(self, delay: float = 0.02, chunk_size: int = 4) -> None:
         self.delay = delay
         self.chunk_size = max(1, chunk_size)
+        self.thinking = True  # kept so the debug route works; the script's thinking steps are not affected
 
     async def _sleep(self, seconds: float) -> None:
         await asyncio.sleep(seconds)

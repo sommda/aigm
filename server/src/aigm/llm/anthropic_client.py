@@ -61,6 +61,7 @@ class AnthropicLLM:
         self.max_tokens = max_tokens
         self.thinking_summaries = thinking_summaries
         self.effort = effort
+        self.thinking = True  # debug only: POST /debug/thinking turns it off to compare the GM with and without it
         self._client = client
 
     def _get_client(self) -> anthropic.AsyncAnthropic:
@@ -84,7 +85,9 @@ class AnthropicLLM:
             # tools and history are a stable prefix that grows each turn. (When the request
             # carries its own breakpoint, before the per-turn world notes, that one is used.)
             params["cache_control"] = {"type": "ephemeral"}
-        if self.thinking_summaries:
+        if not self.thinking:
+            params["thinking"] = {"type": "disabled"}
+        elif self.thinking_summaries:
             params["thinking"] = {"type": "adaptive", "display": "summarized"}
         if self.effort:
             params["output_config"] = {"effort": self.effort}

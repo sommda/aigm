@@ -77,6 +77,7 @@ class FakeServer:
         self.ruleset_name = ""  # "" = an older server that does not report the ruleset
         self.debug: bool | None = None  # None = an older server whose /health has no debug field
         self.context = sample_context()
+        self.thinking = True
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -94,9 +95,14 @@ class FakeServer:
         self.calls.append((method, path, {**params, **body}))
         if path == "/health":
             extra = {} if self.debug is None else {"debug": self.debug}
+            if self.debug:
+                extra["thinking"] = self.thinking
             return self._json(200, {"status": "ok", "model": "fake", **extra})
         if path == "/debug/context" and self.debug:
             return self._json(200, self.context)
+        if path == "/debug/thinking" and method == "PUT" and self.debug:
+            self.thinking = body["enabled"]
+            return self._json(200, {"thinking": self.thinking})
         if path == "/chat/history":
             body = {"session_id": "default", "messages": self.messages}
             if self.phase:

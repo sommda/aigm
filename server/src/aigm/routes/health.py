@@ -7,4 +7,8 @@ router = APIRouter()
 
 @router.get("/health")
 def health(request: Request) -> dict[str, Any]:
-    return {"status": "ok", "model": request.app.state.model_name, "debug": request.app.state.settings.debug}
+    debug = request.app.state.settings.debug
+    info: dict[str, Any] = {"status": "ok", "model": request.app.state.model_name, "debug": debug}
+    if debug:
+        info["thinking"] = getattr(request.app.state.llm, "thinking", True)
+    return info

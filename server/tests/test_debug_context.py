@@ -256,3 +256,28 @@ def test_works_while_a_turn_is_in_progress(debug):
     session = adventure(app)
     session.busy = True
     assert client.get("/debug/context").status_code == 200
+
+
+# ---- GET/PUT /debug/thinking ----------------------------------------------------------------
+
+
+def test_thinking_can_be_switched_off_and_on_in_debug(debug):
+    _, client = debug
+    assert client.get("/health").json()["thinking"] is True
+    assert client.get("/debug/thinking").json() == {"thinking": True}
+    assert client.put("/debug/thinking", json={"enabled": False}).json() == {"thinking": False}
+    assert client.get("/debug/thinking").json() == {"thinking": False}
+    assert client.get("/health").json()["thinking"] is False
+    assert client.put("/debug/thinking", json={"enabled": True}).json() == {"thinking": True}
+
+
+def test_thinking_needs_a_boolean(debug):
+    assert debug[1].put("/debug/thinking", json={"enabled": "maybe"}).status_code == 422
+
+
+def test_without_debug_thinking_cannot_be_changed(tmp_path):
+    app, client = make(tmp_path)
+    assert client.put("/debug/thinking", json={"enabled": False}).status_code == 404
+    assert client.get("/debug/thinking").status_code == 404
+    assert "thinking" not in client.get("/health").json()
+    assert app.state.llm.thinking is True

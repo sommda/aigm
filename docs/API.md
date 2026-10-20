@@ -52,6 +52,8 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | DELETE | `/history/{name}`             | Delete one saved history                             | JSON       |
 | GET    | `/health`                     | Liveness check; reports whether debug mode is on     | JSON       |
 | GET    | `/debug/context`              | The next request's context (**debug mode only**)     | JSON       |
+| GET    | `/debug/thinking`             | Whether model thinking is on (**debug mode only**)   | JSON       |
+| PUT    | `/debug/thinking`             | Turn model thinking on or off (**debug mode only**)  | JSON       |
 
 Terminology:
 
@@ -541,7 +543,8 @@ Errors: `400` invalid name; `404` no such history. There is no endpoint that del
 Response `200`: `{ "status": "ok", "model": "claude-sonnet-5-5", "debug": false }`
 
 `debug` is `true` when the server was started with `--debug` (or `AIGM_DEBUG=true`). Clients use it to decide whether
-to offer the context viewer; it does not grant access by itself.
+to offer the context viewer and the thinking switch; it does not grant access by itself. In debug mode the response
+also has `"thinking": true|false`, the current state of the switch below.
 
 ---
 
@@ -599,6 +602,19 @@ Top-level sections, in order:
 
 Unknown `kind` values may be added later; clients should show them as plain text.
 
+
+---
+
+## GET and PUT `/debug/thinking`
+
+**Debug mode only**, and absent otherwise exactly like `/debug/context` (`404 not_found`). It exists so one action can
+be tried from the same save with and without the model's thinking.
+
+`GET` answers `200` `{ "thinking": true }`. `PUT` takes `{ "enabled": false }` and answers `200` with the new state,
+`{ "thinking": false }`; a non-boolean `enabled` is `422`. When thinking is off the GM's requests send
+`thinking: {"type": "disabled"}`. The setting belongs to the server, not to a session: it applies to every session
+until it is changed again or the server restarts (it then starts on). Thinking blocks already in a history stay as
+they are. The world curator's own requests are not affected.
 ---
 
 ## Tool: `roll_dice`

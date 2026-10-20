@@ -75,6 +75,10 @@ class ApiClient:
         """The model's next request as a tree (debug servers only; anything else answers 404)."""
         return await self._request("GET", "/debug/context", params={**self._session(), "draft": draft})
 
+    async def set_thinking(self, enabled: bool) -> bool:
+        """Turn the model's thinking on or off for the server (debug servers only; anything else answers 404)."""
+        return (await self._request("PUT", "/debug/thinking", json={"enabled": enabled}))["thinking"]
+
     async def chat_state(self) -> dict[str, Any]:
         """The live session: `messages`, plus `phase` and `campaign` on servers that have them."""
         return await self._request("GET", "/chat/history", params=self._session())

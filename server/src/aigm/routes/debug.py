@@ -5,6 +5,7 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel
 
 from aigm.context_view import build_context
 from aigm.deps import get_session
@@ -24,3 +25,21 @@ def context(
     return build_context(
         game=request.app.state.game, session=session, model=request.app.state.model_name, draft=draft
     )
+
+
+class ThinkingSetting(BaseModel):
+    enabled: bool
+
+
+@router.get("/thinking")
+def get_thinking(request: Request) -> dict[str, bool]:
+    return {"thinking": getattr(request.app.state.llm, "thinking", True)}
+
+
+@router.put("/thinking")
+def set_thinking(request: Request, body: ThinkingSetting) -> dict[str, bool]:
+    """Turns the GM's model thinking on or off for every session until changed (or the server restarts), so one
+    action can be tried both ways from the same save."""
+    request.app.state.llm.thinking = body.enabled
+    log.info("model thinking %s", "on" if body.enabled else "off")
+    return {"thinking": body.enabled}

@@ -27,7 +27,10 @@ HELP = """Commands:
   /quit                 quit
 Keys: Space/Enter = next page, PageUp/PageDown/arrows/wheel = scroll back,
       End = back to the current page, Esc = cancel the current turn, Ctrl+T = show/hide reasoning."""
-DEBUG_HELP = "\nDebug server: /context (Ctrl+K) shows exactly what the model will be sent for your next message."
+DEBUG_HELP = (
+    "\nDebug server: /context (Ctrl+K) shows exactly what the model will be sent for your next message."
+    "\n  /thinking [on|off]  (F6) turn the model's thinking on or off, to compare a move both ways"
+)
 
 
 class AigmApp(App):
@@ -51,6 +54,7 @@ class AigmApp(App):
         Binding("ctrl+t", "toggle_reasoning", "Reasoning"),
         # priority: the prompt's own Ctrl+K (delete to end of line) must not take it
         Binding("ctrl+k", "context", "Context", priority=True),
+        Binding("f6", "thinking", "Thinking"),
     ]
 
     def __init__(self, api: ApiClient, ascii_only: bool = False) -> None:
@@ -58,6 +62,7 @@ class AigmApp(App):
         self.api = api
         self.ascii_only = ascii_only
         self.debug_server = False  # set from /health: the server offers the context view
+        self.model_thinking = True  # debug servers only: whether the model thinks (F6, /thinking)
         self.transcript = Transcript(ascii_only=ascii_only)
         self.session = ChatSession(self.transcript)
         self.connected: bool | None = None
@@ -96,6 +101,7 @@ class AigmApp(App):
             return
         self.connected = True
         self.debug_server = health.get("debug") is True
+        self.model_thinking = health.get("thinking") is not False
         s.show_metrics = self.debug_server
         self.refresh_bindings()
         messages = state["messages"]
@@ -148,7 +154,7 @@ class AigmApp(App):
         mode = f"   mode: {s.phase_label}" if s.phase_label else ""
         if mode and s.ruleset_name:
             mode += f" · {s.ruleset_name}"
-        debug = "   DEBUG" if self.debug_server else ""
+        debug = ("   DEBUG" + ("" if self.model_thinking else " (no thinking)")) if self.debug_server else ""
         self.query_one("#status", Static).update(f"{left}{mode}   game: {game}   {conn}{debug}")
 
     def _sync_input(self) -> None:
@@ -230,7 +236,7 @@ class AigmApp(App):
         self._kick()
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if action == "context" and not self.debug_server:
+        if action in ("context", "thinking") and not self.debug_server:
             return False  # not bound and not shown in the footer unless the server is in debug mode
         return True
 
@@ -249,6 +255,23 @@ class AigmApp(App):
             return
         prompt = self.query_one("#prompt", Input)
         await self.push_screen_wait(ContextScreen(self.api, lambda: decode_prompt(prompt.value), self.ascii_only))
+
+    def action_thinking(self) -> None:
+        self.run_worker(self._thinking_flow(None), group="flow")
+
+    async def _thinking_flow(self, enabled: bool | None) -> None:
+        """Switch the model's thinking (None: flip it). Held by the server until changed or restarted."""
+        s = self.session
+        if not self.debug_server:
+            s.add_system("The server is not in debug mode (start it with --debug).", "yellow")
+        else:
+            try:
+                self.model_thinking = await self.api.set_thinking(not self.model_thinking if enabled is None else enabled)
+            except ApiError as e:
+                s.add_system(e.message, "red")
+            else:
+                s.add_system("Model thinking is now " + ("on." if self.model_thinking else "off."))
+        self._kick()
 
     def action_cancel_turn(self) -> None:
         if self._turn is not None and self.session.busy:
@@ -387,6 +410,13 @@ class AigmApp(App):
                 s.add_system(HELP + (DEBUG_HELP if self.debug_server else ""))
             case "context":
                 await self._context_flow()
+            case "thinking":
+                words = {"on": True, "off": False}
+                if cmd.arg is not None and cmd.arg.lower() not in words:
+                    s.add_system("Use /thinking on, /thinking off, or /thinking to switch.", "yellow")
+                    self._kick()
+                else:
+                    await self._thinking_flow(None if cmd.arg is None else words[cmd.arg.lower()])
             case "quit":
                 self.exit()
             case "reconnect":

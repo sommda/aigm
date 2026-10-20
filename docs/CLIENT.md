@@ -239,6 +239,7 @@ when it is given.
 | `/info NAME` | `GET /history/{NAME}` | Prints metadata and last-message preview. |
 | `/delete NAME` | `DELETE /history/{NAME}` | Confirms first. |
 | `/context` | `GET /debug/context` | Debug servers only: opens the context viewer (same as `Ctrl+K`). See below. |
+| `/thinking [on\|off]` | `PUT /debug/thinking` | Debug servers only: turns the model's thinking on or off, or flips it (same as `F6`). The status line shows `DEBUG (no thinking)` while it is off. |
 | `/help`, `/quit` | local | |
 
 ### Context viewer (debug servers only)

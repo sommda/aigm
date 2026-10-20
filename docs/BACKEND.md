@@ -46,7 +46,7 @@ server/              # (inside the repo root; docs live in ../docs)
       chat.py         # POST /chat, POST /chat/new, GET /chat/history
       history.py      # /history/* endpoints (saved histories) and GET /chat/history
       health.py       # GET /health
-      debug.py        # GET /debug/context (registered only with --debug; builds on context_view.py)
+      debug.py        # GET /debug/context, GET/PUT /debug/thinking (registered only with --debug)
     llm/
       client.py       # Thin wrapper around anthropic.AsyncAnthropic
       loop.py         # Streaming + tool-use loop (the core)
@@ -77,14 +77,14 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 | `AIGM_MAX_TOKENS`      | `16000`               | Per-response output cap (includes thinking)  |
 | `AIGM_MAX_TOOL_ITERS`  | `8`                   | Tool-loop safety limit per turn      |
 | `AIGM_STREAM_THINKING` | `true`               | Forward reasoning text as `thinking` `delta` events; `false` sends only `start`/`end` |
-| `AIGM_DEBUG`           | `false`              | Debug mode (`aigm --debug`): registers `GET /debug/context` and reports `debug: true` in `/health` (see CONTEXT.md) |
+| `AIGM_DEBUG`           | `false`              | Debug mode (`aigm --debug`): registers `GET /debug/context` and `GET`/`PUT /debug/thinking` and reports `debug: true` in `/health` (see CONTEXT.md) |
 | `AIGM_HISTORY_TRIM` / `AIGM_HISTORY_DIGEST` | `true` / `true` | Shrink the history the model sees (see section 11); `false` for both sends everything |
 | `AIGM_HISTORY_TRIM_KEEP` / `_STEP` | `4` / `6` | Newest turns never trimmed; the trim cut moves this many turns at a time |
 | `AIGM_HISTORY_DIGEST_KEEP` / `_STEP` | `12` / `12` | Newest turns always shown in full; the digest cut moves this many turns at a time |
 | `AIGM_METRICS`         | `true`               | Append one JSON line per turn (timings, token use, request sizes) to `{save_dir}/metrics/{session}.jsonl` |
 | `AIGM_ROLL_PAUSE`      | `0.8`                | Seconds to wait before each `dice_roll` event is sent, after the narration that precedes it (`0` disables) |
 | `AIGM_THINKING_SUMMARIES` | `true`            | Request adaptive thinking with summaries (`false` for models without adaptive thinking) |
-| `AIGM_EFFORT`          | `low`                 | `low` to `max`; maps to `output_config.effort` (empty: the model's own) |
+| `AIGM_EFFORT`          | `medium`              | `low` to `max`; maps to `output_config.effort` (empty: the model's own) |
 | `AIGM_WORLD_DUMP`      | `true`              | Write a readable JSON dump of each session's world to `{save_dir}/worlds/` for debugging |
 | `AIGM_WORLD_CURATOR`   | `true`              | Run the background world curator (model-driven; scripted in `--test` mode) |
 | `AIGM_WORLD_MODEL`     | `claude-haiku-5-5`  | Model for curator extraction, reconciliation and the independence check |
