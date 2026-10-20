@@ -6,6 +6,7 @@ from typing import Any
 
 import anthropic
 
+from aigm.history import is_player_message, trim_turn
 from aigm.llm.base import (
     Completed,
     LLMError,
@@ -48,6 +49,14 @@ NO_THINKING_NOTE = (
 )
 
 
+def without_old_thinking(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop the thinking blocks of every turn before the current one. A model that is not thinking copies the
+    reasoning it sees in its history and writes it into the story. The current turn keeps its blocks: the model
+    wrote them a moment ago, and a tool call's thinking has to be sent back with it."""
+    current = max((i for i, m in enumerate(messages) if is_player_message(m)), default=0)
+    return trim_turn(messages[:current]) + messages[current:]
+
+
 def _has_cache_breakpoint(messages: list[dict[str, Any]]) -> bool:
     return any(isinstance(b, dict) and "cache_control" in b for m in messages for b in m.get("content", []))
 
@@ -84,7 +93,7 @@ class AnthropicLLM:
             "model": self.model,
             "max_tokens": self.max_tokens,
             "system": system if self.thinking else system + NO_THINKING_NOTE,
-            "messages": messages,
+            "messages": messages if self.thinking else without_old_thinking(messages),
             "tools": tools,
         }
         if not _has_cache_breakpoint(messages):

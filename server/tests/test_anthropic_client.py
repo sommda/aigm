@@ -178,6 +178,25 @@ async def test_thinking_off_is_sent_as_between_tools():
     assert "write only the story" in fake.requests[0]["system"]
 
 
+async def test_thinking_off_drops_old_thinking_but_keeps_the_current_turns():
+    def user_msg(text):
+        return {"role": "user", "content": [{"type": "text", "text": text}]}
+
+    def gm(text):
+        blocks = [{"type": "thinking", "thinking": "t", "signature": "s"}, {"type": "text", "text": text}]
+        return {"role": "assistant", "content": blocks}
+
+    fake = FakeAnthropic(message_stream([("text", ["x"])]))
+    llm = make_llm(fake)
+    llm.thinking = False
+    history = [user_msg("one"), gm("a"), user_msg("two"), gm("b")]
+    await collect(llm, messages=history + [user_msg("three"), gm("c")])
+    sent = fake.requests[0]["messages"]
+    assert [b["type"] for m in sent[:4] for b in m["content"] if m["role"] == "assistant"] == ["text", "text"]
+    assert [b["type"] for b in sent[-1]["content"]] == ["thinking", "text"]
+    assert history[1]["content"][0]["type"] == "thinking"  # the stored history is untouched
+
+
 async def test_history_is_sent_verbatim_including_thinking_signature():
     fake = FakeAnthropic(message_stream([("text", ["x"])]))
     history = [
