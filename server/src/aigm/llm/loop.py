@@ -37,6 +37,7 @@ from aigm.models import (
     ToolCall,
 )
 from aigm.session.state import GameState
+from aigm.story import LENGTHS, ENDLESS
 from aigm.session.store import Session
 from aigm.world.ops import apply_ops
 from aigm.world.service import CuratorService
@@ -100,6 +101,16 @@ async def _seed_world(state: GameState, history: list[dict[str, Any]], curator: 
         task.cancel()  # a no-op once finished; stops the work if the client went away
     for why in apply_ops(state.world, ops).skipped:
         log.info("bootstrap op skipped: %s", why)
+    if state.structure in LENGTHS:
+        yield Status(stage="world", message="Planning the story...")
+        try:
+            plan = await curator.plan(state.campaign or {}, state.world, state.structure)
+        except Exception:
+            log.exception("could not plan the story")
+            raise LLMError("The story could not be planned; try again", retryable=True) from None
+        for why in apply_ops(state.world, plan.ops).skipped:
+            log.info("plot op skipped: %s", why)
+        state.story = plan.story
     yield Status(stage="world", message="The world is ready.", done=True)
 
 
@@ -287,6 +298,10 @@ async def run_turn(
                             yield status
                     finally:
                         await seeding.aclose()  # stops the work now if the client went away
+                elif state.structure != ENDLESS:
+                    # a story is planned by the curator; without one the game is endless
+                    log.warning("no world curator: the %s story falls back to an endless game", state.structure)
+                    state.structure = ENDLESS
             else:
                 staged.append({"role": "user", "content": results})
         yield ErrorEvent(

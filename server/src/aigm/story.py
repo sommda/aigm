@@ -294,6 +294,7 @@ def validate_plan(story: Story, world: World | None = None) -> list[str]:
         if m.id in m.requires:
             problems.append(f"{m.id} requires itself")
     problems += _graph_problems(story)
+    problems += _strength_problems(story)
     if world is not None:
         named = [(story.goal.title if story.goal else "the goal", story.goal.entities if story.goal else [])]
         named += [(m.id, m.entities) for m in story.milestones]
@@ -301,6 +302,34 @@ def validate_plan(story: Story, world: World | None = None) -> list[str]:
             for entity_id in ids:
                 if world.entity(entity_id) is None:
                     problems.append(f"{label} names {entity_id}, which is not in the world")
+    return problems
+
+
+def _strength_problems(story: Story) -> list[str]:
+    """The goal must be out of the party's reach at first, and the quests must build the way there (section 7).
+
+    The server cannot measure strength, so this checks the plan: the goal says what it needs, and the last quest of
+    the last planned chapter depends on at least one quest that gives the party something. A short game is exempt."""
+    if story.length == "short" or story.goal is None:
+        return []
+    problems = []
+    if not story.goal.min_strength.strip():
+        problems.append("the goal does not say what strength the party needs (min_strength)")
+    last = max((m.chapter for m in story.milestones), default=0)
+    if last == CHAPTERS[-1]:
+        by_id = {m.id: m for m in story.milestones}
+        needed = {r for m in story.milestones for r in m.requires}
+        finals = [m for m in story.in_chapter(last) if m.required and m.id not in needed]
+        for final in finals:
+            seen: set[str] = set()
+            stack = list(final.requires)
+            while stack:
+                m = by_id[stack.pop()]
+                if m.id not in seen:
+                    seen.add(m.id)
+                    stack += m.requires
+            if not any(by_id[i].gives.strip() for i in seen):
+                problems.append(f"{final.id} does not depend on any quest that builds up the party (gives)")
     return problems
 
 

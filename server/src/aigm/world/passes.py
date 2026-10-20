@@ -608,6 +608,8 @@ def _plan_expansion(
     ops: list[Op] = []
     for prop in new.values():
         parent = prop.parent if prop.parent and (known_name(prop.parent) or normalize_name(prop.parent) in new) else None
+        if prop.kind != "location":
+            parent = None  # only places contain things; a person's parent is just a link, which their facts keep
         ops.append(AddEntity(prop.name, prop.kind, tuple(prop.aliases), parent))
 
     def kind_of(name: str) -> str | None:

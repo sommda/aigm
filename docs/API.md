@@ -261,7 +261,8 @@ the front end only and is not stored in history.
 ```
 Sent during the turn in which Session 0 ends, between the `begin_adventure` `tool_call` and the opening scene's `text`,
 while the server builds the world for the new game (this can take tens of seconds with a real model). Several are sent,
-each replacing the last message ("Building the setting...", "Detailing the Rusty Flagon..."), then one with
+each replacing the last message ("Building the setting...", "Detailing the Rusty Flagon...", and for a story game
+"Planning the story..."), then one with
 `"done": true` ("The world is ready."). Clients should show the latest `message` in place of their usual "writing"
 indicator until `done` (or the end of the stream), and may ignore the event entirely: nothing in the transcript depends
 on it. If world preparation fails the stream ends with an `error` (`upstream_error`, retryable) and the whole turn is

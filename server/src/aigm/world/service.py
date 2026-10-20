@@ -17,6 +17,8 @@ from aigm.world.passes import (
     run_bootstrap,
     run_pass,
 )
+from aigm.world.model import World
+from aigm.world.plot import PlotResult, run_plot
 
 log = logging.getLogger(__name__)
 REQUESTED_MIN_PAGES = 1.0  # a lookup miss asks for a pass, but only once there is something to digest
@@ -90,3 +92,12 @@ class CuratorService:
         for note in result.notes:
             log.info("bootstrap: %s", note)
         return result.ops
+
+    async def plan(
+        self, campaign: dict[str, Any], world: World, length: str, progress: Callable[[str], None] | None = None
+    ) -> PlotResult:
+        """The story plan of a new structured game, written against its freshly built world (docs/STORY.md 5)."""
+        result = await run_plot(world, campaign, length, self.curator, progress=progress)
+        for note in result.notes:
+            log.info("plot: %s", note)
+        return result

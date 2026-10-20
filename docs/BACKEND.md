@@ -153,7 +153,8 @@ A saved history is a "named history", like a saved game file. `HistoryRepository
   later.
 
 - `aigm/world/` also holds the curator pipeline: `curator.py` (the `Curator` interface and its request/answer types),
-  `passes.py` (one pass, the frontier, the precedence and connectivity rules, narration measuring), `ops.py` (replayable
+  `passes.py` (one pass, the frontier, the precedence and connectivity rules, narration measuring), `plot.py` (the
+  story plan, docs/STORY.md), `ops.py` (replayable
   changes), `service.py` (background scheduling), `scripted.py` (the deterministic test-mode curator),
   `anthropic_curator.py` (the model-backed curator: schemas, calls, defensive parsing), `render.py` (request to prompt
   text), `independence.py` (fact-text rules), `sample.py` (prints a grown world), `dump.py` (the readable world dump and

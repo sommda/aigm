@@ -1,6 +1,13 @@
 """Turns curator requests into the text of a model prompt. Pure functions, so they are easy to test."""
 
-from aigm.world.curator import BootstrapRequest, DigestRequest, ExpandRequest, ExtractRequest, ReconcileRequest
+from aigm.world.curator import (
+    BootstrapRequest,
+    DigestRequest,
+    ExpandRequest,
+    ExtractRequest,
+    PlotRequest,
+    ReconcileRequest,
+)
 from aigm.world.model import Entity, Fact
 
 
@@ -83,4 +90,30 @@ def render_bootstrap(req: BootstrapRequest) -> str:
 def render_digest(req: DigestRequest) -> str:
     parts = [f"## Setting\n{req.setting.strip()}"] if req.setting else []
     parts += [f"## Turn {t.number}\n{t.text}" for t in req.turns]
+    return "\n\n".join(parts)
+
+
+MAX_PLOT_FACTS = 120  # facts shown to the plotter; the world at the start of a game is far smaller
+
+
+def render_plot(req: PlotRequest) -> str:
+    low, high = req.quests
+    parts = [
+        f"## Length\n{req.length}: {low} to {high} required quests per chapter; quest sizes allowed: "
+        + ", ".join(req.scales),
+        f"## Setting\n{req.setting.strip()}",
+        f"## Opening situation\n{req.opening.strip()}",
+    ]
+    members = "\n\n".join(f"### {name}\n{sheet.strip()}" for name, sheet in req.party)
+    parts.append(f"## Player characters (level {req.level})\n{members}")
+    parts.append("## Private GM notes (the player has not been told these)\n" + (req.gm_notes.strip() or "(none)"))
+    parts.append("## The world so far (entities)\n" + ("\n".join(_entity(e) for e in req.entities) or "(empty)"))
+    facts = [f for f in req.facts if f.active][:MAX_PLOT_FACTS]
+    parts.append("## The world so far (facts)\n" + ("\n".join(_fact(f) for f in facts) or "(none)"))
+    which = ", ".join(str(c) for c in req.chapters)
+    parts.append(f"## Write quests for chapter(s)\n{which}. Give the title and purpose of all three chapters.")
+    if req.feedback:
+        parts.append(
+            "## Your previous answer was rejected\nFix these and answer again:\n" + "\n".join(f"- {x}" for x in req.feedback)
+        )
     return "\n\n".join(parts)

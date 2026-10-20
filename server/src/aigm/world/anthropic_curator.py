@@ -16,17 +16,29 @@ from aigm.world.curator import (
     BootstrapRequest,
     CuratorError,
     DigestRequest,
+    ChapterProposal,
+    EndingProposal,
     EntityProposal,
     ExpandRequest,
     ExtractRequest,
     Extraction,
     FactProposal,
     Label,
+    PlotProposal,
+    PlotRequest,
     ReconcileRequest,
+    QuestProposal,
     ReconcileResult,
 )
 from aigm.world.model import ASPECTS, DISCLOSURES, KINDS
-from aigm.world.render import render_bootstrap, render_digest, render_expand, render_extract, render_reconcile
+from aigm.world.render import (
+    render_bootstrap,
+    render_digest,
+    render_expand,
+    render_extract,
+    render_plot,
+    render_reconcile,
+)
 
 log = logging.getLogger(__name__)
 LABELS = ("new", "duplicate", "refines", "contradicts")
@@ -84,6 +96,33 @@ EXPAND_SCHEMA = _obj(
         "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT, replaces=_nullable(_STR)),
     },
 )
+PLOT_SCHEMA = _obj(
+    goal_title=_STR,
+    goal_summary=_STR,
+    min_strength=_STR,
+    goal_entities=_STRS,
+    chapters={
+        "type": "array",
+        "items": _obj(title=_STR, purpose=_STR, target_level=_nullable({"type": "integer"})),
+    },
+    quests={
+        "type": "array",
+        "items": _obj(
+            key=_STR,
+            chapter={"type": "integer"},
+            title=_STR,
+            brief=_STR,
+            scale={"type": "string", "enum": ["small", "medium", "large"]},
+            gives=_STR,
+            requires=_STRS,
+            required={"type": "boolean"},
+            entities=_STRS,
+        ),
+    },
+    endings={"type": "array", "items": _obj(title=_STR, when=_STR)},
+    entities={"type": "array", "items": _ENTITY},
+    facts={"type": "array", "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT)},
+)
 DIGEST_SCHEMA = _obj(digests={"type": "array", "items": _obj(turn={"type": "integer"}, text=_STR)})
 JUDGE_SCHEMA = _obj(violations={"type": "array", "items": _obj(index={"type": "integer"}, reason=_STR)})
 
@@ -138,7 +177,7 @@ class AnthropicCurator:
         self.effort, self.expand_effort = effort, expand_effort
         self.max_tokens = max_tokens
         self._client = client
-        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "digest")}
+        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "digest", "plot")}
         self.guides = prompts.aspect_guides()
 
     def _get_client(self) -> Any:
@@ -213,6 +252,35 @@ class AnthropicCurator:
         user = render_expand(request, self.guides)
         data = await self._ask("expand", self.expand_model, self.expand_effort, user, EXPAND_SCHEMA)
         return Extraction(entities=_entities(data.get("entities")), facts=_facts(data.get("facts"), "hidden"))
+
+    async def plot(self, request: PlotRequest) -> PlotProposal:
+        # Invention that shapes a whole game: the stronger model.
+        data = await self._ask("plot", self.expand_model, self.expand_effort, render_plot(request), PLOT_SCHEMA)
+        text = lambda v: v if isinstance(v, str) else ""  # noqa: E731
+        whole = lambda v: v if isinstance(v, int) and not isinstance(v, bool) else None  # noqa: E731
+
+        def items(key: str) -> list[dict[str, Any]]:
+            found = data.get(key)
+            return [x for x in found if isinstance(x, dict)] if isinstance(found, list) else []
+
+        return PlotProposal(
+            goal_title=text(data.get("goal_title")),
+            goal_summary=text(data.get("goal_summary")),
+            min_strength=text(data.get("min_strength")),
+            goal_entities=_strs(data.get("goal_entities")),
+            chapters=[ChapterProposal(text(c.get("title")), text(c.get("purpose")), whole(c.get("target_level"))) for c in items("chapters")],
+            quests=[
+                QuestProposal(
+                    text(q.get("key")), whole(q.get("chapter")) or 0, text(q.get("title")), text(q.get("brief")),
+                    text(q.get("scale")), text(q.get("gives")), _strs(q.get("requires")), q.get("required") is not False,
+                    _strs(q.get("entities")),
+                )
+                for q in items("quests")
+            ],
+            endings=[EndingProposal(text(e.get("title")), text(e.get("when"))) for e in items("endings")],
+            entities=_entities(data.get("entities")),
+            facts=_facts(data.get("facts"), "hidden"),
+        )  # fmt: skip
 
     async def judge_independence(self, texts: list[str]) -> list[int]:
         numbered = "\n".join(f"[{i}] {t}" for i, t in enumerate(texts))

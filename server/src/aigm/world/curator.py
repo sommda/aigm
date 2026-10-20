@@ -129,6 +129,63 @@ class DigestRequest:
     setting: str = ""
 
 
+@dataclass
+class QuestProposal:
+    key: str  # the plotter's own label; the server numbers the milestones itself
+    chapter: int
+    title: str
+    brief: str
+    scale: str = "small"
+    gives: str = ""
+    requires: list[str] = field(default_factory=list)  # keys
+    required: bool = True
+    entities: list[str] = field(default_factory=list)  # names
+
+
+@dataclass
+class ChapterProposal:
+    title: str
+    purpose: str = ""
+    target_level: int | None = None
+
+
+@dataclass
+class EndingProposal:
+    title: str
+    when: str
+
+
+@dataclass
+class PlotProposal:
+    """A story plan (docs/STORY.md 5), plus the entities and hidden facts that put its goal into the world."""
+
+    goal_title: str
+    goal_summary: str
+    min_strength: str = ""
+    goal_entities: list[str] = field(default_factory=list)  # names
+    chapters: list[ChapterProposal] = field(default_factory=list)
+    quests: list[QuestProposal] = field(default_factory=list)
+    endings: list[EndingProposal] = field(default_factory=list)
+    entities: list[EntityProposal] = field(default_factory=list)
+    facts: list[FactProposal] = field(default_factory=list)
+
+
+@dataclass
+class PlotRequest:
+    length: str  # short | medium | long
+    setting: str
+    opening: str
+    level: int
+    party: list[tuple[str, str]]  # (name, sheet)
+    gm_notes: str
+    entities: list[Entity]  # the world so far
+    facts: list[Fact]
+    chapters: tuple[int, ...]  # the chapters whose quests are to be written now
+    quests: tuple[int, int]  # required quests per chapter, lowest and highest
+    scales: tuple[str, ...]  # quest sizes that fit this length
+    feedback: list[str] = field(default_factory=list)  # why a first attempt was rejected, on the retry
+
+
 class Curator(Protocol):
     async def extract(self, request: ExtractRequest) -> Extraction: ...
 
@@ -140,6 +197,9 @@ class Curator(Protocol):
 
     # Optional: `async def digest(self, request: DigestRequest) -> list[str]` returns one short account per turn,
     # in order; an empty string means "no digest for this turn".
+
+    # Optional: `async def plot(self, request: PlotRequest) -> PlotProposal` writes a story plan; only structured games
+    # need it (docs/STORY.md 5).
 
     # Optional: `async def judge_independence(self, texts: list[str]) -> list[int]` returns the
     # indexes of generated facts that depend on the party or the player's actions.

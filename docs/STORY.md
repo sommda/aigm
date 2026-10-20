@@ -1,6 +1,6 @@
 # AIGM Narrative Structure: Design
 
-Status: **steps 1 and 2 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
+Status: **steps 1 to 3 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
 section 12. This builds on
 [WORLD.md](WORLD.md) (the knowledge base and the curator), [BACKEND.md](BACKEND.md) (game state, tools, prompts, saves)
 and [RULESETS.md](RULESETS.md) (a Session 0 choice that is stored in the game state, which is the pattern this feature
@@ -436,8 +436,20 @@ Taken as recommended, still open to change in review:
 2. **Session 0.** *Built.* `set_structure`, the prompt, the campaign record line, the summary, and the
    `begin_adventure` check. A story game begins with no plan (`story` is `None`) until step 3 writes one. The scripted
    model has a `structure <mode>` command, and its `begin` picks endless when none was chosen.
-3. **The plotter.** Prompt, structured output, validation, scripted version; first pass after bootstrap, goal and cast
-   in the world.
+3. **The plotter.** *Built.* `world/plot.py` (`run_plot`), the `plot` curator method with its prompt
+   (`prompts/world/plot.md`), schema and scripted version, and `Curator.plot`. As built:
+   - It runs inside the turn in which Session 0 ends, right after the world is bootstrapped, as part of the wait the
+     player already has ("Planning the story..." status). It is not a background pass, because the plan has to exist
+     before the first scene and `GameState.story` is not part of the world that background passes change. It took
+     about 20 to 45 seconds with the real model on top of the bootstrap.
+   - A short game is planned whole. Medium and long games plan chapter 1's quests now (and give titles for all three
+     chapters); the later chapters' quests wait for step 5.
+   - The plan is checked with `validate_plan`; a plan that breaks the rules is sent back once with the reasons, and a
+     second failure fails the turn (retryable, rolled back to Session 0), like a failed bootstrap.
+   - The goal and the cast around it are added as hidden facts through the usual expansion rules (connected entities,
+     caps, the independence rules). People never get a `parent`; only places do.
+   - Without a curator (`AIGM_WORLD_CURATOR=false`) a story choice becomes `endless` when the adventure begins, with a
+     warning in the log.
 4. **The GM side.** Story system prompt, briefing block, `set_scene` field, `end_story`, the pace note.
 5. **Chapter rules.** Chapter transition (including the plot pass for the next chapter), `establish` and expand
    limits, curator backstop in extract.

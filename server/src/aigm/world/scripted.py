@@ -23,6 +23,11 @@ from aigm.world.curator import (
     Extraction,
     FactProposal,
     Label,
+    PlotProposal,
+    PlotRequest,
+    QuestProposal,
+    ChapterProposal,
+    EndingProposal,
     ReconcileRequest,
     ReconcileResult,
 )
@@ -110,6 +115,45 @@ class ScriptedCurator:
             elif name in ("fact", "hidden") and len(parts) >= 2:
                 subject = entity(parts[0], "npc")
                 out.facts.append(FactProposal(parts[1], [subject], None, "known" if name == "fact" else "hidden"))
+        return out
+
+    async def plot(self, request: PlotRequest) -> PlotProposal:
+        """A plain plan of the size the length asks for: a chain of quests per chapter, each giving something, ending
+        at a goal place that is added under the first region. Quest counts are the low end of the range."""
+        self.calls.append("plot")
+        region = next((e.name for e in request.entities if e.kind == "location" and e.parent is None), None)
+        goal_place = "The Sunken Seal"
+        out = PlotProposal(
+            goal_title="Break the Sunken Seal",
+            goal_summary=f"The {goal_place} holds a binding that the old keepers of the region could not undo.",
+            min_strength="Level 5 and the help of the old keepers",
+            goal_entities=[goal_place],
+            chapters=[
+                ChapterProposal("The Open Road", "Learn what is at stake.", request.level + 2),
+                ChapterProposal("The Way North", "Gather strength and allies.", request.level + 4),
+                ChapterProposal("The Seal", "Face the binding.", request.level + 6),
+            ],
+            endings=[
+                EndingProposal("The Seal Holds", "The party mends the binding."),
+                EndingProposal("The Seal Breaks", "The party fails or chooses to let it break."),
+            ],
+        )
+        if region:
+            out.entities.append(EntityProposal(goal_place, "location", parent=region))
+            out.facts.append(FactProposal(f"The {goal_place} was sealed by the old keepers long ago.", [goal_place, region]))
+            out.facts.append(FactProposal(f"Travelers in {region} speak of lights beneath the earth.", [region]))
+        scale = {"short": "small", "medium": "medium", "long": "large"}[request.length]
+        previous: str | None = None
+        for chapter in request.chapters:
+            for i in range(request.quests[0]):
+                key = f"c{chapter}q{i + 1}"
+                out.quests.append(
+                    QuestProposal(
+                        key, chapter, f"Quest {key}", f"Do what quest {key} asks.", scale, f"a boon from {key}",
+                        [previous] if previous else [], True, [goal_place] if region else [],
+                    )
+                )  # fmt: skip
+                previous = key
         return out
 
     async def digest(self, request: DigestRequest) -> list[str]:
