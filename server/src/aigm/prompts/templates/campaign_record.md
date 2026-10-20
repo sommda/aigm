@@ -10,7 +10,7 @@
 
 {{ruleset}}
 
-### Party
+{{structure}}### Party
 
 {{party_size}} character(s), starting at level {{level}}.
 

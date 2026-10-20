@@ -33,10 +33,15 @@ class GameState:
     turn: int = field(default=0, compare=False)
     # Set when the GM looked up something unrecorded: ask for a curator pass soon. Not saved.
     pass_requested: bool = field(default=False, compare=False)
-    # How the game is shaped (docs/STORY.md): "endless", or the length of a structured story. Chosen in Session 0.
-    structure: str = ENDLESS
+    # How the game is shaped (docs/STORY.md): "endless", or the length of a structured story. Chosen in Session 0
+    # (set_structure); None there means the player has not been asked yet, and begin_adventure waits for an answer.
+    structure: str | None = None
     # The story plan of a structured game; None while the plotter has not written it, and always None when endless.
     story: Story | None = None
+
+    def __post_init__(self) -> None:
+        if self.phase is Phase.ADVENTURE and self.structure is None:
+            self.structure = ENDLESS  # a game in play always has one; older saves and tests never chose
 
     def copy(self) -> "GameState":
         return GameState(
@@ -80,8 +85,8 @@ class GameState:
         ruleset = data.get("ruleset", DEFAULT_RULESET)  # saves from before rulesets were all D&D 2024
         if ruleset not in BY_ID:
             raise CorruptSave(f"unknown ruleset {ruleset!r}")
-        structure = data.get("structure", ENDLESS)  # saves from before stories were all endless
-        if structure not in STRUCTURES:
+        structure = data.get("structure")  # saves from before stories were all endless (see __post_init__)
+        if structure is not None and structure not in STRUCTURES:
             raise CorruptSave(f"unknown game structure {structure!r}")
         story = Story.from_dict(data["story"]) if data.get("story") is not None else None
         if story is not None and story.length != structure:

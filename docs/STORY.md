@@ -1,6 +1,6 @@
 # AIGM Narrative Structure: Design
 
-Status: **step 1 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
+Status: **steps 1 and 2 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
 section 12. This builds on
 [WORLD.md](WORLD.md) (the knowledge base and the curator), [BACKEND.md](BACKEND.md) (game state, tools, prompts, saves)
 and [RULESETS.md](RULESETS.md) (a Session 0 choice that is stored in the game state, which is the pattern this feature
@@ -151,7 +151,8 @@ once, and the last call wins.
   campaign record (`campaign.structure`) as one line, so the first adventure request knows it.
 - `/new` and the client need no change for this: Session 0 is a conversation.
 
-`GameState` gets `structure: str` (`"endless"` by default, saved; older saves are endless) next to `ruleset`, and
+`GameState` gets `structure` (`None` until chosen in Session 0, then saved; a game in play, and older saves, are
+`endless`) next to `ruleset`, and
 `begin_adventure` creates the empty `Story` when the mode is not endless. The plan itself is written by the plotter.
 
 ## 5. The plotter: writing the plan
@@ -432,8 +433,9 @@ Taken as recommended, still open to change in review:
 
 1. **State and pure logic.** *Built.* `GameState.structure` and `story`, `aigm/story.py` (plan validation, chapters,
    pace, addition rule, `LENGTHS`), save and load (format version 4; older saves are endless). No behavior change.
-2. **Session 0.** `set_structure`, the prompt, the campaign record line, the summary. Structured games begin with an
-   empty plan; a stub plan for tests.
+2. **Session 0.** *Built.* `set_structure`, the prompt, the campaign record line, the summary, and the
+   `begin_adventure` check. A story game begins with no plan (`story` is `None`) until step 3 writes one. The scripted
+   model has a `structure <mode>` command, and its `begin` picks endless when none was chosen.
 3. **The plotter.** Prompt, structured output, validation, scripted version; first pass after bootstrap, goal and cast
    in the world.
 4. **The GM side.** Story system prompt, briefing block, `set_scene` field, `end_story`, the pace note.

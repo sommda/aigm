@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from aigm import rulesets
+from aigm.story import LENGTHS
 from aigm.session.state import Phase
 
 PACKAGED_DIR = Path(__file__).parent
@@ -87,7 +88,9 @@ class PromptLibrary:
             raise ValueError(f"No prompt file prompts/templates/{name}.md")
         return _clean(path.read_text(encoding="utf-8"))
 
-    def campaign_record(self, campaign: dict[str, Any], ruleset: str = rulesets.DEFAULT_RULESET) -> str:
+    def campaign_record(
+        self, campaign: dict[str, Any], ruleset: str = rulesets.DEFAULT_RULESET, structure: str | None = None
+    ) -> str:
         """The GM's written record of Session 0, which becomes the first GM entry in the adventure."""
         party = campaign.get("party")
         members = party if isinstance(party, list) else []
@@ -110,9 +113,20 @@ class PromptLibrary:
                 "opening": str(campaign.get("opening", "")).strip(),
                 "level": str(campaign.get("level", "?")),
                 "ruleset": rulesets.get(ruleset).name,
+                "structure": self._structure_section(structure),
                 "party_size": str(len(rendered)),
                 "party": "\n\n".join(rendered),
             },
+        )
+
+    @staticmethod
+    def _structure_section(structure: str | None) -> str:
+        """A story game says so in its record; an endless game's record is as it always was."""
+        if structure not in LENGTHS:
+            return ""
+        return (
+            f"### Kind of game\n\nA {structure} story with a beginning, middle and end, in three chapters. "
+            "The plan for it is kept privately and is given to you as the adventure goes on.\n\n"
         )
 
     def gm_notes_section(self, campaign: dict[str, Any] | None) -> str:

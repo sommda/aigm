@@ -113,6 +113,12 @@ def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameSta
         return _error("the adventure has already begun")
     if tool_input.get("confirmed") is not True:
         return _error("the player has not confirmed. Ask them whether they are ready, and wait for a clear yes")
+    if state.structure is None:
+        return _error(
+            "the player has not been asked what kind of game they want. Ask whether they want a story with a "
+            "beginning, middle and end (short, medium or long) or an endless campaign, then record the answer "
+            "with set_structure"
+        )
     problems: list[str] = []
     setting = _text(tool_input, "setting", MIN_SETTING, problems)
     opening = _text(tool_input, "opening", MIN_OPENING, problems)

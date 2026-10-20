@@ -66,6 +66,7 @@ The server is running with `--test`: replies are scripted, not from a model. Try
 - `roll <expr>`: roll dice via the real `roll_dice` tool, e.g. `roll 4d6kh3+2 # strength`
 - `multiroll`: two dice rolls in one response
 - `ruleset <id>`: choose the game's ruleset in Session 0 (calls the real `set_ruleset` tool), e.g. `ruleset adnd1e`; ids are in docs/RULESETS.md
+- `structure <mode>`: choose endless, short, medium or long in Session 0 (calls the real `set_structure` tool)
 - `begin`: end Session 0 and start the adventure (calls the real `begin_adventure` tool; a new game starts in Session 0)
 - `establish <name>`: record a new person in the world (adventure only; calls the real `establish` tool)
 - `recall <name>`: look a name up in the world (adventure only; calls `recall`)
@@ -177,7 +178,7 @@ WORLD_COMMANDS: dict[str, Callable[[str], list[Step]]] = {
 }
 
 
-def plan_for(text: str, tools: tuple[str, ...] = ()) -> list[Step]:
+def plan_for(text: str, tools: tuple[str, ...] = (), structure_chosen: bool = False) -> list[Step]:
     cmd, _, rest = text.strip().partition(" ")
     cmd, arg = cmd.lower(), rest.strip()
     if cmd == "help":
@@ -186,10 +187,18 @@ def plan_for(text: str, tools: tuple[str, ...] = ()) -> list[Step]:
         if "set_ruleset" not in tools:
             return [Say("The ruleset was fixed when the adventure began.")]
         return [Say("Changing the rules... "), UseTool("set_ruleset", {"ruleset": arg or "dnd55e"})]
+    if cmd == "structure":
+        if "set_structure" not in tools:
+            return [Say("The kind of game was fixed when the adventure began.")]
+        return [Say("Planning the shape of the game... "), UseTool("set_structure", {"mode": arg or "endless"})]
     if cmd == "begin":
         if "begin_adventure" not in tools:
             return [Say("The adventure has already begun; there is no way back to Session 0.")]
-        return [Say("Then let us begin! "), UseTool("begin_adventure", dict(TEST_CAMPAIGN))]
+        begin = UseTool("begin_adventure", dict(TEST_CAMPAIGN))
+        if structure_chosen:
+            return [Say("Then let us begin! "), begin]
+        # a real GM would have asked; the script just picks the endless game
+        return [Say("Then let us begin! "), UseTool("set_structure", {"mode": "endless"}), begin]
     if cmd in WORLD_COMMANDS and "recall" in tools:
         return WORLD_COMMANDS[cmd](arg)
     if cmd == "echo":
@@ -262,7 +271,7 @@ def narrate_tool_results(messages: list[dict[str, Any]]) -> list[Step]:
         if name == "begin_adventure":  # on success the history is replaced, so only errors get here
             lines.append(f"- The adventure could not begin: {b.get('content')}")
             continue
-        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_ruleset"):
+        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_ruleset", "set_structure"):
             lines.append(f"- `{name}`{' (error)' if b.get('is_error') else ''}:\n\n```\n{b.get('content')}\n```")
             continue
         expr = tool_input.get("expression", "?")
@@ -297,7 +306,12 @@ class ScriptedLLM:
         elif after_tools:
             plan = narrate_tool_results(messages)
         else:
-            plan = plan_for(command, tuple(t.get("name", "") for t in tools))
+            chosen = any(
+                b.get("type") == "tool_use" and b.get("name") == "set_structure"
+                for m in messages
+                for b in m.get("content", [])
+            )
+            plan = plan_for(command, tuple(t.get("name", "") for t in tools), chosen)
 
         content: list[dict[str, Any]] = []
         out_chars = 0

@@ -38,8 +38,8 @@ def test_new_session_starts_in_session_zero(client):
 
 def test_begin_switches_to_adventure_within_the_turn(client):
     events = chat(client, "begin")
-    call = next(d for n, d in events if n == "tool_call")
-    assert call["name"] == "begin_adventure"
+    calls = [d["name"] for n, d in events if n == "tool_call"]
+    assert calls == ["set_structure", "begin_adventure"]  # the script picks an endless game when none was chosen
     change = next(d for n, d in events if n == "phase_change")
     assert change == {"previous": "session_zero", "phase": "adventure"}
     order = names(events)
@@ -137,12 +137,12 @@ def test_corrupt_state_in_a_save_is_rejected(client, settings):
 def test_tools_offered_depend_on_phase():
     zero = [t["name"] for t in tool_schemas(phase=Phase.SESSION_ZERO)]
     adventure = [t["name"] for t in tool_schemas(phase=Phase.ADVENTURE)]
-    assert zero == ["roll_dice", "set_ruleset", "begin_adventure"]
+    assert zero == ["roll_dice", "set_ruleset", "set_structure", "begin_adventure"]
     assert adventure == ["roll_dice", "recall", "establish", "set_scene"]
 
 
 def test_begin_adventure_sets_state():
-    state = GameState()
+    state = GameState(structure="endless")
     out = dispatch("begin_adventure", "t", dict(GOOD, gm_notes="  secret  "), state)
     assert not out.is_error
     assert state.phase is Phase.ADVENTURE
@@ -178,14 +178,14 @@ def test_begin_adventure_rejects_thin_or_bad_input_without_changing_state():
         "too long": {**GOOD, "setting": "x" * 31_000},
     }
     for label, tool_input in bad.items():
-        state = GameState()
+        state = GameState(structure="endless")
         out = dispatch("begin_adventure", "t", tool_input, state)
         assert out.is_error, label
-        assert state == GameState(), label
+        assert state == GameState(structure="endless"), label
 
 
 def test_rejection_lists_every_problem_so_the_model_can_fix_them_in_one_go():
-    out = dispatch("begin_adventure", "t", {**GOOD, "setting": "Short.", "opening": "Short.", "level": 99}, GameState())
+    out = dispatch("begin_adventure", "t", {**GOOD, "setting": "Short.", "opening": "Short.", "level": 99}, GameState(structure="endless"))
     assert out.is_error
     for needle in ("'setting' is too thin", "'opening' is too thin", "'level' must be"):
         assert needle in out.content
@@ -193,7 +193,7 @@ def test_rejection_lists_every_problem_so_the_model_can_fix_them_in_one_go():
 
 def test_multi_member_party_is_accepted():
     party = [member(name="Ann"), member(name="Bo"), member(name="Cy")]
-    state = GameState()
+    state = GameState(structure="endless")
     assert not dispatch("begin_adventure", "t", {**GOOD, "party": party}, state).is_error
     assert [m["name"] for m in state.campaign["party"]] == ["Ann", "Bo", "Cy"]
 
@@ -205,7 +205,7 @@ def test_begin_adventure_is_unknown_once_the_adventure_has_begun():
 
 
 def test_double_begin_in_one_response_only_counts_once():
-    state = GameState()
+    state = GameState(structure="endless")
     assert not dispatch("begin_adventure", "a", GOOD, state).is_error
     second = dispatch("begin_adventure", "b", {**GOOD, "level": 9}, state)
     assert second.is_error and state.campaign["level"] == 3
@@ -219,7 +219,7 @@ def test_game_prompts_and_tools_follow_the_state():
     zero = GameState()
     adv = GameState(Phase.ADVENTURE, {**GOOD, "gm_notes": "The mayor is a vampire."})
     assert "Current mode: Session 0" in game.system(zero)
-    assert [t["name"] for t in game.tools(zero)] == ["roll_dice", "set_ruleset", "begin_adventure"]
+    assert [t["name"] for t in game.tools(zero)] == ["roll_dice", "set_ruleset", "set_structure", "begin_adventure"]
     text = game.system(adv)
     assert "Current mode: Adventure" in text and "Current mode: Session 0" not in text
     assert "The mayor is a vampire." in text  # private notes are in the system prompt
@@ -263,10 +263,11 @@ async def collect(session, llm):
 
 async def test_next_request_in_the_same_turn_uses_the_adventure_prompt_and_tools():
     session, llm = Session("s"), BeginThenMaybeFail(fail=False)
+    session.state.structure = "endless"
     events = await collect(session, llm)
     assert [type(e) for e in events if isinstance(e, (PhaseChange, MessageEnd))] == [PhaseChange, MessageEnd]
     (sys1, tools1), (sys2, tools2) = llm.calls
-    assert "Current mode: Session 0" in sys1 and tools1 == ["roll_dice", "set_ruleset", "begin_adventure"]
+    assert "Current mode: Session 0" in sys1 and tools1 == ["roll_dice", "set_ruleset", "set_structure", "begin_adventure"]
     assert "Current mode: Adventure" in sys2 and tools2 == ["roll_dice", "recall", "establish", "set_scene"]
     assert session.state.phase is Phase.ADVENTURE and session.state.campaign["level"] == 3
     assert len(llm.requests[1]) == 3  # the second request saw only: note, campaign record, cue
@@ -277,7 +278,8 @@ async def test_next_request_in_the_same_turn_uses_the_adventure_prompt_and_tools
 
 async def test_failed_turn_after_begin_rolls_the_phase_back():
     session, llm = Session("s"), BeginThenMaybeFail(fail=True)
+    session.state.structure = "endless"
     events = await collect(session, llm)
     assert isinstance(events[-1], ErrorEvent)
     assert not any(isinstance(e, PhaseChange) for e in events)
-    assert session.state == GameState() and session.messages == []
+    assert session.state == GameState(structure="endless") and session.messages == []

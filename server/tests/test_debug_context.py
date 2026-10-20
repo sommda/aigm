@@ -190,7 +190,7 @@ def test_session_zero_has_no_briefing(debug):
     assert body["phase"] == "session_zero" and body["turn"] == 1
     assert [c["id"] for c in body["sections"][3]["children"]] == ["input"]
     assert body["sections"][2]["title"] == "History (0 messages)"
-    assert [t["title"] for t in body["sections"][1]["children"]] == ["roll_dice", "set_ruleset", "begin_adventure"]
+    assert [t["title"] for t in body["sections"][1]["children"]] == ["roll_dice", "set_ruleset", "set_structure", "begin_adventure"]
 
 
 def test_gm_notes_part_when_the_world_is_empty(debug):

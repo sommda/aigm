@@ -111,7 +111,7 @@ class Game:
         text = lambda t: [{"type": "text", "text": t}]  # noqa: E731
         return [
             {"role": "user", "content": text(self.prompts.session_zero_done_note())},
-            {"role": "assistant", "content": text(self.prompts.campaign_record(state.campaign, state.ruleset))},
+            {"role": "assistant", "content": text(self.prompts.campaign_record(state.campaign, state.ruleset, state.structure))},
             {"role": "user", "content": text(self.prompts.begin_cue())},
         ]
 

@@ -693,6 +693,30 @@ campaign record.
 
 ---
 
+## Tool: `set_structure`
+
+Offered in `session_zero` only. Records the kind of game, which the GM always asks the player about before it leaves
+Session 0 (unless their own words already made it plain). See [STORY.md](STORY.md).
+
+```json
+{
+  "name": "set_structure",
+  "input_schema": {
+    "type": "object",
+    "required": ["mode"],
+    "properties": { "mode": { "type": "string", "enum": ["endless", "short", "medium", "long"] } }
+  }
+}
+```
+
+`endless` is an open campaign; `short`, `medium` and `long` are stories with a beginning, middle and end. The last call
+wins. Results: success says what the game will be (for a story, that it is planned in secret later); an unknown mode is
+an error listing the valid ones. `begin_adventure` is refused, with a message telling the GM to ask and call this tool,
+until a choice has been recorded. The choice is saved with the game (`structure` in the save file, `null` until chosen;
+games in play and older saves are `endless`), and a story game's campaign record says so.
+
+---
+
 ## Tool: `begin_adventure`
 
 Offered to the model only in `session_zero`; once the adventure has begun it is no longer in the tool list. Documented
