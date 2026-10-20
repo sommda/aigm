@@ -169,12 +169,12 @@ async def test_request_params_optional():
     assert "thinking" not in body and body["output_config"] == {"effort": "low"}
 
 
-async def test_thinking_off_is_sent_as_disabled():
+async def test_thinking_off_is_sent_as_between_tools():
     fake = FakeAnthropic(message_stream([("text", ["x"])]))
     llm = make_llm(fake)
     llm.thinking = False
     await collect(llm)
-    assert fake.requests[0]["thinking"] == {"type": "disabled"}
+    assert fake.requests[0]["thinking"] == {"type": "between_tools"}
 
 
 async def test_history_is_sent_verbatim_including_thinking_signature():

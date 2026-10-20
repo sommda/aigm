@@ -86,7 +86,7 @@ class AnthropicLLM:
             # carries its own breakpoint, before the per-turn world notes, that one is used.)
             params["cache_control"] = {"type": "ephemeral"}
         if not self.thinking:
-            params["thinking"] = {"type": "disabled"}
+            params["thinking"] = {"type": "between_tools"}
         elif self.thinking_summaries:
             params["thinking"] = {"type": "adaptive", "display": "summarized"}
         if self.effort:
