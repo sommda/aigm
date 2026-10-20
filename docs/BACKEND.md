@@ -93,6 +93,7 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 | `AIGM_WORLD_EVERY_PAGES` | `3`             | Run a world-curator pass after this many pages of unprocessed GM narration |
 | `AIGM_WORLD_PAGE_CHARS` | `1800`           | Characters in a "page" of narration, as the server counts it |
 | `AIGM_WORLD_BRIEFING_TOKENS` | `2000`          | Rough size of the world notes shown to the GM with each request |
+| `AIGM_STORY_NUDGE_TURNS` | `12`              | Story games: turns without progress before the GM is asked for a hook (twice: a consequence) |
 | `AIGM_PROMPT_DIR`      | (none)                | Directory overriding/extending the packaged prompt files |
 | `AIGM_SAVE_DIR`        | `./saves`             | Snapshot directory                   |
 | `AIGM_CORS_ORIGINS`    | `http://localhost:*`  | Allowed front-end origins            |
@@ -313,6 +314,7 @@ prompts/system/common/      01_role 02_rules 03_dice 04_formatting     # every p
 prompts/system/session_zero/ 01_mode 01a_ruleset 01b_structure 02_party 03_scaling 04_wrapup  # Session 0 only
 prompts/rulesets/<id>/       01_rules.md 02_era.md                       # the chosen ruleset, see RULESETS.md
 prompts/system/adventure/    01_role 02_rules 03_style 04_world          # Adventure only
+prompts/system/story/        01_story                                    # Added for story games only
 prompts/templates/           campaign_record.md party_member.md gm_notes.md session_zero_done.md begin_cue.md
 prompts/tools/               roll_dice.md set_ruleset.md set_structure.md begin_adventure.md
                              recall.md establish.md set_scene.md

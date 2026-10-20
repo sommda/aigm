@@ -17,6 +17,7 @@ from aigm.world.ops import apply_ops
 PLACEHOLDER = "«your next message goes here»"
 BRIEFING_NOTE = "Computed for the text typed so far, not the final message."
 _BRIEFING_SECTIONS = (
+    ("## Story", "Story"),
     ("Time:", "Clock"),
     ("Location:", "Location"),
     ("Present:", "Present"),

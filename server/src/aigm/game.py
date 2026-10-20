@@ -9,6 +9,7 @@ from aigm.rulesets import RULESETS
 from aigm.session.state import GameState, Phase
 from aigm.tools import dispatch, tool_schemas
 from aigm.tools.base import ToolOutcome
+from aigm.story import NUDGE_TURNS, briefing_block
 from aigm.world.briefing import build_briefing
 
 BRIEFING_OPEN = "<world_notes>"
@@ -58,17 +59,22 @@ class Game:
         prompts: PromptLibrary | None = None,
         briefing_tokens: int = 2000,
         history_policy: HistoryPolicy | None = None,
+        story_nudge_turns: int = NUDGE_TURNS,
     ) -> None:
         self.prompts = prompts or PromptLibrary()
         self.briefing_tokens = briefing_tokens
         self.history_policy = history_policy or HistoryPolicy()
+        self.story_nudge_turns = story_nudge_turns
         self._system = {
-            (phase, rs.id): tuple(self.prompts.system_parts(phase, rs.id)) for phase in Phase for rs in RULESETS
+            (phase, rs.id, structured): tuple(self.prompts.system_parts(phase, rs.id, structured))
+            for phase in Phase
+            for rs in RULESETS
+            for structured in (False, True)
         }
-        self._tools = {phase: tool_schemas(self.prompts, phase) for phase in Phase}
+        self._tools = {(phase, s): tool_schemas(self.prompts, phase, s) for phase in Phase for s in (False, True)}
 
     def system_parts(self, state: GameState) -> tuple[PromptPart, ...]:
-        parts = self._system[state.phase, state.ruleset]
+        parts = self._system[state.phase, state.ruleset, state.story is not None]
         if state.phase is Phase.ADVENTURE and state.world.is_empty:
             # Normally the private notes live in the world as hidden facts. Without a world (curator
             # off, or an older save) the GM still needs them.
@@ -97,6 +103,9 @@ class Game:
         if state.phase is not Phase.ADVENTURE:
             return ""
         notes = build_briefing(state.world, user_text=user_text, gm_text=gm_text, budget_tokens=self.briefing_tokens)
+        if state.story is not None:
+            block = briefing_block(state.story, state.world, state.turn, self.story_nudge_turns)
+            notes = f"{block}\n\n{notes}" if block and notes else block or notes
         return f"{BRIEFING_OPEN}\n{notes}\n{BRIEFING_CLOSE}" if notes else ""
 
     def request_messages(self, state: GameState, messages: list[dict[str, Any]], user_text: str) -> list[dict[str, Any]]:
@@ -116,7 +125,7 @@ class Game:
         ]
 
     def tools(self, state: GameState) -> list[dict[str, Any]]:
-        return self._tools[state.phase]
+        return self._tools[state.phase, state.story is not None]
 
     def dispatch(self, state: GameState, name: str, tool_use_id: str, tool_input: dict[str, Any]) -> ToolOutcome:
         return dispatch(name, tool_use_id, tool_input, state)

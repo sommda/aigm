@@ -7,6 +7,7 @@ from typing import Any
 
 from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
+from aigm.tools.story import STORY_PROPERTY, check_story_report
 from aigm.world import DISCLOSURES, KINDS, Entity, Fact, World, WorldError
 from aigm.world.briefing import LABELS
 from aigm.world.text import normalize_name
@@ -313,6 +314,10 @@ def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     if hours is not None:
         if isinstance(hours, bool) or not isinstance(hours, int) or not 0 <= hours <= MAX_ELAPSED_HOURS:
             problems.append(f"elapsed_hours must be a whole number from 0 to {MAX_ELAPSED_HOURS}")
+    new_story, story_notes = None, []
+    if "story" in tool_input:
+        new_story, story_problems, story_notes = check_story_report(tool_input["story"], state)
+        problems += story_problems
     if problems:
         return ToolOutcome("Scene not changed:\n- " + "\n- ".join(problems), is_error=True)
     try:
@@ -322,11 +327,15 @@ def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     except WorldError as exc:
         return ToolOutcome(f"Scene not changed: {exc}", is_error=True)
     state.world = world
+    if new_story is not None:
+        state.story = new_story
     where = world.entities[location].name if location else "not set"
     here = _names([world.entities[e] for e in world.scene.present]) or "nobody recorded"
-    return ToolOutcome(f"Scene: {where}. With the party: {here}. Time: {world.time}.")
+    return ToolOutcome(f"Scene: {where}. With the party: {here}. Time: {world.time}." + "".join(f" {n}" for n in story_notes))
 
 
 RECALL = Tool(schema=RECALL_SCHEMA, handler=recall, phases=ADVENTURE)
 ESTABLISH = Tool(schema=ESTABLISH_SCHEMA, handler=establish, phases=ADVENTURE)
-SET_SCENE = Tool(schema=SET_SCENE_SCHEMA, handler=set_scene, phases=ADVENTURE)
+SET_SCENE = Tool(
+    schema=SET_SCENE_SCHEMA, handler=set_scene, phases=ADVENTURE, story_properties=STORY_PROPERTY
+)

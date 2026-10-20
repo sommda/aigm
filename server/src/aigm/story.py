@@ -474,3 +474,76 @@ def addition_allowed(story: Story | None, world: World, kind: str, parent: str |
         return False, "a new region or settlement is a major addition; place it inside an existing place instead"
     return True, ""
 
+
+
+# ---- what the GM is told each turn --------------------------------------------------------
+
+MAX_ACTIVE_SHOWN = 3
+CHOICES_SHOWN = 5
+REVEAL_NUDGE_SHARE = 2 / 3  # of chapter 1's required quests settled: clues about the goal should get plainer
+
+
+def _names(world: World, ids: list[str]) -> str:
+    return ", ".join(e.name for i in ids if (e := world.entity(i)) is not None)
+
+
+def briefing_block(story: Story, world: World, turn: int, nudge_turns: int = NUDGE_TURNS) -> str:
+    """The private story section of the world notes (docs/STORY.md 10), or "" before the plan is written."""
+    if not story.planned or story.goal is None:
+        return ""
+    goal = story.goal
+    if story.concluded:
+        title = next((e.title for e in story.endings if e.id == story.ending), story.ending or "")
+        return (
+            "## Story (private)\n"
+            f"The story has ended ({title}). The game goes on as an endless one if the player wants: no more "
+            "chapters, quests or limits on what you add to the world."
+        )
+    n = story.chapter
+    info = story.chapters[n - 1] if n <= len(story.chapters) else Chapter("", "")
+    lines = ["## Story (private)", f'Chapter {n} of 3, "{info.title}": {info.purpose}'.rstrip(": ")]
+    group = story.in_chapter(n)
+    if n == 1 and not goal.revealed:
+        lines.append(
+            f"The final goal, which the player does NOT know yet: {goal.title}. {goal.summary} Foreshadow it and let "
+            "clues come out through the quests; a player who works it out or asks the right person may learn it. "
+            "Chapter 1 cannot end until the party learns it: when they do, report goal_revealed."
+        )
+    else:
+        lines.append(f"The goal, which the player knows: {goal.title}. {goal.summary}")
+    if goal.min_strength:
+        lines.append(f"What the party needs before it can win: {goal.min_strength}")
+    if n >= 2:
+        lines.append("No new regions, settlements, factions or concepts now: add detail to what already exists.")
+    level = info.target_level
+    if level:
+        lines.append(f"Aim for party level {level} by the end of this chapter.")
+    shown = active(story)[:MAX_ACTIVE_SHOWN]
+    if shown:
+        lines.append("Active quests:")
+        for m in shown:
+            where = _names(world, m.entities)
+            tail = f"; {m.scale}" + (f"; at/with {where}" if where else "")
+            gives = f" Finishing it builds: {m.gives}." if m.gives else ""
+            lines.append(f"- [{m.id}] {m.title} ({tail[2:]}): {m.brief}{gives}")
+    elif not group:
+        lines.append("The quests for this chapter are not planned yet: keep the story moving with ordinary play.")
+    if n == 3 and story.endings:
+        lines.append("Possible endings (steer toward the one the party's choices earn; do not announce it):")
+        lines += [f"- {e.id}: {e.title}. {e.when}" for e in story.endings]
+    if story.choices and n >= 2:
+        lines.append("Choices that matter for the ending: " + " ".join(c["note"] for c in story.choices[-CHOICES_SHOWN:]))
+    required = [m for m in group if m.required]
+    left = [m for m in required if m.status not in SETTLED]
+    if n == 1 and not goal.revealed and required:
+        if not left:
+            lines.append("Only the goal's revelation is left: deliver it in the next scenes.")
+        elif (len(required) - len(left)) / len(required) >= REVEAL_NUDGE_SHARE:
+            lines.append("The party should be close to learning the goal: make the clues plainer.")
+    level_of_pace = pace(story, turn, nudge_turns)
+    idle = turn - story.last_progress_turn
+    if level_of_pace == 1:
+        lines.append(f"Pace: {idle} turns without progress. Offer a concrete hook toward an active quest in this scene.")
+    elif level_of_pace == 2:
+        lines.append(f"Pace: {idle} turns without progress. Bring a concrete consequence or opportunity to the player now.")
+    return "\n".join(lines)

@@ -68,19 +68,24 @@ class PromptLibrary:
             raise ValueError(f"The ruleset {ruleset!r} has no prompt files: prompts/rulesets/{ruleset}/*.md")
         return parts
 
-    def system_parts(self, phase: Phase | str, ruleset: str = rulesets.DEFAULT_RULESET) -> list[PromptPart]:
+    def system_parts(
+        self, phase: Phase | str, ruleset: str = rulesets.DEFAULT_RULESET, structured: bool = False
+    ) -> list[PromptPart]:
         """The pieces of a phase's system prompt in order: the common files, the chosen ruleset's files,
-        then the phase's files."""
+        the phase's files, and for a story game in the adventure the story files."""
         phase = Phase(phase)
         common = self._parts("system/common")
         own = self._parts(f"system/{phase.value}")
         if not own:
             raise ValueError(f"The {phase.value} system prompt is empty: no prompts/system/{phase.value}/*.md files found")
-        return [*common, *self.ruleset_parts(ruleset), *own]
+        story = self._parts("system/story") if structured and phase is Phase.ADVENTURE else []
+        return [*common, *self.ruleset_parts(ruleset), *own, *story]
 
-    def system_prompt(self, phase: Phase | str, ruleset: str = rulesets.DEFAULT_RULESET) -> str:
+    def system_prompt(
+        self, phase: Phase | str, ruleset: str = rulesets.DEFAULT_RULESET, structured: bool = False
+    ) -> str:
         """The base system prompt for a phase (without the campaign record)."""
-        return "\n\n".join(part.text for part in self.system_parts(phase, ruleset))
+        return "\n\n".join(part.text for part in self.system_parts(phase, ruleset, structured))
 
     def _template(self, name: str) -> str:
         path = self._files("templates").get(f"{name}.md")

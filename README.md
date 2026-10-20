@@ -37,6 +37,7 @@ cp server/.env.example server/.env   # then edit it
 | `AIGM_WORLD_EVERY_PAGES` | `3` | World curator pass after this many pages of GM narration (see [docs/WORLD.md](docs/WORLD.md)) |
 | `AIGM_WORLD_PAGE_CHARS` | `1800` | Characters in a "page" of narration, as the server counts it |
 | `AIGM_WORLD_BRIEFING_TOKENS` | `2000` | Rough size of the world notes shown to the GM with each request (see [docs/WORLD.md](docs/WORLD.md)) |
+| `AIGM_STORY_NUDGE_TURNS` | `12` | Story games: turns without progress before the GM is asked to offer a hook (see [docs/STORY.md](docs/STORY.md)) |
 | `AIGM_PROMPT_DIR` | (none) | Directory of prompt files that override or extend the packaged ones (see Prompts) |
 
 Or inline: `ANTHROPIC_API_KEY=sk-ant-... AIGM_MODEL=claude-opus-5-5 uv run uvicorn aigm.app:app`. The active model is

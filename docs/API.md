@@ -718,6 +718,30 @@ games in play and older saves are `endless`), and a story game's campaign record
 
 ---
 
+## Tools for story games: `set_scene` story field and `end_story`
+
+Offered only when the game has a story plan (docs/STORY.md); an endless game sees neither. `set_scene` gains an
+optional `story` object, and `end_story` is added in the adventure.
+
+```json
+{
+  "story": {
+    "quests": [ { "id": "m03", "status": "done", "outcome": "The party exposed the miller; the captain was spared." } ],
+    "goal_revealed": true
+  }
+}
+```
+
+- `status` is `done`, `skipped` or `failed`; the quest must be active, and `outcome` is required (kept to shape the
+  ending, and the first 600 characters are stored). The result lists the quests that became active and says when a
+  new chapter begins. Chapter 1 ends when its required quests are settled *and* the goal is known, whichever happens
+  last. The whole call is all or nothing: a bad quest report leaves the scene unchanged too.
+- `end_story` takes `ending` (an id from the plan, or `end_custom`), `epilogue` and an optional `party_defeated`. It
+  is accepted in chapter 3 once its required quests are settled (or `failed`), or at any time with `party_defeated`.
+  The story is then concluded, and the result tells the GM to write the final scene and offer to carry on endless.
+
+---
+
 ## Tool: `begin_adventure`
 
 Offered to the model only in `session_zero`; once the adventure has begun it is no longer in the tool list. Documented

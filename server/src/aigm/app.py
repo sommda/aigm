@@ -29,7 +29,7 @@ def create_app(
     app.state.settings = settings
     app.state.sessions = SessionStore()
     app.state.repo = HistoryRepository(settings.save_dir)
-    app.state.game = Game(PromptLibrary(settings.prompt_dir), settings.world_briefing_tokens, settings.history_policy)  # prompts are read at startup; restart to pick up edits
+    app.state.game = Game(PromptLibrary(settings.prompt_dir), settings.world_briefing_tokens, settings.history_policy, settings.story_nudge_turns)  # prompts are read at startup; restart to pick up edits
     if llm is None:
         if settings.test_mode:
             llm = ScriptedLLM(delay=settings.test_delay, chunk_size=settings.test_chunk_size)

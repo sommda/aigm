@@ -1,6 +1,6 @@
 # AIGM Narrative Structure: Design
 
-Status: **steps 1 to 3 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
+Status: **steps 1 to 4 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
 section 12. This builds on
 [WORLD.md](WORLD.md) (the knowledge base and the curator), [BACKEND.md](BACKEND.md) (game state, tools, prompts, saves)
 and [RULESETS.md](RULESETS.md) (a Session 0 choice that is stored in the game state, which is the pattern this feature
@@ -450,7 +450,19 @@ Taken as recommended, still open to change in review:
      caps, the independence rules). People never get a `parent`; only places do.
    - Without a curator (`AIGM_WORLD_CURATOR=false`) a story choice becomes `endless` when the adventure begins, with a
      warning in the log.
-4. **The GM side.** Story system prompt, briefing block, `set_scene` field, `end_story`, the pace note.
+4. **The GM side.** *Built.* As built:
+   - The story prompt is `prompts/system/story/01_story.md`, added after the adventure files for a game that has a
+     plan. `Game` keys the system prompt and the tool list by phase, ruleset and whether the game has a story, so an
+     endless game sends exactly what it always did.
+   - `story.briefing_block` writes the private Story section at the top of the world notes: chapter, goal (secret in
+     chapter 1), what the party needs, the active quests (at most three, with scale, places and what they build), the
+     endings and choices in chapter 3, the goal-reveal nudge and the pace line. The pace threshold is
+     `AIGM_STORY_NUDGE_TURNS`. A finished story shows a one-paragraph note, and a chapter whose quests are not
+     planned yet says so.
+   - Progress is reported through `set_scene`, whose new optional `story` field is `{ "quests": [...],
+     "goal_revealed": bool }` (section 8.1 had a bare list). `end_story` is the new tool. See API.md.
+   - Chapter 1 ends when its required quests are settled and the goal is known, whichever comes last.
+   - Not yet: the curator backstop, the next chapter's plot pass, and the limit on additions (step 5).
 5. **Chapter rules.** Chapter transition (including the plot pass for the next chapter), `establish` and expand
    limits, curator backstop in extract.
 6. **Surfaces.** API summary and `chapter` event, client status line and banner, debug plan view, metrics.

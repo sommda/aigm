@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
         default="medium", validation_alias="AIGM_EFFORT"
     )
+    # Story games (docs/STORY.md): player turns without progress before the GM is asked to offer a hook (and, at
+    # twice that, to bring a consequence).
+    story_nudge_turns: int = Field(default=12, ge=1, validation_alias="AIGM_STORY_NUDGE_TURNS")
     # Rough size, in tokens, of the world notes shown to the GM with each request.
     world_briefing_tokens: int = Field(default=2000, validation_alias="AIGM_WORLD_BRIEFING_TOKENS")
     # Shrinking the history the model sees (docs/HISTORY.md). The stored messages are never changed. Turns older than

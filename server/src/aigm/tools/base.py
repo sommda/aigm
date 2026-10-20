@@ -21,3 +21,7 @@ class Tool:
     # copy of the game state; a tool may change it (it only becomes real if the turn succeeds).
     handler: Callable[[str, dict[str, Any], GameState], ToolOutcome]
     phases: frozenset[Phase] = field(default_factory=lambda: frozenset(Phase))  # where it is offered
+    # Story games only (docs/STORY.md 10): `story_only` tools are offered to them alone, and `story_properties` are
+    # extra input properties (with the prompt file `<name>_story.md` appended to the description) they add to this one.
+    story_only: bool = False
+    story_properties: dict[str, Any] = field(default_factory=dict)
