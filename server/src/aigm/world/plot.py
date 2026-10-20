@@ -8,7 +8,18 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from aigm.story import CHAPTERS, LENGTHS, Chapter, Ending, Goal, Milestone, Story, settle_ready, validate_plan
+from aigm.story import (
+    CHAPTERS,
+    LENGTHS,
+    Chapter,
+    Ending,
+    Goal,
+    Milestone,
+    Story,
+    settle_ready,
+    summary_so_far,
+    validate_plan,
+)
 from aigm.world import World
 from aigm.world.curator import CuratorError, Curator, Extraction, PlotProposal, PlotRequest
 from aigm.world.independence import independence_problem
@@ -24,8 +35,17 @@ ATTEMPTS = 2  # the plotter gets one chance to fix a plan that breaks the rules
 @dataclass
 class PlotResult:
     ops: list[Op] = field(default_factory=list)  # world additions, to apply to the live world
-    story: Story | None = None
+    story: Story | None = None  # a new game's whole plan
+    chapter: int | None = None  # a later chapter's plan: the chapter, and its quests
+    milestones: list[Milestone] = field(default_factory=list)
+    names: dict[str, str] = field(default_factory=dict)  # entity id (in the snapshot planned against) -> name
     notes: list[str] = field(default_factory=list)
+
+    def rebind(self, world: World) -> None:
+        """Point the quests at the entities of `world` (the live world may have numbered new ones differently since the
+        plan was written against a snapshot)."""
+        for m in self.milestones:
+            m.entities = [e.id for n in m.entities if (e := world.find(self.names.get(n, ""))) is not None]
 
 
 def chapters_to_plan(length: str) -> tuple[int, ...]:
@@ -81,19 +101,11 @@ async def run_plot(
     raise CuratorError("the story plan broke the rules: " + "; ".join(problems[:5]))
 
 
-def _assemble(
-    snap: World,
-    proposal: PlotProposal,
-    length: str,
-    chapters: tuple[int, ...],
-    party_names: list[str],
-    turn: int,
-    config: PassConfig,
-    result: PlotResult,
-) -> tuple[Story | None, list[str]]:
-    """Apply the world additions to `snap` and build the story. Returns the story and what is wrong with the plan."""
-    if not proposal.goal_title.strip() or not proposal.goal_summary.strip():
-        return None, ["the plan has no goal: give goal_title and goal_summary"]
+def _add_to_world(
+    snap: World, proposal: PlotProposal, party_names: list[str], turn: int, config: PassConfig, result: PlotResult
+) -> Callable[[list[str]], list[str]]:
+    """Apply the plotter's world additions to `snap` (hidden, connected, independent) and return a function that turns
+    entity names into ids."""
     facts = []
     for fact in proposal.facts:
         why = independence_problem(fact.text, party_names) if isinstance(fact.text, str) else "no text"
@@ -117,10 +129,17 @@ def _assemble(
                 ids.append(ent.id)
         return ids
 
+    return resolve
+
+
+def _quests(
+    proposal: PlotProposal, chapters: tuple[int, ...], resolve: Callable[[list[str]], list[str]], first: int
+) -> tuple[list[Milestone], list[str]]:
+    """The proposal's quests for `chapters` as milestones numbered from `first`, and what is wrong with them."""
     keys: dict[str, str] = {}
     problems: list[str] = []
     quests = [q for q in proposal.quests if q.chapter in chapters]
-    for n, quest in enumerate(quests, 1):
+    for n, quest in enumerate(quests, first):
         if not quest.key.strip() or quest.key in keys:
             problems.append(f"quest keys must be unique and non-empty (saw {quest.key!r})")
         keys[quest.key] = f"m{n:02d}"
@@ -146,6 +165,24 @@ def _assemble(
         problems.append("every quest needs a title and a brief")
     if any(m.scale not in ("small", "medium", "large") for m in milestones):
         problems.append("quest scale must be small, medium or large")
+    return milestones, problems
+
+
+def _assemble(
+    snap: World,
+    proposal: PlotProposal,
+    length: str,
+    chapters: tuple[int, ...],
+    party_names: list[str],
+    turn: int,
+    config: PassConfig,
+    result: PlotResult,
+) -> tuple[Story | None, list[str]]:
+    """Apply the world additions to `snap` and build the story. Returns the story and what is wrong with the plan."""
+    if not proposal.goal_title.strip() or not proposal.goal_summary.strip():
+        return None, ["the plan has no goal: give goal_title and goal_summary"]
+    resolve = _add_to_world(snap, proposal, party_names, turn, config, result)
+    milestones, problems = _quests(proposal, chapters, resolve, 1)
     if len(proposal.chapters) != len(CHAPTERS) or any(not c.title.strip() for c in proposal.chapters):
         problems.append("give a title and purpose for each of the three chapters")
     if problems:
@@ -169,3 +206,55 @@ def _assemble(
     problems += validate_plan(story, snap)
     settle_ready(story)
     return story, problems
+
+
+async def run_chapter_plot(
+    world: World,
+    campaign: dict[str, Any],
+    story: Story,
+    chapter: int,
+    curator: Curator,
+    *,
+    turn: int = 0,
+    config: PassConfig | None = None,
+) -> PlotResult:
+    """Write the quests of a later chapter against the world as it has grown (docs/STORY.md 5). `world` and `story`
+    are not modified; the result holds the quests and any world additions, to apply when the session is idle."""
+    plot = getattr(curator, "plot", None)
+    if plot is None:
+        raise CuratorError("this curator cannot plan a story")
+    config = config or PLOT_CONFIG
+    shape = LENGTHS[story.length]
+    party = [(str(m.get("name", "")), str(m.get("sheet", ""))) for m in campaign.get("party", []) if isinstance(m, dict)]
+    request = PlotRequest(
+        length=story.length,
+        setting=str(campaign.get("setting", "")),
+        opening=str(campaign.get("opening", "")),
+        level=int(campaign.get("level") or 1),
+        party=party,
+        gm_notes=str(campaign.get("gm_notes") or ""),
+        entities=list(world.entities.values()),
+        facts=list(world.facts.values()),
+        chapters=(chapter,),
+        quests=shape.quests,
+        scales=tuple(sorted(shape.scales)),
+        story_so_far=summary_so_far(story),
+    )
+    first = len(story.milestones) + 1
+    problems: list[str] = []
+    for _ in range(ATTEMPTS):
+        proposal = await plot(request)
+        result = PlotResult(chapter=chapter)
+        snap = world.copy()
+        resolve = _add_to_world(snap, proposal, [n for n, _ in party], turn, config, result)
+        milestones, problems = _quests(proposal, (chapter,), resolve, first)
+        if not problems:
+            merged = story.copy()
+            merged.milestones += milestones
+            problems = validate_plan(merged, snap)
+        if not problems:
+            result.milestones = milestones
+            result.names = {e.id: e.name for e in snap.entities.values()}
+            return result
+        request = replace(request, feedback=problems)
+    raise CuratorError(f"the plan for chapter {chapter} broke the rules: " + "; ".join(problems[:5]))

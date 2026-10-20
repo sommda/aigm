@@ -70,6 +70,14 @@ EXTRACT_SCHEMA = _obj(
     present=_nullable(_STRS),
     elapsed_hours={"type": "integer"},
 )
+STORY_EXTRACT_SCHEMA = _obj(
+    **EXTRACT_SCHEMA["properties"],
+    quest_reports={
+        "type": "array",
+        "items": _obj(id=_STR, status={"type": "string", "enum": ["done", "skipped", "failed"]}, outcome=_STR),
+    },
+    goal_revealed={"type": "boolean"},
+)  # the extract step of a story game: the same answer plus what happened to the quests
 BOOTSTRAP_SCHEMA = _obj(
     entities={"type": "array", "items": _ENTITY},
     facts=EXTRACT_SCHEMA["properties"]["facts"],
@@ -208,10 +216,18 @@ class AnthropicCurator:
         return data
 
     async def extract(self, request: ExtractRequest) -> Extraction:
-        data = await self._ask("extract", self.model, self.effort, render_extract(request), EXTRACT_SCHEMA)
+        schema = STORY_EXTRACT_SCHEMA if request.quests or request.goal else EXTRACT_SCHEMA
+        data = await self._ask("extract", self.model, self.effort, render_extract(request), schema)
         present = data.get("present")
         elapsed = data.get("elapsed_hours")
+        reports = [
+            (r["id"], r["status"], r["outcome"])
+            for r in (data.get("quest_reports") if isinstance(data.get("quest_reports"), list) else [])
+            if isinstance(r, dict) and all(isinstance(r.get(k), str) for k in ("id", "status", "outcome"))
+        ]
         return Extraction(
+            quest_reports=reports,
+            goal_revealed=data.get("goal_revealed") is True,
             entities=_entities(data.get("entities")),
             facts=_facts(data.get("facts"), "hidden"),
             reveals=_strs(data.get("reveals")),

@@ -32,6 +32,13 @@ def render_extract(req: ExtractRequest) -> str:
         "## GM-only facts (true, not yet told to the player)\n"
         + ("\n".join(f"- {f.id}: {f.text}" for f in req.hidden_facts) if req.hidden_facts else "(none)")
     )
+    if req.quests:
+        parts.append(
+            "## Active story quests (report one only if the transcript shows it finished, bypassed or made impossible)\n"
+            + "\n".join(f"- {qid}: {title}. {brief}" for qid, title, brief in req.quests)
+        )
+    if req.goal:
+        parts.append(f"## The final goal (set goal_revealed only if the transcript tells the player this)\n{req.goal}")
     parts.append(f"## Transcript\n{req.transcript}")
     return "\n\n".join(parts)
 
@@ -110,6 +117,11 @@ def render_plot(req: PlotRequest) -> str:
     parts.append("## The world so far (entities)\n" + ("\n".join(_entity(e) for e in req.entities) or "(empty)"))
     facts = [f for f in req.facts if f.active][:MAX_PLOT_FACTS]
     parts.append("## The world so far (facts)\n" + ("\n".join(_fact(f) for f in facts) or "(none)"))
+    if req.story_so_far:
+        parts.append(
+            "## The story so far (already planned: keep the goal and the endings; write only the quests asked for)\n"
+            + req.story_so_far
+        )
     which = ", ".join(str(c) for c in req.chapters)
     parts.append(f"## Write quests for chapter(s)\n{which}. Give the title and purpose of all three chapters.")
     if req.feedback:

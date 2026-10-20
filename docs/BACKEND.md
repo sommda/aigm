@@ -93,6 +93,7 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 | `AIGM_WORLD_EVERY_PAGES` | `3`             | Run a world-curator pass after this many pages of unprocessed GM narration |
 | `AIGM_WORLD_PAGE_CHARS` | `1800`           | Characters in a "page" of narration, as the server counts it |
 | `AIGM_WORLD_BRIEFING_TOKENS` | `2000`          | Rough size of the world notes shown to the GM with each request |
+| `AIGM_STORY_EXPAND_ENTITIES` | `3`           | Story games: new entities one curator pass may add in chapters 2 and 3 |
 | `AIGM_STORY_NUDGE_TURNS` | `12`              | Story games: turns without progress before the GM is asked for a hook (twice: a consequence) |
 | `AIGM_PROMPT_DIR`      | (none)                | Directory overriding/extending the packaged prompt files |
 | `AIGM_SAVE_DIR`        | `./saves`             | Snapshot directory                   |

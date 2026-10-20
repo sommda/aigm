@@ -1,6 +1,6 @@
 # AIGM Narrative Structure: Design
 
-Status: **steps 1 to 4 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
+Status: **steps 1 to 5 of 8 built** (section 14); the rest is proposal. The questions that were open are settled in
 section 12. This builds on
 [WORLD.md](WORLD.md) (the knowledge base and the curator), [BACKEND.md](BACKEND.md) (game state, tools, prompts, saves)
 and [RULESETS.md](RULESETS.md) (a Session 0 choice that is stored in the game state, which is the pattern this feature
@@ -463,8 +463,20 @@ Taken as recommended, still open to change in review:
      "goal_revealed": bool }` (section 8.1 had a bare list). `end_story` is the new tool. See API.md.
    - Chapter 1 ends when its required quests are settled and the goal is known, whichever comes last.
    - Not yet: the curator backstop, the next chapter's plot pass, and the limit on additions (step 5).
-5. **Chapter rules.** Chapter transition (including the plot pass for the next chapter), `establish` and expand
-   limits, curator backstop in extract.
+5. **Chapter rules.** *Built.* As built:
+   - **Planning the next chapter.** `story.needs_plan` says when the story has reached a chapter with no quests. The
+     curator service then runs `run_chapter_plot` in the background on its next call (the same plotter, given "the
+     story so far"), and the result is added between turns. Until then the briefing says the quests are not planned
+     yet. A failed plan is tried again three turns later, not every turn. Entity ids in the quests are rebound by
+     name to the live world, because the snapshot it was planned against may number new entities differently.
+   - **The curator backstop.** In a story game the extract step is told the active quests and whether the goal is
+     still secret, and may return `quest_reports` and `goal_revealed`. Only active quests and valid statuses are kept.
+     They are applied between turns, one item at a time, and any the GM already reported are skipped. The extract
+     schema grows these two fields for story games only.
+   - **No major additions.** `establish` refuses (with the whole call rejected, as for any invalid entity) a new
+     faction, concept, region or settlement in chapters 2 and 3; rooms, caves and people are accepted. The expand pass
+     applies the same rule (`story.addition_allowed`) and takes at most `AIGM_STORY_EXPAND_ENTITIES` new entities per
+     pass in those chapters. Narration-extraction, which records what the player was already told, is not limited.
 6. **Surfaces.** API summary and `chapter` event, client status line and banner, debug plan view, metrics.
 7. **Repair.** The repair pass and the stall timeout.
 8. **Live play and tuning.**

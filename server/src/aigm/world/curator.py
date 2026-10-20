@@ -39,6 +39,8 @@ class Extraction:
     present: list[str] | None = None  # who is with them (names); None: not mentioned
     elapsed_hours: int = 0  # in-world time the narration covered
     start_hour: int | None = None  # bootstrap only: the hour of day (0-23) the opening situation implies
+    quest_reports: list[tuple[str, str, str]] = field(default_factory=list)  # (quest id, status, outcome) seen in play
+    goal_revealed: bool = False  # the narration told the player what the final goal is
 
 
 class CuratorError(Exception):
@@ -65,6 +67,8 @@ class ExtractRequest:
     present: list[str]
     entity_names: list[str]  # canonical names already in the world
     hidden_facts: list[Fact] = field(default_factory=list)  # GM-only facts near the scene, so reveals can name them
+    quests: list[tuple[str, str, str]] = field(default_factory=list)  # story games: active (id, title, brief)
+    goal: str = ""  # story games: the goal while the player may not know it yet, else ""
 
 
 @dataclass
@@ -184,6 +188,7 @@ class PlotRequest:
     quests: tuple[int, int]  # required quests per chapter, lowest and highest
     scales: tuple[str, ...]  # quest sizes that fit this length
     feedback: list[str] = field(default_factory=list)  # why a first attempt was rejected, on the retry
+    story_so_far: str = ""  # a later chapter is being planned: the plan and what happened (docs/STORY.md 5)
 
 
 class Curator(Protocol):

@@ -38,3 +38,7 @@ Write two to four `endings`, each with a `title` and a `when`: the situation tha
 ## Do not
 
 Do not mention the player characters by name in facts. Do not invent anything that depends on the party's coming. Do not write more quests than asked for, or quests for chapters you were not asked about.
+
+## Planning a later chapter
+
+If the request has a section "The story so far", the game is already underway: the goal, the chapter titles and the endings are fixed. Repeat them in your answer unchanged, and write only the quests of the chapter(s) you are asked for, using what the story so far says happened and the world as it now stands. Look at the outcomes: build on the allies made, the places found and the choices taken. The new quests must still build the party toward what the goal needs, and the last chapter's last quest must be the one that leads to the climax. Because this is the middle of the story, keep new places, factions and ideas to a minimum: prefer the places and people already in the world, and add only small details (a room, a minor person).

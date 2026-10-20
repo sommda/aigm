@@ -37,6 +37,7 @@ cp server/.env.example server/.env   # then edit it
 | `AIGM_WORLD_EVERY_PAGES` | `3` | World curator pass after this many pages of GM narration (see [docs/WORLD.md](docs/WORLD.md)) |
 | `AIGM_WORLD_PAGE_CHARS` | `1800` | Characters in a "page" of narration, as the server counts it |
 | `AIGM_WORLD_BRIEFING_TOKENS` | `2000` | Rough size of the world notes shown to the GM with each request (see [docs/WORLD.md](docs/WORLD.md)) |
+| `AIGM_STORY_EXPAND_ENTITIES` | `3` | Story games: new entities one curator pass may add in chapters 2 and 3 (see [docs/STORY.md](docs/STORY.md)) |
 | `AIGM_STORY_NUDGE_TURNS` | `12` | Story games: turns without progress before the GM is asked to offer a hook (see [docs/STORY.md](docs/STORY.md)) |
 | `AIGM_PROMPT_DIR` | (none) | Directory of prompt files that override or extend the packaged ones (see Prompts) |
 

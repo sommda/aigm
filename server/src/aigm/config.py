@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     # Story games (docs/STORY.md): player turns without progress before the GM is asked to offer a hook (and, at
     # twice that, to bring a consequence).
     story_nudge_turns: int = Field(default=12, ge=1, validation_alias="AIGM_STORY_NUDGE_TURNS")
+    # Story games: new entities a curator pass may add once the story reaches chapter 2 (docs/STORY.md 6.4).
+    story_expand_entities: int = Field(default=3, ge=0, validation_alias="AIGM_STORY_EXPAND_ENTITIES")
     # Rough size, in tokens, of the world notes shown to the GM with each request.
     world_briefing_tokens: int = Field(default=2000, validation_alias="AIGM_WORLD_BRIEFING_TOKENS")
     # Shrinking the history the model sees (docs/HISTORY.md). The stored messages are never changed. Turns older than

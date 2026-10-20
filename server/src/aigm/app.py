@@ -67,7 +67,7 @@ def _make_curator(settings: Settings, prompts: PromptLibrary) -> CuratorService 
     timing = {
         "every_pages": settings.world_every_pages,
         "page_chars": settings.world_page_chars,
-        "config": PassConfig(digests=settings.history_digest),
+        "config": PassConfig(digests=settings.history_digest, story_entities=settings.story_expand_entities),
     }
     if settings.test_mode:
         return CuratorService(ScriptedCurator(), **timing)

@@ -9,6 +9,7 @@ by hand, for example `echo [[fact: Wren:npc | Wren sells news to the Thorn Guild
     [[reveal: f0002]]                                          the narration just told the player f0002
     [[at: Place[:kind]]]  /  [[present: A, B]]                 the party moved / who is with them
     [[elapsed: 3]]                                             in-world hours the narration covered
+    [[quest: m01 | done | what happened]]  /  [[goal: x]]      a story quest ended / the player learned the goal
 
 Expansion writes a plain fact for up to two missing aspects, and gives a bare location a cellar."""
 
@@ -77,6 +78,10 @@ class ScriptedCurator:
                     out.location = entity(body, "location")
                 elif name == "present":
                     out.present = [entity(p) for p in body.split(",") if p.strip()]
+                elif name == "quest" and len(parts) == 3:
+                    out.quest_reports.append((parts[0], parts[1], parts[2]))
+                elif name == "goal":
+                    out.goal_revealed = True
                 elif name == "elapsed" and body.strip().isdigit():
                     out.elapsed_hours += int(body.strip())
         return out
@@ -138,7 +143,7 @@ class ScriptedCurator:
                 EndingProposal("The Seal Breaks", "The party fails or chooses to let it break."),
             ],
         )
-        if region:
+        if region and not request.story_so_far:
             out.entities.append(EntityProposal(goal_place, "location", parent=region))
             out.facts.append(FactProposal(f"The {goal_place} was sealed by the old keepers long ago.", [goal_place, region]))
             out.facts.append(FactProposal(f"Travelers in {region} speak of lights beneath the earth.", [region]))

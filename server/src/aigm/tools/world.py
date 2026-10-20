@@ -7,6 +7,7 @@ from typing import Any
 
 from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
+from aigm.story import addition_allowed
 from aigm.tools.story import STORY_PROPERTY, check_story_report
 from aigm.world import DISCLOSURES, KINDS, Entity, Fact, World, WorldError
 from aigm.world.briefing import LABELS
@@ -201,6 +202,9 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
                 if parent_ent is None:
                     raise WorldError(f"parent {raw['parent']!r} is not recorded")
                 parent = parent_ent.id
+            allowed, why = addition_allowed(state.story, world, kind, parent)
+            if not allowed:
+                raise WorldError(f"{why}. This is the road to the goal: use what is already recorded")
             ent = world.add_entity(name, kind, aliases=aliases, parent=parent)
             done.append(f"{ent.name} ({ent.id})")
         except WorldError as exc:

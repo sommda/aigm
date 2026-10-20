@@ -45,6 +45,7 @@ from aigm.world.ops import (
     Supersede,
     apply_ops,
 )
+from aigm.story import Story, active, addition_allowed
 from aigm.world.text import normalize_name, tokens
 
 log = logging.getLogger(__name__)
@@ -69,11 +70,14 @@ class PassConfig:
     digests: bool = True  # write digests of finished turns (docs/HISTORY.md)
     max_digest_turns: int = 40  # turns digested per pass (older saves are caught up over several passes)
     digest_batch: int = 8  # turns per curator call
+    story: Story | None = None  # set in chapters 2 and 3: new regions, settlements and factions are refused
+    story_entities: int = 3  # new entities per pass in those chapters (docs/STORY.md 6.4)
 
 
 @dataclass
 class PassResult:
     ops: list[Op] = field(default_factory=list)  # to apply to the live world
+    story_reports: list[dict[str, Any]] = field(default_factory=list)  # quests the narration showed finished
     notes: list[str] = field(default_factory=list)  # what was dropped and why, for the log
 
 
@@ -191,11 +195,14 @@ async def run_pass(
     setting: str = "",
     party_names: list[str] | None = None,
     config: PassConfig | None = None,
+    story: Story | None = None,
 ) -> PassResult:
     """Run extract, reconcile and expand against a snapshot of the world and return the ops that
     capture the result. `world` is not modified. Raises whatever the curator raises, in which case
     nothing at all should be applied."""
     config = config or PassConfig()
+    if story and story.chapter >= 2 and not story.concluded:
+        config = replace(config, story=story, max_new_entities=min(config.max_new_entities, config.story_entities))
     snap = world.copy()
     result = PassResult()
     turn = player_turns(messages)
@@ -216,8 +223,12 @@ async def run_pass(
                 present=[snap.entities[e].name for e in snap.scene.present],
                 entity_names=[e.name for e in snap.entities.values()],
                 hidden_facts=_scene_secrets(snap),
+                quests=[(m.id, m.title, m.brief) for m in active(story)] if story else [],
+                goal=f"{story.goal.title}. {story.goal.summary}" if story and story.goal and not story.goal.revealed else "",
             )
         )
+        if story:
+            result.story_reports = _story_reports(extraction, story)
         commit(await _plan_extraction(snap, extraction, curator, turn, config, result))
 
     if config.digests:
@@ -315,6 +326,18 @@ async def _expand_frontier(
         added = result.ops[before:]
         new_entities += sum(isinstance(o, AddEntity) for o in added)
         new_facts += sum(isinstance(o, (AddFact, Supersede)) for o in added)
+
+
+def _story_reports(extraction: Extraction, story: Story) -> list[dict[str, Any]]:
+    """The curator's reading of the narration as story reports: only active quests, only valid statuses."""
+    open_ids = {m.id for m in active(story)}
+    quests = [
+        {"id": qid, "status": status, "outcome": outcome}
+        for qid, status, outcome in extraction.quest_reports
+        if qid in open_ids and status in ("done", "skipped", "failed") and isinstance(outcome, str) and outcome.strip()
+    ]
+    reveal = bool(extraction.goal_revealed and story.goal and not story.goal.revealed)
+    return [{"quests": quests, "goal_revealed": True if reveal else None}] if quests or reveal else []
 
 
 # ---- bootstrap --------------------------------------------------------------------------
@@ -583,6 +606,22 @@ def _plan_expansion(
     fact_cap = max(0, min(config.max_facts_per_call, fact_room))
 
     new = {normalize_name(e.name): e for e in out.entities if world.find(e.name) is None}
+    if config.story is not None:  # chapters 2 and 3 take details only; a place inside an allowed new place is fine
+        kept: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for key, prop in new.items():
+                if key in kept:
+                    continue
+                inside_kept = prop.kind == "location" and prop.parent and normalize_name(prop.parent) in kept
+                if inside_kept or addition_allowed(config.story, world, prop.kind, prop.parent)[0]:
+                    kept.add(key)
+                    changed = True
+        for key in set(new) - kept:
+            prop = new.pop(key)
+            result.notes.append(f"dropped {prop.name!r}: {addition_allowed(config.story, world, prop.kind, prop.parent)[1]}")
+
     for key in list(new)[entity_cap:]:
         result.notes.append(f"over the entity cap: {new.pop(key).name!r}")
 
@@ -604,7 +643,6 @@ def _plan_expansion(
                 changed = True
     for key in set(new) - connected:
         result.notes.append(f"dropped unconnected entity {new.pop(key).name!r}")
-
     ops: list[Op] = []
     for prop in new.values():
         parent = prop.parent if prop.parent and (known_name(prop.parent) or normalize_name(prop.parent) in new) else None

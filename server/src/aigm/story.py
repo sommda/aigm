@@ -447,6 +447,29 @@ def pace(story: Story, turn: int, nudge_turns: int = NUDGE_TURNS) -> int:
     return 2 if idle >= 2 * nudge_turns else 1 if idle >= nudge_turns else 0
 
 
+def needs_plan(story: Story) -> int | None:
+    """The chapter whose quests have not been written yet, when the story has reached it (docs/STORY.md 5)."""
+    if story.concluded or not story.planned or story.chapter == 1:
+        return None
+    return None if story.in_chapter(story.chapter) else story.chapter
+
+
+def summary_so_far(story: Story) -> str:
+    """The story up to now as plain text, for the plotter that writes the next chapter."""
+    goal = story.goal
+    lines = []
+    if goal:
+        lines.append(f"Goal: {goal.title}. {goal.summary} Needs: {goal.min_strength or 'not stated'}.")
+    for i, chapter in enumerate(story.chapters, 1):
+        lines.append(f'Chapter {i}: "{chapter.title}" ({chapter.purpose}); aim for level {chapter.target_level or "?"}.')
+    for m in story.milestones:
+        done = f"{m.status}" + (f": {m.outcome}" if m.outcome else "")
+        lines.append(f"- {m.id} (chapter {m.chapter}, {m.scale}) {m.title} [{done}]. Gave: {m.gives or 'nothing'}.")
+    for e in story.endings:
+        lines.append(f"Ending {e.id}: {e.title}. {e.when}")
+    return "\n".join(lines)
+
+
 def chapter_label(story: Story) -> str:
     """The chapter's title for status lines and the public summary ("" while the plan is unwritten)."""
     if story.concluded:

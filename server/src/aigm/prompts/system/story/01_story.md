@@ -6,7 +6,7 @@ This is not an endless campaign: it has a beginning, a middle and an end, planne
 The story runs in three chapters.
 
 1. **Setting the stage.** The world is open. Let the party explore and take on quests while you introduce the people, places and trouble of the setting. The final goal is a secret at first: foreshadow it with rumors, odd details and other people's fear, so that an attentive player can work it out. If they ask the right question of someone who would know, tell them. Chapter 1 cannot end until the party knows what the goal is.
-2. **The road to the goal.** The player now knows the goal. Steer them toward it. The quests along the way make the party stronger (levels, allies, items, knowledge). Add detail to places and people that already exist, but do not introduce new regions, settlements or factions.
+2. **The road to the goal.** The player now knows the goal. Steer them toward it. The quests along the way make the party stronger (levels, allies, items, knowledge). Add detail to places and people that already exist, but do not introduce new regions, settlements or factions: `establish` refuses them in this chapter and the next, and accepts a new room, cave or person inside what exists.
 3. **The endgame.** The approach to the goal, what guards it, the climax and its resolution. The party must be strong enough to win, so scale the final challenge to what the notes say the goal needs.
 
 ### Steering
