@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
     model: str = Field(default="claude-sonnet-5-5", validation_alias="AIGM_MODEL")
     max_tokens: int = Field(default=16000, validation_alias="AIGM_MAX_TOKENS")
-    max_tool_iters: int = Field(default=8, validation_alias="AIGM_MAX_TOOL_ITERS")
+    max_tool_iters: int = Field(default=16, validation_alias="AIGM_MAX_TOOL_ITERS")
     stream_thinking: bool = Field(default=True, validation_alias="AIGM_STREAM_THINKING")
     # Seconds to wait before each dice roll is shown, so the narration leading up to it can be read.
     roll_pause: float = Field(default=0.8, ge=0, validation_alias="AIGM_ROLL_PAUSE")

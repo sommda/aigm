@@ -75,7 +75,7 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 | `ANTHROPIC_API_KEY`    | (required)            | API credential                       |
 | `AIGM_MODEL`           | `claude-sonnet-5-5`   | Model id                             |
 | `AIGM_MAX_TOKENS`      | `16000`               | Per-response output cap (includes thinking)  |
-| `AIGM_MAX_TOOL_ITERS`  | `8`                   | Tool-loop safety limit per turn      |
+| `AIGM_MAX_TOOL_ITERS`  | `16`                  | Tool-loop safety limit per turn      |
 | `AIGM_STREAM_THINKING` | `true`               | Forward reasoning text as `thinking` `delta` events; `false` sends only `start`/`end` |
 | `AIGM_DEBUG`           | `false`              | Debug mode (`aigm --debug`): registers `GET /debug/context` and `GET`/`PUT /debug/thinking` and reports `debug: true` in `/health` (see CONTEXT.md) |
 | `AIGM_HISTORY_TRIM` / `AIGM_HISTORY_DIGEST` | `true` / `true` | Shrink the history the model sees (see section 11); `false` for both sends everything |
