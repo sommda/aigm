@@ -9,3 +9,5 @@ Places and people must already be recorded; use `establish` first for new ones. 
 Call it before the message that holds your final reply, never in that message and never after it. If you are about to roll, roll first, then call this once you have seen the results. Once the result is back, do not repeat or add to your reply.
 
 Write no text in the same response as this call: not even a remark such as "I'll record that". Anything you write is shown to the player as story.
+
+When the party moves, the player must read the journey and the arrival in the story before anything happens at the new place, so call this before the first roll there and narrate the trip.
