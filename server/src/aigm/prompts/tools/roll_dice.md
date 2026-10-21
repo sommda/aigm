@@ -5,3 +5,5 @@ Examples: `1d20+5`, `4d6kh3` (roll four, keep the highest three), `2d8+1d4+3`. U
 Every call needs a `narration`. It is shown to the player as story text just before the dice appear, so it must say what is happening and what is at stake. A call without one is refused and nothing is rolled.
 
 Never roll damage in the same response as the attack it depends on: roll the attack, see that it hit, then roll the damage in a later call.
+
+Write no text beside a roll that is not story: no rulings, no reasoning about the rules, no remarks on what you are about to do. Put rules details in the `# comment`.
