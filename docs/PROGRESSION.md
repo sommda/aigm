@@ -15,8 +15,8 @@ with the turn's working state, so an award in a failed turn is lost with the tur
 Offered in the adventure phase, to endless and story games alike.
 
 - `xp`: points that each recipient earns. The GM works out the share under its ruleset (some divide a total).
-- `who`: the recipients' names, case aside. Left out, it is the whole party, the usual case. Name only some when the rest
-  were absent or the award is personal.
+- `who`: the recipients' names, case aside. Left out, it is the whole party, the usual case. Name only some when
+  the rest were absent or the award is personal.
 - `level_up`: characters who have just reached their next level, each rising by one. How much XP a level takes
   depends on the character's class and the ruleset, which the server does not know, so the GM decides.
 - `reason`: required, what earned it.
@@ -26,7 +26,8 @@ against the ruleset's advancement table for their class, and to call `award` aga
 earned a level. The tool description and the adventure prompt (`system/adventure/04b_progress.md`) repeat the rule.
 
 The player sees an `award` SSE event (docs/API.md), printed as `+120 XP to the party for the wolves` and, for each
-level gained, `Maren Holt reaches level 2!`. The lines are rebuilt from the stored `award` calls when a game is reloaded.
+level gained, `Maren Holt reaches level 2!`. The lines are rebuilt from the stored `award` calls when a game is
+reloaded.
 
 ## What the GM sees
 
