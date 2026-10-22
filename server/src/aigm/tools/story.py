@@ -78,6 +78,9 @@ def check_story_report(report: Any, state: GameState) -> tuple[Story | None, lis
             problems.append(f"{q.get('id')}: {result.message}")
             continue
         notes.append(result.message + ".")
+        reward = work.milestone(str(q.get("id")))
+        if q.get("status") == "done" and reward is not None and reward.gives:
+            notes.append(f"Its reward: {reward.gives}. Hand it out now, with the `award` tool for any XP or level.")
         if result.opened:
             notes.append("Now active: " + ", ".join(result.opened) + ".")
         if result.advanced_to:

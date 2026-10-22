@@ -142,6 +142,17 @@ class DiceBlock(Block):
         return render_lines(text, ctx.width)
 
 
+def award_text(xp_gained: int, xp: int | None, level: int, leveled: bool, reason: str) -> str:
+    """The line shown when the party earns something, for a live award and for one replayed from history."""
+    parts = []
+    if xp_gained:
+        parts.append(f"+{xp_gained} XP" + (f" (total {xp})" if xp is not None else ""))
+    if leveled:
+        parts.append(f"Level up! The party is now level {level}")
+    text = "  " + (". ".join(parts) or "Awarded")
+    return f"{text} for {reason}" if reason else text
+
+
 def _strip_markup(s: str) -> str:
     """Drop d20's markdown emphasis (**bold**, ~~struck~~, `code`) for plain display."""
     for token in ("**", "~~", "`"):
@@ -180,6 +191,18 @@ def history_to_blocks(messages: list[dict[str, Any]]) -> list[Block]:
             for b in content:
                 if b.get("type") == "text" and b.get("text", "").strip():
                     blocks.append(MarkdownBlock(b["text"], final=True))
+                elif b.get("type") == "tool_use" and b.get("name") == "award":
+                    given = b.get("input") or {}
+                    xp, level = given.get("xp"), given.get("level")
+                    blocks.append(
+                        SystemBlock(
+                            award_text(
+                                xp if isinstance(xp, int) else 0, None, level if isinstance(level, int) else 0,
+                                isinstance(level, int), str(given.get("reason", "")).strip(),
+                            ),
+                            "green",
+                        )
+                    )  # fmt: skip
                 elif b.get("type") == "tool_use" and b.get("name") == "roll_dice":
                     given = b.get("input") or {}
                     roll_inputs[b.get("id", "")] = str(given.get("expression", ""))

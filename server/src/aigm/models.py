@@ -97,6 +97,18 @@ class PhaseChange(SSEEvent):
     phase: str
 
 
+class Award(SSEEvent):
+    """The party earned experience or a level (the `award` tool). `xp` and `level` are the totals after it."""
+
+    event: ClassVar[str] = "award"
+    tool_use_id: str
+    xp_gained: int
+    xp: int
+    level: int
+    previous_level: int
+    reason: str
+
+
 class ChapterChange(SSEEvent):
     """The story moved into a new chapter (chapter 4, "The end", once it has ended). Sent once the turn has committed."""
 

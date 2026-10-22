@@ -40,14 +40,14 @@ def props(tools, name):
 
 def test_endless_games_see_no_story_tools_or_fields():
     tools = tool_schemas(phase=Phase.ADVENTURE)
-    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene"]
+    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene", "award"]
     assert "story" not in props(tools, "set_scene")
     assert "report its progress" not in next(t for t in tools if t["name"] == "set_scene")["description"]
 
 
 def test_story_games_get_end_story_and_the_story_field():
     tools = tool_schemas(phase=Phase.ADVENTURE, structured=True)
-    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene", "end_story"]
+    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene", "award", "end_story"]
     assert "story" in props(tools, "set_scene") and "goal_revealed" in str(props(tools, "set_scene")["story"])
     description = next(t for t in tools if t["name"] == "set_scene")["description"]
     assert description.startswith("Tell the world notes") and "report its progress" in description
@@ -91,7 +91,7 @@ def test_the_briefing_has_the_chapter_goal_and_active_quests():
 def test_it_is_part_of_the_world_notes_above_them():
     state = state_with_story()
     notes = Game().briefing(state, "hello", "")
-    assert notes.startswith("<world_notes>\n## Story (private)") and "Time:" in notes and "Ashby" in notes
+    assert notes.startswith("<world_notes>\nParty: level 1.\n\n## Story (private)") and "Time:" in notes and "Ashby" in notes
     assert "## Story" not in Game().briefing(GameState(Phase.ADVENTURE, {"setting": "x"}, state.world), "hi", "")
 
 
@@ -287,5 +287,5 @@ def test_the_context_viewer_shows_the_story_section(tmp_path):
                 return found
 
     briefing = find(body["sections"], "briefing")
-    assert [c["title"] for c in briefing["children"]][:2] == ["Story", "Clock"]
+    assert [c["title"] for c in briefing["children"]][:3] == ["Party", "Story", "Clock"]
     assert "This game is a story" in str(find(body["sections"], "system"))

@@ -117,6 +117,7 @@ data: <JSON object>
 | `text`         | A chunk of markdown text to append to the reply      | no        |
 | `tool_call`    | The model is invoking a tool (informational)         | no        |
 | `dice_roll`    | Result of a `roll_dice` call (front-end custom event)| no        |
+| `award`        | The party earned XP or a level (docs/PROGRESSION.md)   | no        |
 | `status`       | Progress of a long wait: a tool call being written, or the world after Session 0 | no |
 | `phase_change` | The game moved to a new phase (sent once, at the end of the turn) | no |
 | `message_end`  | Assistant turn complete                              | yes       |
@@ -282,6 +283,13 @@ Sent when the turn changed the game phase, after the last `text` and just before
 turn has succeeded: a turn that fails after calling `begin_adventure` is rolled back entirely, with no `phase_change`,
 and the game stays in `session_zero`. The opening scene of the adventure is part of the same turn, so it streams before
 this event. The history is rewritten at the same time (see `begin_adventure`).
+
+#### `award`
+```json
+{ "tool_use_id": "toolu_1", "xp_gained": 120, "xp": 340, "level": 2, "previous_level": 1, "reason": "the wolves" }
+```
+Sent when the GM calls the `award` tool, in order with the dice rolls. `xp` and `level` are the party totals after the
+award; `level` is above `previous_level` when a level was gained. Part of a turn that fails is discarded with it.
 
 #### `chapter`
 ```json

@@ -38,6 +38,17 @@ class GameState:
     structure: str | None = None
     # The story plan of a structured game; None while the plotter has not written it, and always None when endless.
     story: Story | None = None
+    # The party's advancement, kept by the server and changed with the `award` tool (docs/PROGRESSION.md). `level` is
+    # None until the first award: the level is then the one Session 0 chose (`party_level`).
+    level: int | None = None
+    xp: int = 0
+
+    @property
+    def party_level(self) -> int:
+        if self.level is not None:
+            return self.level
+        start = (self.campaign or {}).get("level")
+        return start if isinstance(start, int) and not isinstance(start, bool) else 1
 
     def __post_init__(self) -> None:
         if self.phase is Phase.ADVENTURE and self.structure is None:
@@ -53,6 +64,8 @@ class GameState:
             self.pass_requested,
             self.structure,
             self.story.copy() if self.story else None,
+            self.level,
+            self.xp,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,6 +76,8 @@ class GameState:
             "ruleset": self.ruleset,
             "structure": self.structure,
             "story": self.story.to_dict() if self.story else None,
+            "level": self.level,
+            "xp": self.xp,
         }
 
     @classmethod
@@ -93,4 +108,9 @@ class GameState:
             raise CorruptSave(f"a {structure} game cannot have a {story.length} story")
         if phase is Phase.SESSION_ZERO and story is not None:
             raise CorruptSave("a session_zero save cannot have a story")
-        return cls(phase, campaign, world, ruleset, structure=structure, story=story)
+        level, xp = data.get("level"), data.get("xp", 0)  # saves before version 5 have neither
+        if level is not None and (isinstance(level, bool) or not isinstance(level, int) or not 1 <= level <= 20):
+            raise CorruptSave("level must be an integer from 1 to 20")
+        if isinstance(xp, bool) or not isinstance(xp, int) or xp < 0:
+            raise CorruptSave("xp must be a non-negative integer")
+        return cls(phase, campaign, world, ruleset, structure=structure, story=story, level=level, xp=xp)

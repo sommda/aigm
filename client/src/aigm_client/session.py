@@ -4,6 +4,7 @@ from typing import Any
 
 from aigm_client import events as ev
 from aigm_client.blocks import (
+    award_text,
     DiceBlock,
     MarkdownBlock,
     ReasoningBlock,
@@ -141,6 +142,13 @@ class ChatSession:
                     self.add_system("Session 0 is over. The adventure begins!", "bold green")
             case ev.ChapterChange(chapter=chapter, title=title):
                 self._announce_chapter(chapter, title)
+            case ev.Award() as award:
+                self._text = None
+                leveled = award.level > award.previous_level
+                self.add_system(
+                    award_text(award.xp_gained, award.xp, award.level, leveled, award.reason),
+                    "bold green" if leveled else "green",
+                )
             case ev.MessageEnd(phase=phase, ruleset_name=ruleset, metrics=metrics, story=story):
                 if phase:
                     self.phase = phase

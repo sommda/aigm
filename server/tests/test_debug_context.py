@@ -137,7 +137,7 @@ def test_adventure_tree_is_in_request_order(debug):
 
     system = top[0]["children"]
     assert system[0]["id"] == "prompt/system/common/01_role.md" and all(c["kind"] == "prompt" for c in system)
-    assert [t["title"] for t in top[1]["children"]] == ["roll_dice", "recall", "establish", "set_scene"]
+    assert [t["title"] for t in top[1]["children"]] == ["roll_dice", "recall", "establish", "set_scene", "award"]
     assert "Input schema:" in top[1]["children"][0]["text"]
 
     history = top[2]["children"]
@@ -155,8 +155,8 @@ def test_adventure_tree_is_in_request_order(debug):
     assert (placeholder["id"], placeholder["kind"], placeholder["text"]) == ("input", "input", PLACEHOLDER)
     assert placeholder["cache_breakpoint"] is True
     assert briefing["kind"] == "briefing" and "draft" not in briefing["note"] and briefing["note"]
-    assert [c["title"] for c in briefing["children"]] == ["Clock", "Location"]
-    assert "lower gallery" in briefing["children"][1]["text"]  # hidden facts are in the briefing
+    assert [c["title"] for c in briefing["children"]] == ["Party", "Clock", "Location"]
+    assert "lower gallery" in briefing["children"][2]["text"]  # hidden facts are in the briefing
 
 
 def test_parent_tokens_are_the_sum_of_their_children(debug):

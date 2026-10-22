@@ -95,6 +95,17 @@ class ChapterChange:
 
 
 @dataclass(frozen=True)
+class Award:
+    """The party earned experience or a level. `xp` and `level` are the totals after it."""
+
+    xp_gained: int = 0
+    xp: int = 0
+    level: int = 1
+    previous_level: int = 1
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class ErrorEvent:
     code: str = "internal_error"
     message: str = ""
@@ -107,7 +118,7 @@ class Unknown:
     data: Any = None
 
 
-Event = MessageStart | Thinking | Text | ToolCall | DiceRoll | Status | MessageEnd | PhaseChange | ChapterChange | ErrorEvent | Unknown
+Event = MessageStart | Thinking | Text | ToolCall | DiceRoll | Status | MessageEnd | PhaseChange | ChapterChange | Award | ErrorEvent | Unknown
 
 
 def _die(d: dict[str, Any]) -> DieRoll:
@@ -175,6 +186,14 @@ def parse_event(name: str, data: str) -> Event | None:
                 return PhaseChange(d.get("previous", ""), d.get("phase", ""))
             case "chapter":
                 return ChapterChange(int(d.get("previous", 0)), int(d.get("chapter", 0)), str(d.get("title", "")))
+            case "award":
+                return Award(
+                    int(d.get("xp_gained", 0)),
+                    int(d.get("xp", 0)),
+                    int(d.get("level", 1)),
+                    int(d.get("previous_level", d.get("level", 1))),
+                    str(d.get("reason", "")),
+                )
             case "error":
                 return ErrorEvent(
                     d.get("code", "internal_error"), d.get("message", ""), bool(d.get("retryable", False))
