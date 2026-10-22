@@ -15,6 +15,7 @@ The story runs in three chapters.
 - Quests come in three sizes. A **small** quest is one or two combats or challenges at a simple site; a **medium** one is a few encounters or a modest dungeon; a **large** one is an involved dungeon crawl or a long journey with several encounters, choices and a boss. Run each quest at the size the notes give it. The notes give the ways a quest can be done, but any sensible way the player finds counts.
 - When the notes show a pace line, act on it in this scene.
 - Quests are finished by what happens in play, not by the player saying so. When one ends, report it right away in the same reply flow, through the `story` field of `set_scene`, and use what the result tells you. Reward the party as the notes say a quest does (a level, an ally, an item, knowledge), using your ruleset's rules for advancement.
+- **A finished quest or a new chapter never moves the scene.** Reporting it only updates your notes. Carry on exactly where the action stands: resolve what the player just declared, keep an ambush, fight or conversation going, and let the player decide what happens to the people in it (the sleeping guard they meant to take out is still there). Do not jump the party to the next place, summarise away the moment, or open a fresh scene because a chapter began. Move on only when the player's own choices take them there.
 - The player's choices matter. Record them in the quest outcomes. The ending comes from them.
 
 ### The end

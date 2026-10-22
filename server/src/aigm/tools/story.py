@@ -41,6 +41,12 @@ STORY_PROPERTY: dict[str, Any] = {
 }
 
 
+CARRY_ON = (
+    "This changes the notes, not the scene: carry on exactly where the action stands, finish what the player "
+    "just set in motion, and do not skip ahead or open a new scene because of it."
+)
+
+
 def check_story_report(report: Any, state: GameState) -> tuple[Story | None, list[str], list[str]]:
     """Check the `story` field of a set_scene call against `state.story`.
 
@@ -80,6 +86,8 @@ def check_story_report(report: Any, state: GameState) -> tuple[Story | None, lis
         chapter = story_rules.advance_chapter(work, state.turn)
         story_rules.settle_ready(work)
         notes.append(_chapter_note(work, chapter))
+    if notes:
+        notes.append(CARRY_ON)
     return (None, problems, []) if problems else (work, [], notes)
 
 
