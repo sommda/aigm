@@ -106,14 +106,23 @@ class ContextView(ScrollView):
             self.rebuild()
 
     def action_page(self, direction: int) -> None:
-        if self.model:
-            self.model.move(direction * max(self.size.height - 1, 1))
-            self.rebuild()
+        """Scroll a page, so the body of an opened row can be read; the cursor stays on a row that is in view."""
+        if not self.model:
+            return
+        height = max(self.size.height, 1)
+        top = max(0, min(int(self.scroll_offset.y) + direction * max(height - 1, 1), len(self._strips) - height))
+        self.scroll_to(y=top, animate=False)
+        rows = [(at, node_id) for node_id, at in self._where.items() if top <= at < top + height]
+        if rows and self._where.get(self.model.cursor, -1) not in range(top, top + height):
+            self.model.cursor = min(rows)[1] if direction > 0 else max(rows)[1]
+        self.rebuild(follow_cursor=False)
 
     def action_edge(self, end: bool) -> None:
         if self.model:
             self.model.move_to(end)
             self.rebuild()
+            if end:
+                self.scroll_to(y=max(0, len(self._strips) - max(self.size.height, 1)), animate=False)
 
     def action_expand_all(self) -> None:
         if self.model:

@@ -228,3 +228,21 @@ async def test_ascii_mode_has_no_special_glyphs():
         await open_view(app, pilot)
         text = view_text(app)
         assert "▌" not in text and "▸" not in text and "▾" not in text and "|" in text
+
+
+async def test_the_last_row_can_be_scrolled_to_its_end_and_pages_scroll_the_view():
+    fake = FakeServer()
+    fake.debug = True
+    app = make_app(fake)
+    async with app.run_test(size=(100, 12)) as pilot:
+        await start(app, pilot)
+        await open_view(app, pilot)
+        view = app.screen.query_one(ContextView)
+        await pilot.press("e")
+        await pilot.press("end")
+        await settle(pilot, lambda: view.scroll_offset.y == len(view._strips) - view.size.height > 0)
+        await pilot.press("pageup")
+        await settle(pilot, lambda: view.scroll_offset.y < len(view._strips) - view.size.height)
+        top = view.scroll_offset.y
+        await pilot.press("pagedown")
+        await settle(pilot, lambda: view.scroll_offset.y > top)
