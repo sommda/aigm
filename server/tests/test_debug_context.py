@@ -155,8 +155,8 @@ def test_adventure_tree_is_in_request_order(debug):
     assert (placeholder["id"], placeholder["kind"], placeholder["text"]) == ("input", "input", PLACEHOLDER)
     assert placeholder["cache_breakpoint"] is True
     assert briefing["kind"] == "briefing" and "draft" not in briefing["note"] and briefing["note"]
-    assert [c["title"] for c in briefing["children"]] == ["Party", "Clock", "Location"]
-    assert "lower gallery" in briefing["children"][2]["text"]  # hidden facts are in the briefing
+    assert [c["title"] for c in briefing["children"]] == ["Clock", "Location"]
+    assert "lower gallery" in briefing["children"][1]["text"]  # hidden facts are in the briefing
 
 
 def test_parent_tokens_are_the_sum_of_their_children(debug):

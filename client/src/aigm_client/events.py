@@ -95,13 +95,22 @@ class ChapterChange:
 
 
 @dataclass(frozen=True)
-class Award:
-    """The party earned experience or a level. `xp` and `level` are the totals after it."""
-
-    xp_gained: int = 0
+class Standing:
+    name: str = ""
     xp: int = 0
     level: int = 1
     previous_level: int = 1
+
+
+@dataclass(frozen=True)
+class Award:
+    """Some of the party earned XP (`xp_gained` each, to `to`, or everyone) and/or levels (the standings that rose)."""
+
+    xp_gained: int = 0
+    to: tuple[str, ...] = ()
+    everyone: bool = False
+    characters: tuple[Standing, ...] = ()
+    average_level: float = 1.0
     reason: str = ""
 
 
@@ -189,11 +198,19 @@ def parse_event(name: str, data: str) -> Event | None:
             case "award":
                 return Award(
                     int(d.get("xp_gained", 0)),
-                    int(d.get("xp", 0)),
-                    int(d.get("level", 1)),
-                    int(d.get("previous_level", d.get("level", 1))),
+                    tuple(str(n) for n in d.get("to") or ()),
+                    bool(d.get("everyone", False)),
+                    tuple(
+                        Standing(
+                            str(c.get("name", "")), int(c.get("xp", 0)), int(c.get("level", 1)),
+                            int(c.get("previous_level", c.get("level", 1))),
+                        )
+                        for c in d.get("characters") or ()
+                        if isinstance(c, dict)
+                    ),
+                    float(d.get("average_level", 1.0)),
                     str(d.get("reason", "")),
-                )
+                )  # fmt: skip
             case "error":
                 return ErrorEvent(
                     d.get("code", "internal_error"), d.get("message", ""), bool(d.get("retryable", False))

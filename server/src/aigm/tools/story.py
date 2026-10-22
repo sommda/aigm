@@ -84,17 +84,17 @@ def check_story_report(report: Any, state: GameState) -> tuple[Story | None, lis
         if result.opened:
             notes.append("Now active: " + ", ".join(result.opened) + ".")
         if result.advanced_to:
-            notes.append(_chapter_note(work, result.advanced_to))
-    if not problems and story_rules.chapter_complete(work):  # learning the goal can be what finishes chapter 1
+            notes.append(chapter_note(work, result.advanced_to))
+    if not problems and story_rules.chapter_complete(work, state.turn):  # learning the goal can be what finishes chapter 1
         chapter = story_rules.advance_chapter(work, state.turn)
         story_rules.settle_ready(work)
-        notes.append(_chapter_note(work, chapter))
+        notes.append(chapter_note(work, chapter))
     if notes:
         notes.append(CARRY_ON)
     return (None, problems, []) if problems else (work, [], notes)
 
 
-def _chapter_note(story: Story, chapter: int) -> str:
+def chapter_note(story: Story, chapter: int) -> str:
     title = story_rules.chapter_label(story)
     if not story.in_chapter(chapter):
         return f'Chapter {chapter} begins ("{title}"). Its quests are not planned yet: keep the story moving.'

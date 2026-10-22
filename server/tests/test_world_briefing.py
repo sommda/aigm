@@ -124,7 +124,7 @@ def test_request_messages_appends_notes_and_a_cache_breakpoint_without_touching_
     assert history == [USER] and "cache_control" not in USER["content"][0]  # nothing stored or mutated
     blocks = sent[-1]["content"]
     assert blocks[0] == {"type": "text", "text": "I enter the mine.", "cache_control": {"type": "ephemeral"}}
-    assert blocks[1]["text"].startswith(BRIEFING_OPEN + "\nParty: level 1.\n\nTime:") and blocks[1]["text"].endswith(BRIEFING_CLOSE)
+    assert blocks[1]["text"].startswith(BRIEFING_OPEN + "\nTime:") and blocks[1]["text"].endswith(BRIEFING_CLOSE)
     assert len(blocks) == 2
 
 

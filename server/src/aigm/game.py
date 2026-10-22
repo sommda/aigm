@@ -106,9 +106,12 @@ class Game:
         if state.story is not None:
             block = briefing_block(state.story, state.world, state.turn, self.story_nudge_turns)
             notes = f"{block}\n\n{notes}" if block and notes else block or notes
-        if notes:
-            party = f"Party: level {state.party_level}" + (f", {state.xp} XP" if state.xp else "") + "."
-            notes = f"{party}\n\n{notes}"
+        if notes and state.party_names:
+            who = "; ".join(
+                f"{n} level {state.hero(n).level}" + (f", {state.hero(n).xp} XP" if state.hero(n).xp else "")
+                for n in state.party_names
+            )
+            notes = f"Party: {who}.\n\n{notes}"
         return f"{BRIEFING_OPEN}\n{notes}\n{BRIEFING_CLOSE}" if notes else ""
 
     def request_messages(self, state: GameState, messages: list[dict[str, Any]], user_text: str) -> list[dict[str, Any]]:

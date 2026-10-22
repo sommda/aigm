@@ -97,15 +97,26 @@ class PhaseChange(SSEEvent):
     phase: str
 
 
+class Standing(BaseModel):
+    """One character's advancement after an award."""
+
+    name: str
+    xp: int
+    level: int
+    previous_level: int
+
+
 class Award(SSEEvent):
-    """The party earned experience or a level (the `award` tool). `xp` and `level` are the totals after it."""
+    """Some of the party earned experience or levels (the `award` tool). `xp_gained` is what each name in `to` got (`everyone`: the whole party);
+    `characters` holds every awarded character's totals after it, and `average_level` the party's."""
 
     event: ClassVar[str] = "award"
     tool_use_id: str
     xp_gained: int
-    xp: int
-    level: int
-    previous_level: int
+    to: list[str]
+    everyone: bool
+    characters: list[Standing]
+    average_level: float
     reason: str
 
 

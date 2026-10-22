@@ -17,6 +17,31 @@ class Phase(StrEnum):
 
 
 @dataclass
+class Hero:
+    """One party member's advancement. How much XP a level takes depends on the character's class and the ruleset,
+    so the GM decides when a level is reached; the server keeps the numbers."""
+
+    level: int
+    xp: int = 0
+
+
+def _read_heroes(raw: Any) -> dict[str, Hero]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise CorruptSave("heroes must be an object")
+    out = {}
+    for name, h in raw.items():
+        level, xp = (h.get("level"), h.get("xp")) if isinstance(h, dict) else (None, None)
+        if isinstance(level, bool) or not isinstance(level, int) or not 1 <= level <= 20:
+            raise CorruptSave(f"the level of {name!r} must be an integer from 1 to 20")
+        if isinstance(xp, bool) or not isinstance(xp, int) or xp < 0:
+            raise CorruptSave(f"the XP of {name!r} must be a non-negative integer")
+        out[str(name)] = Hero(level, xp)
+    return out
+
+
+@dataclass
 class GameState:
     """What the save file and the live session carry besides the message history.
 
@@ -38,17 +63,32 @@ class GameState:
     structure: str | None = None
     # The story plan of a structured game; None while the plotter has not written it, and always None when endless.
     story: Story | None = None
-    # The party's advancement, kept by the server and changed with the `award` tool (docs/PROGRESSION.md). `level` is
-    # None until the first award: the level is then the one Session 0 chose (`party_level`).
-    level: int | None = None
-    xp: int = 0
+    # Each character's advancement, by name; kept by the server and changed with the `award` tool (docs/PROGRESSION.md).
+    # A character with no entry is at the party's starting level with no XP (see `hero`).
+    heroes: dict[str, Hero] = field(default_factory=dict)
 
     @property
-    def party_level(self) -> int:
-        if self.level is not None:
-            return self.level
+    def party_names(self) -> list[str]:
+        party = (self.campaign or {}).get("party")
+        return [m["name"] for m in party if isinstance(m, dict) and isinstance(m.get("name"), str)] if party else []
+
+    @property
+    def start_level(self) -> int:
         start = (self.campaign or {}).get("level")
         return start if isinstance(start, int) and not isinstance(start, bool) else 1
+
+    def find_hero(self, name: str) -> str | None:
+        """The party member a name refers to (case and spacing aside), or None."""
+        wanted = " ".join(str(name).lower().split())
+        return next((n for n in self.party_names if " ".join(n.lower().split()) == wanted), None)
+
+    def hero(self, name: str) -> Hero:
+        return self.heroes.get(name) or Hero(self.start_level, 0)
+
+    @property
+    def average_level(self) -> float:
+        names = self.party_names
+        return sum(self.hero(n).level for n in names) / len(names) if names else float(self.start_level)
 
     def __post_init__(self) -> None:
         if self.phase is Phase.ADVENTURE and self.structure is None:
@@ -64,8 +104,7 @@ class GameState:
             self.pass_requested,
             self.structure,
             self.story.copy() if self.story else None,
-            self.level,
-            self.xp,
+            {n: Hero(h.level, h.xp) for n, h in self.heroes.items()},
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -76,8 +115,7 @@ class GameState:
             "ruleset": self.ruleset,
             "structure": self.structure,
             "story": self.story.to_dict() if self.story else None,
-            "level": self.level,
-            "xp": self.xp,
+            "heroes": {n: {"level": h.level, "xp": h.xp} for n, h in self.heroes.items()},
         }
 
     @classmethod
@@ -108,9 +146,5 @@ class GameState:
             raise CorruptSave(f"a {structure} game cannot have a {story.length} story")
         if phase is Phase.SESSION_ZERO and story is not None:
             raise CorruptSave("a session_zero save cannot have a story")
-        level, xp = data.get("level"), data.get("xp", 0)  # saves before version 5 have neither
-        if level is not None and (isinstance(level, bool) or not isinstance(level, int) or not 1 <= level <= 20):
-            raise CorruptSave("level must be an integer from 1 to 20")
-        if isinstance(xp, bool) or not isinstance(xp, int) or xp < 0:
-            raise CorruptSave("xp must be a non-negative integer")
-        return cls(phase, campaign, world, ruleset, structure=structure, story=story, level=level, xp=xp)
+        heroes = _read_heroes(data.get("heroes"))  # saves before version 5 have none
+        return cls(phase, campaign, world, ruleset, structure=structure, story=story, heroes=heroes)

@@ -4,7 +4,7 @@ from typing import Any
 
 from aigm_client import events as ev
 from aigm_client.blocks import (
-    award_text,
+    award_lines,
     DiceBlock,
     MarkdownBlock,
     ReasoningBlock,
@@ -144,11 +144,10 @@ class ChatSession:
                 self._announce_chapter(chapter, title)
             case ev.Award() as award:
                 self._text = None
-                leveled = award.level > award.previous_level
-                self.add_system(
-                    award_text(award.xp_gained, award.xp, award.level, leveled, award.reason),
-                    "bold green" if leveled else "green",
-                )
+                levelled = [(c.name, c.level) for c in award.characters if c.level > c.previous_level]
+                lines = award_lines(award.xp_gained, award.to, award.everyone, levelled, award.reason)
+                for line in lines:
+                    self.add_system(line, "bold green" if "reaches level" in line else "green")
             case ev.MessageEnd(phase=phase, ruleset_name=ruleset, metrics=metrics, story=story):
                 if phase:
                     self.phase = phase

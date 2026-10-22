@@ -19,6 +19,7 @@ MIN_ENDINGS, MAX_ENDINGS = 2, 4
 MAX_CHOICES = 40  # the choices log keeps this many recent entries
 PLAN_SLACK = 1  # how far a chapter's quest count may stray from the length's range before the plan is refused
 
+LEVEL_GRACE_TURNS = 40  # turns into a chapter after which a party below its target level no longer holds it up
 NUDGE_TURNS = 12  # player turns without progress before the GM is asked for a hook (docs/STORY.md 6.3)
 
 
@@ -113,6 +114,7 @@ class Story:
     last_progress_turn: int = 1
     ending: str | None = None  # the id of the ending reached
     epilogue: str | None = None
+    party_level: float = 1.0  # the party's average level, kept current by the `award` tool (docs/PROGRESSION.md)
 
     @property
     def planned(self) -> bool:
@@ -144,6 +146,7 @@ class Story:
             "last_progress_turn": self.last_progress_turn,
             "ending": self.ending,
             "epilogue": self.epilogue,
+            "party_level": self.party_level,
         }
 
     @classmethod
@@ -172,6 +175,14 @@ def _int(raw: dict[str, Any], key: str, minimum: int = 0) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise ValueError(f"'{key}' must be an integer of at least {minimum}")
     return value
+
+
+def _level(value: Any) -> float:
+    if value is None:
+        return 1.0
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 1 <= value <= 20:
+        raise ValueError("'party_level' must be a number from 1 to 20")
+    return float(value)
 
 
 def _opt_int(raw: dict[str, Any], key: str) -> int | None:
@@ -261,6 +272,7 @@ def _read_story(raw: Any) -> Story:
         length=length, goal=goal, chapters=chapters, milestones=milestones, endings=endings, choices=choices,
         chapter=chapter, chapter_started_turn=_int(raw, "chapter_started_turn"),
         last_progress_turn=_int(raw, "last_progress_turn"), ending=ending, epilogue=epilogue,
+        party_level=_level(raw.get("party_level")),
     )  # fmt: skip
 
 
@@ -375,8 +387,20 @@ def active(story: Story) -> list[Milestone]:
     return [m for m in story.in_chapter(story.chapter) if m.status == "active"]
 
 
-def chapter_complete(story: Story) -> bool:
-    """Every required quest of the chapter is settled, and in chapter 1 the goal is known (docs/STORY.md 6.2)."""
+def level_short(story: Story, turn: int | None = None) -> bool:
+    """Is the party's average level below what this chapter aims for? Only chapters 1 and 2 are held up by it, and
+    only for `LEVEL_GRACE_TURNS` turns (when the turn is known): the story must not stall on a party that cannot earn it."""
+    if story.chapter not in (1, 2) or story.chapter > len(story.chapters):
+        return False
+    target = story.chapters[story.chapter - 1].target_level
+    if not target or story.party_level + 1e-9 >= target:
+        return False
+    return turn is None or turn - story.chapter_started_turn < LEVEL_GRACE_TURNS
+
+
+def chapter_complete(story: Story, turn: int | None = None) -> bool:
+    """Every required quest of the chapter is settled, in chapter 1 the goal is known, and the party's average level
+    has reached the chapter's target (docs/STORY.md 6.2, docs/PROGRESSION.md)."""
     if story.concluded:
         return False
     group = story.in_chapter(story.chapter)
@@ -384,7 +408,7 @@ def chapter_complete(story: Story) -> bool:
         return False
     if story.chapter == 1 and not (story.goal and story.goal.revealed):
         return False
-    return True
+    return not level_short(story, turn)
 
 
 @dataclass
@@ -416,7 +440,7 @@ def report(story: Story, milestone_id: str, status: str, outcome: str, turn: int
         ]
     opened = settle_ready(story)
     advanced = None
-    if chapter_complete(story):
+    if chapter_complete(story, turn):
         advanced = advance_chapter(story, turn)
         opened += settle_ready(story)
     return Progress(True, f"{milestone_id} is now {status}", opened, advanced)
@@ -555,7 +579,9 @@ def briefing_block(story: Story, world: World, turn: int, nudge_turns: int = NUD
         lines.append("No new regions, settlements, factions or concepts now: add detail to what already exists.")
     level = info.target_level
     if level:
-        lines.append(f"Aim for party level {level} by the end of this chapter.")
+        lines.append(
+            f"The party's average level is {story.party_level:.1f}; this chapter ends only once it reaches {level}."
+        )
     shown = active(story)[:MAX_ACTIVE_SHOWN]
     if shown:
         lines.append("Active quests:")
@@ -578,6 +604,11 @@ def briefing_block(story: Story, world: World, turn: int, nudge_turns: int = NUD
             lines.append("Only the goal's revelation is left: deliver it in the next scenes.")
         elif (len(required) - len(left)) / len(required) >= REVEAL_NUDGE_SHARE:
             lines.append("The party should be close to learning the goal: make the clues plainer.")
+    if level_short(story, turn) and required and not left and (n != 1 or goal.revealed):
+        lines.append(
+            "The quests are done but the party is below the level this chapter needs: give them more to earn "
+            "(encounters, discoveries, side trouble) and award XP so every character can advance."
+        )
     level_of_pace = pace(story, turn, nudge_turns)
     idle = turn - story.last_progress_turn
     if level_of_pace == 1:

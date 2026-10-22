@@ -114,6 +114,7 @@ async def _seed_world(state: GameState, history: list[dict[str, Any]], curator: 
         for why in apply_ops(state.world, plan.ops).skipped:
             log.info("plot op skipped: %s", why)
         state.story = plan.story
+        state.story.party_level = state.average_level
     yield Status(stage="world", message="The world is ready.", done=True)
 
 

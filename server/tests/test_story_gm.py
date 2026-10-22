@@ -91,7 +91,7 @@ def test_the_briefing_has_the_chapter_goal_and_active_quests():
 def test_it_is_part_of_the_world_notes_above_them():
     state = state_with_story()
     notes = Game().briefing(state, "hello", "")
-    assert notes.startswith("<world_notes>\nParty: level 1.\n\n## Story (private)") and "Time:" in notes and "Ashby" in notes
+    assert notes.startswith("<world_notes>\n## Story (private)") and "Time:" in notes and "Ashby" in notes
     assert "## Story" not in Game().briefing(GameState(Phase.ADVENTURE, {"setting": "x"}, state.world), "hi", "")
 
 

@@ -134,9 +134,9 @@ class ScriptedCurator:
             min_strength="Level 5 and the help of the old keepers",
             goal_entities=[goal_place],
             chapters=[
-                ChapterProposal("The Open Road", "Learn what is at stake.", request.level + 2),
-                ChapterProposal("The Way North", "Gather strength and allies.", request.level + 4),
-                ChapterProposal("The Seal", "Face the binding.", request.level + 6),
+                ChapterProposal("The Open Road", "Learn what is at stake.", request.level),
+                ChapterProposal("The Way North", "Gather strength and allies.", request.level),
+                ChapterProposal("The Seal", "Face the binding.", request.level + 2),
             ],
             endings=[
                 EndingProposal("The Seal Holds", "The party mends the binding."),
