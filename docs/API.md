@@ -288,11 +288,13 @@ this event. The history is rewritten at the same time (see `begin_adventure`).
 ```json
 { "tool_use_id": "toolu_1", "xp_gained": 120, "to": ["Maren Holt"], "everyone": false, "average_level": 1.67,
   "reason": "the wolves",
-  "characters": [{ "name": "Maren Holt", "xp": 340, "level": 2, "previous_level": 1 }] }
+  "characters": [{ "name": "Maren Holt", "xp": 340, "level": 2, "previous_level": 1,
+                   "classes": { "Paladin": 2 } }] }
 ```
 Sent when the GM calls the `award` tool, in order with the dice rolls. `xp_gained` is what each name in `to` earned
 (`everyone`: the whole party; 0 for a pure level-up). `characters` holds the new totals of every character the award
-touched, and `level` is above `previous_level` for one who gained a level. `average_level` is the whole party's.
+touched, and `level` (the overall level) is above `previous_level` for one who gained a level; `classes` maps their
+recorded classes to levels. `average_level` is the whole party's.
 Part of a turn that fails is discarded with it.
 
 #### `chapter`

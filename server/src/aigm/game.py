@@ -98,6 +98,12 @@ class Game:
             reduction=reduced.info,
         )
 
+    @staticmethod
+    def _standing(state: GameState, name: str) -> str:
+        h = state.hero(name)
+        classes = f" ({', '.join(f'{c} {v}' for c, v in h.classes.items())})" if h.classes else ""
+        return f"{name} level {h.level}{classes}" + (f", {h.xp} XP" if h.xp else "")
+
     def briefing(self, state: GameState, user_text: str, gm_text: str) -> str:
         """The world notes for this request (empty outside the adventure or while the world is empty)."""
         if state.phase is not Phase.ADVENTURE:
@@ -107,10 +113,7 @@ class Game:
             block = briefing_block(state.story, state.world, state.turn, self.story_nudge_turns)
             notes = f"{block}\n\n{notes}" if block and notes else block or notes
         if notes and state.party_names:
-            who = "; ".join(
-                f"{n} level {state.hero(n).level}" + (f", {state.hero(n).xp} XP" if state.hero(n).xp else "")
-                for n in state.party_names
-            )
+            who = "; ".join(self._standing(state, n) for n in state.party_names)
             notes = f"Party: {who}.\n\n{notes}"
         return f"{BRIEFING_OPEN}\n{notes}\n{BRIEFING_CLOSE}" if notes else ""
 

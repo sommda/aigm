@@ -144,7 +144,11 @@ class ChatSession:
                 self._announce_chapter(chapter, title)
             case ev.Award() as award:
                 self._text = None
-                levelled = [(c.name, c.level) for c in award.characters if c.level > c.previous_level]
+                levelled = [
+                    (c.name, c.level, ", ".join(f"{k} {v}" for k, v in c.classes))
+                    for c in award.characters
+                    if c.level > c.previous_level
+                ]
                 lines = award_lines(award.xp_gained, award.to, award.everyone, levelled, award.reason)
                 for line in lines:
                     self.add_system(line, "bold green" if "reaches level" in line else "green")

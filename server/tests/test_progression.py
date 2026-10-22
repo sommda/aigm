@@ -15,6 +15,10 @@ def adventure(level=1, **kw):
     return GameState(Phase.ADVENTURE, {"setting": "x", "level": level, "party": PARTY}, World(), **kw)
 
 
+def up(who, cls, class_level, level):
+    return {"who": who, "class": cls, "class_level": class_level, "level": level}
+
+
 def award(state, **given):
     return dispatch("award", "a1", {"reason": "the wolves", **given}, state)
 
@@ -43,27 +47,60 @@ def test_every_xp_award_tells_the_gm_to_check_for_level_ups():
     out = award(adventure(), xp=300)
     assert "Maren Holt: level 1, 300 XP" in out.content and "advancement table for their class" in out.content
     assert "`level_up`" in out.content
-    assert "advancement table" not in award(adventure(), level_up=["Corvin"]).content
+    assert "advancement table" not in award(adventure(), level_up=[up("Corvin", "Bard", 2, 2)]).content
 
 
-def test_levels_are_per_character_and_one_at_a_time():
+def test_levels_belong_to_classes_and_are_per_character():
     state = adventure()
-    out = award(state, level_up=["Maren Holt"])
-    assert [s.level for s in out.event.characters] == [2] and out.event.characters[0].previous_level == 1
-    assert [state.hero(n).level for n in state.party_names] == [2, 1, 1]
-    award(state, level_up=["Maren Holt", "Corvin"])
+    out = award(state, level_up=[up("Maren Holt", "Paladin", 2, 2)])
+    assert out.event.characters[0].classes == {"Paladin": 2} and out.event.characters[0].previous_level == 1
+    award(state, level_up=[up("Maren Holt", "Paladin", 3, 3), up("Corvin", "Bard", 2, 2)])
     assert [state.hero(n).level for n in state.party_names] == [3, 1, 2]
+    assert state.hero("Maren Holt").classes == {"Paladin": 3}
     assert round(state.average_level, 2) == 2.0 and round(out.event.average_level, 2) == 1.33
+
+
+def test_a_character_can_take_a_level_in_another_class():
+    state = adventure()
+    award(state, level_up=[up("Maren Holt", "Paladin", 2, 2)])
+    out = award(state, level_up=[up("Maren Holt", "rogue", 1, 3)])
+    assert state.hero("Maren Holt").classes == {"Paladin": 2, "rogue": 1} and state.hero("Maren Holt").level == 3
+    assert "Maren Holt: level 3 (Paladin 2, rogue 1)" in out.content
+    award(state, level_up=[up("Maren Holt", "ROGUE", 2, 4)])  # a class is found again whatever its case
+    assert state.hero("Maren Holt").classes == {"Paladin": 2, "rogue": 2}
+
+
+def test_the_overall_level_is_whatever_the_gm_says_the_ruleset_makes_it():
+    state = adventure()
+    award(state, level_up=[up("Corvin", "Fighter", 1, 2), up("Corvin", "Wizard", 1, 3)])  # a total
+    award(state, level_up=[up("Maren Holt", "Fighter", 1, 1 + 1)])
+    assert state.hero("Corvin").level == 3 and state.hero("Maren Holt").level == 2
+
+
+def test_the_first_record_of_a_class_may_start_above_one():
+    state = adventure(level=3)
+    award(state, level_up=[up("Corvin", "Bard", 4, 4)])  # the sheet already had three levels of Bard
+    assert state.hero("Corvin").classes == {"Bard": 4}
 
 
 def test_bad_awards_change_nothing():
     state = adventure()
-    for given in ({}, {"xp": -5}, {"xp": "lots"}, {"xp": 10, "who": ["Nobody"]}, {"level_up": ["Nobody"]}, {"xp": 1, "who": []}):
-        assert award(state, **given).is_error
+    award(state, level_up=[up("Corvin", "Bard", 2, 2)])
+    before = state.to_dict()
+    bad = [
+        {}, {"xp": -5}, {"xp": "lots"}, {"xp": 10, "who": ["Nobody"]}, {"xp": 1, "who": []},
+        {"level_up": [up("Nobody", "Bard", 2, 2)]},
+        {"level_up": [up("Corvin", "Bard", 4, 3)]},  # skips a Bard level
+        {"level_up": [up("Corvin", "Bard", 3, 2)]},  # the overall level did not rise
+        {"level_up": [up("Corvin", "Bard", 3, 99)]},
+        {"level_up": [{"who": "Corvin", "class_level": 3, "level": 3}]},
+        {"level_up": ["Corvin"]},
+        {"xp": 5, "level_up": [up("Corvin", "Bard", 3, 3), up("Corvin", "Bard", 3, 4)]},  # the second repeats the first
+    ]  # fmt: skip
+    for given in bad:
+        assert award(state, **given).is_error, given
     assert dispatch("award", "a", {"xp": 10}, state).is_error  # no reason
-    assert state.heroes == {}
-    state.heroes["Corvin"] = Hero(20, 0)
-    assert award(state, level_up=["Corvin"]).is_error
+    assert state.to_dict() == before
 
 
 def test_the_tool_is_for_adventures_only():
@@ -78,14 +115,16 @@ def test_the_notes_show_each_characters_level_and_xp():
     assert "Party: Maren Holt level 2; Ilyr Wren level 2; Corvin level 2.\n" in Game().briefing(state, "hi", "")
     award(state, xp=450, who=["Corvin"])
     assert "Corvin level 2, 450 XP." in Game().briefing(state, "hi", "")
+    award(state, level_up=[up("Corvin", "Bard", 2, 3)])
+    assert "Corvin level 3 (Bard 2), 450 XP." in Game().briefing(state, "hi", "")
 
 
 def test_the_totals_survive_a_save_and_copy():
     state = adventure()
     award(state, xp=90)
-    award(state, level_up=["Corvin"])
+    award(state, level_up=[up("Corvin", "Bard", 2, 2)])
     for again in (GameState.from_dict(state.to_dict()), state.copy()):
-        assert again.hero("Corvin") == Hero(2, 90) and again.hero("Maren Holt") == Hero(1, 90)
+        assert again.hero("Corvin") == Hero(2, 90, {"Bard": 2}) and again.hero("Maren Holt") == Hero(1, 90)
     old = state.to_dict()
     del old["heroes"]
     assert GameState.from_dict(old).hero("Corvin") == Hero(1, 0)  # saves from before version 5
@@ -108,9 +147,9 @@ def test_a_chapter_waits_for_the_average_party_level():
     for q in ("m1", "m2"):
         st.report(state.story, q, "done", "Done.", 5)
     assert state.story.chapter == 1 and st.level_short(state.story) and not st.chapter_complete(state.story)
-    award(state, level_up=["Maren Holt", "Ilyr Wren"])
+    award(state, level_up=[up("Maren Holt", "Paladin", 2, 2), up("Ilyr Wren", "Rogue", 2, 2)])
     assert state.story.chapter == 1 and round(state.story.party_level, 2) == 1.67  # not yet two on average
-    out = award(state, level_up=["Corvin", "Maren Holt"])
+    out = award(state, level_up=[up("Corvin", "Bard", 2, 2), up("Maren Holt", "Paladin", 3, 3)])
     assert state.story.chapter == 2 and "Chapter 2 begins" in out.content  # the award itself ended the chapter
 
 

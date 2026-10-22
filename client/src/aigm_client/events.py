@@ -100,6 +100,7 @@ class Standing:
     xp: int = 0
     level: int = 1
     previous_level: int = 1
+    classes: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -204,6 +205,7 @@ def parse_event(name: str, data: str) -> Event | None:
                         Standing(
                             str(c.get("name", "")), int(c.get("xp", 0)), int(c.get("level", 1)),
                             int(c.get("previous_level", c.get("level", 1))),
+                            tuple((str(k), int(v)) for k, v in (c.get("classes") or {}).items()),
                         )
                         for c in d.get("characters") or ()
                         if isinstance(c, dict)

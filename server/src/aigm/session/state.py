@@ -16,13 +16,19 @@ class Phase(StrEnum):
     ADVENTURE = "adventure"  # the real game
 
 
+MAX_CHARACTER_LEVEL = 40  # a character's overall level can be the total of several classes
+
+
 @dataclass
 class Hero:
-    """One party member's advancement. How much XP a level takes depends on the character's class and the ruleset,
-    so the GM decides when a level is reached; the server keeps the numbers."""
+    """One party member's advancement. A level belongs to a class, and a character may have several, each at its own
+    level; the overall level is whatever the ruleset makes of them. How much XP a level takes, and whether a new level
+    goes to the same class or another, depend on the character and the ruleset, so the GM decides; the server keeps
+    the numbers."""
 
-    level: int
+    level: int  # the character's overall level, which the GM works out by the ruleset (a total, or the highest)
     xp: int = 0
+    classes: dict[str, int] = field(default_factory=dict)  # level in each class the GM has recorded
 
 
 def _read_heroes(raw: Any) -> dict[str, Hero]:
@@ -33,11 +39,17 @@ def _read_heroes(raw: Any) -> dict[str, Hero]:
     out = {}
     for name, h in raw.items():
         level, xp = (h.get("level"), h.get("xp")) if isinstance(h, dict) else (None, None)
-        if isinstance(level, bool) or not isinstance(level, int) or not 1 <= level <= 20:
-            raise CorruptSave(f"the level of {name!r} must be an integer from 1 to 20")
+        if isinstance(level, bool) or not isinstance(level, int) or not 1 <= level <= MAX_CHARACTER_LEVEL:
+            raise CorruptSave(f"the level of {name!r} must be an integer from 1 to {MAX_CHARACTER_LEVEL}")
         if isinstance(xp, bool) or not isinstance(xp, int) or xp < 0:
             raise CorruptSave(f"the XP of {name!r} must be a non-negative integer")
-        out[str(name)] = Hero(level, xp)
+        classes = h.get("classes", {})
+        if not isinstance(classes, dict) or not all(
+            isinstance(c, str) and isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 20
+            for c, v in classes.items()
+        ):
+            raise CorruptSave(f"the classes of {name!r} must map class names to levels from 1 to 20")
+        out[str(name)] = Hero(level, xp, dict(classes))
     return out
 
 
@@ -104,7 +116,7 @@ class GameState:
             self.pass_requested,
             self.structure,
             self.story.copy() if self.story else None,
-            {n: Hero(h.level, h.xp) for n, h in self.heroes.items()},
+            {n: Hero(h.level, h.xp, dict(h.classes)) for n, h in self.heroes.items()},
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -115,7 +127,7 @@ class GameState:
             "ruleset": self.ruleset,
             "structure": self.structure,
             "story": self.story.to_dict() if self.story else None,
-            "heroes": {n: {"level": h.level, "xp": h.xp} for n, h in self.heroes.items()},
+            "heroes": {n: {"level": h.level, "xp": h.xp, "classes": dict(h.classes)} for n, h in self.heroes.items()},
         }
 
     @classmethod

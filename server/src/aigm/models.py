@@ -104,6 +104,7 @@ class Standing(BaseModel):
     xp: int
     level: int
     previous_level: int
+    classes: dict[str, int] = {}
 
 
 class Award(SSEEvent):
