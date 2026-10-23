@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTasks
 
 from aigm import rulesets
+from aigm.compendium import unseen_totals
 from aigm.story import public_summary
 from aigm.deps import get_session
 from aigm.errors import Conflict
@@ -79,6 +80,7 @@ async def chat_history(session: SessionDep) -> dict[str, Any]:
         "ruleset_name": rulesets.get(session.state.ruleset).short,
         "campaign": session.state.campaign,
         "story": public_summary(session.state.story),
+        "compendium": unseen_totals(session.state.world, session.reading_state()),
         "messages": session.messages,
     }
 

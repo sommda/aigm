@@ -119,6 +119,9 @@ class Fact:
     until_time: WorldTime | None = None
     status: str = "active"
     superseded_by: str | None = None
+    # Order in which the player learned it (World.learn_seq), for the compendium's "new" marks; 0 for facts the
+    # player knew from the start of the adventure and for those saved before the compendium existed.
+    learned_seq: int = 0
 
     @property
     def subject(self) -> str:
@@ -133,6 +136,7 @@ class Fact:
             "id": self.id, "text": self.text, "about": list(self.about), "aspect": self.aspect,
             "disclosure": self.disclosure, "source": self.source, "turn": self.turn,
             "created_at": self.created_at.to_dict(), "revealed_turn": self.revealed_turn,
+            "learned_seq": self.learned_seq,
             "from_time": self.from_time.to_dict() if self.from_time else None,
             "until_time": self.until_time.to_dict() if self.until_time else None,
             "status": self.status, "superseded_by": self.superseded_by,
@@ -160,6 +164,7 @@ class World:
         self.corrections: list[dict[str, Any]] = []  # notes for the GM's next briefing: {"text", "turn"}
         self.digests: dict[int, Digest] = {}  # turn digests by the index of the turn's first message
         self.next_id = {"f": 1, "e": 1}
+        self.learn_seq = 0  # last number given to a fact the player learned; only goes up
         self.entities: dict[str, Entity] = {}
         self.facts: dict[str, Fact] = {}
         self._reindex()
@@ -427,6 +432,7 @@ class World:
         if fact.disclosure == "known":
             return False
         fact.disclosure, fact.revealed_turn = "known", turn
+        fact.learned_seq = self._next_learned()
         self._mark_discovered(fact)
         self._touch()
         return True
@@ -589,11 +595,17 @@ class World:
             self._new_id("f"), text, about, disclosure, source, turn, self.time, aspect,
             revealed_turn=turn if disclosure == "known" else None,
         )  # fmt: skip
+        if disclosure == "known" and source != "seed":  # what the player set up in Session 0 is never "new"
+            fact.learned_seq = self._next_learned()
         self.facts[fact.id] = fact
         self._index_fact(fact)
         self._mark_discovered(fact)
         self._touch()
         return fact
+
+    def _next_learned(self) -> int:
+        self.learn_seq += 1
+        return self.learn_seq
 
     def _mark_discovered(self, fact: Fact) -> None:
         if fact.disclosure == "known":
@@ -615,6 +627,7 @@ class World:
             "corrections": [dict(c) for c in self.corrections],
             "digests": [d.to_dict() for d in sorted(self.digests.values(), key=lambda d: d.start)],
             "next_id": dict(self.next_id),
+            "learn_seq": self.learn_seq,
             "entities": [e.to_dict() for e in self.entities.values()],
             "facts": [f.to_dict() for f in self.facts.values()],
         }
@@ -696,6 +709,7 @@ class World:
                 WorldTime.from_dict(raw["until_time"]) if raw["until_time"] else None,
                 raw["status"], raw["superseded_by"],
             )  # fmt: skip
+            fact.learned_seq = _count(raw.get("learned_seq", 0), f"fact {fact.id} learned_seq")
             if not _FACT_ID.match(str(fact.id)) or fact.id in world.facts:
                 raise WorldError(f"bad or repeated fact id {fact.id!r}")
             if not isinstance(fact.text, str) or not fact.text.strip():
@@ -723,8 +737,17 @@ class World:
             if isinstance(n, bool) or not isinstance(n, int) or n <= max((int(i[1:]) for i in ids), default=0):
                 raise WorldError(f"next_id.{prefix} must be above every existing id")
             world.next_id[prefix] = n
+        world.learn_seq = _count(data.get("learn_seq", 0), "learn_seq")
+        if world.learn_seq < max((f.learned_seq for f in world.facts.values()), default=0):
+            raise WorldError("learn_seq must be at least every fact's learned_seq")
         world._reindex()
         return world
+
+
+def _count(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise WorldError(f"{label} must be a non-negative integer")
+    return value
 
 
 def _clean_name(value: Any, label: str) -> str:

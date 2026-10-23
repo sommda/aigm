@@ -22,6 +22,7 @@ from aigm.llm.base import (
 )
 from aigm.game import Game
 from aigm import rulesets
+from aigm.compendium import unseen_totals
 from aigm.llm.narration import NarrationStream
 from aigm.metrics import MetricsLog, RequestMetrics, TurnMetrics, request_sizes
 from aigm.models import (
@@ -300,6 +301,7 @@ async def run_turn(
                     ruleset_name=rulesets.get(state.ruleset).short,
                     metrics=measured.to_dict(),
                     story=public_summary(state.story),
+                    compendium=unseen_totals(state.world, session.reading_state()),
                 )
                 return
 

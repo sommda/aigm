@@ -1,8 +1,10 @@
 # AIGM Compendium: Design
 
-Status: proposed, not built. This is the design for a player-facing compendium: a running list of the characters,
-locations and other things (factions, concepts) the player has learned about, with the details they know, a mark for
-what is new, and a server API and client screen to browse it.
+Status: server built (build steps 1 to 3); client not yet.
+
+This is the design for a player-facing compendium: a running list of the characters, locations and other things
+(factions, concepts) the player has learned about, with the details they know, a mark for what is new, and a server API
+and client screen to browse it.
 
 ## 1. Goal
 
@@ -170,6 +172,7 @@ Nothing else in the server builds compendium data.
   "category": "locations",
   "summary": "An abandoned silver mine in the Thornwood.",   // one known fact, see below; may be ""
   "parent": { "id": "e003", "name": "Thornwood" },            // locations only, discovered parents only; else null
+  "depth": 0,                                                // nesting in a `tree` sort; 0 otherwise
   "fact_count": 5,                                           // known, active facts about it
   "status": "updated",                                       // "new" | "updated" | null
   "unseen_count": 2,

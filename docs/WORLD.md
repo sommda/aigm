@@ -106,8 +106,8 @@ consistently with them, but is told never to reveal them except through play. A 
 curator sees it narrated (section 4.3), and `known` facts are immutable canon. Rumors are modeled as `known` facts about
 *what people say*, plus the hidden truth, so a rumor can be false without the KB lying.
 
-The `known` subset would make a natural player journal, but there is deliberately no client-visible world in v1 (section
-10).
+The `known` subset is the player's journal: the compendium (COMPENDIUM.md) shows exactly the `known`, active facts and
+the entities they are about, and nothing else of the world.
 
 ### 2.4 World state
 
@@ -157,7 +157,8 @@ The KB lives in `GameState.world`, next to `phase` and `campaign`. Consequences,
 
 ### 2.6 Inspecting the world (debugging)
 
-There is no client or API view of the world. Instead the server keeps a human-readable **world dump**, a JSON file per
+There is no client or API view of the world itself (the player's filtered view is the compendium,
+COMPENDIUM.md). Instead the server keeps a human-readable **world dump**, a JSON file per
 session at `{AIGM_SAVE_DIR}/worlds/{session_id}.world.json` (setting `AIGM_WORLD_DUMP`, on by default), rewritten
 atomically whenever the world has changed since it was last written: it is checked after every turn (which covers
 bootstrap, the GM's own `establish`/`set_scene` calls and any curator pass that has landed) and after a restore. An
@@ -555,7 +556,7 @@ turn that displays it clears it on commit).
 
 ## 8. API additions
 
-Deliberately small: no client sees the world.
+Deliberately small: no client sees the world, apart from the compendium's filtered view (COMPENDIUM.md).
 
 - **Save format v3** adds `world` (pretty-printed like the rest of the file); `GET /history/{name}` gains `fact_count`,
   `entity_count` and `world_time`.
@@ -563,7 +564,8 @@ Deliberately small: no client sees the world.
   `{ "stage": "world", "message": "Preparing the world...", "done": false }`, then a final one with `done: true` before
   the opening scene's `text`. Unknown events are already ignored by clients, so older clients just see a longer pause;
   the Textual client shows the message in its status line.
-- No endpoint reads or writes the world. Inspection is the server-side dump (2.6). A debug-only `GET /world` can be
+- The world itself has no endpoint. Inspection is the server-side dump (2.6); the player's filtered view is the
+  compendium (COMPENDIUM.md). A debug-only `GET /world` can be
   added later if it is ever wanted.
 
 ## 9. Testing
@@ -607,8 +609,8 @@ Taken after review of the first draft:
 1. **Bootstrap latency:** the player waits. The world is seeded after `begin_adventure` and before the first scene, with
    `status` events so the client can show progress (4.6).
 2. **Hidden facts:** included in the GM's briefing for the location, the NPCs present and adjacent places (6.1).
-3. **Journal:** none. No client-visible world. Debugging is a server-side, pretty-printed, entity-grouped world dump
-   file (2.6) plus pretty-printed saves.
+3. **Journal:** the compendium (COMPENDIUM.md) shows the player only what they know. Debugging is a server-side,
+   pretty-printed, entity-grouped world dump file (2.6) plus pretty-printed saves.
 4. **World time:** in v1 as a stored clock with timestamps and reserved validity fields, shown to the GM as one briefing
    line, and otherwise inert (2.4). Nothing changes over time yet, but the schema is ready.
 5. **Models:** cheap models wherever possible: Haiku 5.5 for extraction, reconciliation and the independence check;

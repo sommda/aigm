@@ -144,14 +144,15 @@ A saved history is a "named history", like a saved game file. `HistoryRepository
 
 - Snapshot file: `{AIGM_SAVE_DIR}/{name}.json`:
   ```json
-  { "version": 5, "name": "...", "saved_at": "...", "model": "...", "phase": "adventure",
+  { "version": 6, "name": "...", "saved_at": "...", "model": "...", "phase": "adventure",
     "campaign": {...}, "world": {...}, "structure": "endless", "story": null,
     "level": null, "xp": 0, "messages": [...] }
   ```
   Files are written pretty-printed (`indent=2`), never on one line. Version 1 files (messages only) load as `adventure`
   with no campaign record; version 2 files (no `world`) load with an empty world; files before version 4 have no
   `structure` or `story` and load as endless games (docs/STORY.md), and files before version 5 have no
-  `level` or `xp` (docs/PROGRESSION.md). Restore also validates the state
+  `heroes` (docs/PROGRESSION.md), and files before version 6 have no `compendium` reading state or
+  `learned_seq` on facts (docs/COMPENDIUM.md). Restore also validates the state
   (known phase, `campaign` an object or null, none in `session_zero`) and the world (ids unique, every reference
   resolves, parent chains end, names unique, `next_id` above every id, supersession consistent). A `session_zero` save
   must have an empty world. Content caps are not re-checked on load, so a save still loads if the caps are tightened

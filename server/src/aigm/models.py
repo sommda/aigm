@@ -149,6 +149,7 @@ class MessageEnd(SSEEvent):
     ruleset_name: str = ""
     metrics: dict[str, Any] | None = None  # timings and token use of the turn (see aigm.metrics)
     story: dict[str, Any] | None = None  # story games: the public summary (aigm.story.public_summary)
+    compendium: dict[str, int] | None = None  # entries with something unseen: {"new": n, "updated": m}
 
 
 class ErrorEvent(SSEEvent):

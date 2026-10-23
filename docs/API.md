@@ -51,6 +51,10 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | POST   | `/history/{name}/restore`     | Load saved history `{name}` into the live session    | JSON       |
 | DELETE | `/history/{name}`             | Delete one saved history                             | JSON       |
 | GET    | `/health`                     | Liveness check; reports whether debug mode is on     | JSON       |
+| GET    | `/compendium`                 | Counts of what the player has learned, and what is new | JSON     |
+| GET    | `/compendium/{category}`      | The known locations, characters or other things      | JSON       |
+| GET    | `/compendium/entities/{id}`   | What the player knows about one entity               | JSON       |
+| POST   | `/compendium/seen`            | Mark compendium entries as read                      | JSON       |
 | GET    | `/debug/context`              | The next request's context (**debug mode only**)     | JSON       |
 | GET    | `/debug/story`                | The whole story plan (**debug mode only**)           | JSON       |
 | GET    | `/debug/thinking`             | Whether model thinking is on (**debug mode only**)   | JSON       |
@@ -318,6 +322,7 @@ there is no event and the next `message_end` simply shows the new chapter in `st
   "ruleset": "dnd55e",
   "ruleset_name": "D&D 5.5e",
   "story": { "length": "short", "chapter": 2, "chapter_title": "The road to the Vault", "ended": false },
+  "compendium": { "new": 1, "updated": 2 },
   "metrics": {
     "turn": 14, "phase": "session_zero", "model": "claude-sonnet-5-5",
     "first_text_ms": 1840, "total_ms": 9210, "pause_ms": 800, "model_calls": 2,
@@ -329,8 +334,9 @@ there is no event and the next `message_end` simply shows the new chapter in `st
 }
 ```
 
-`phase` is the phase after the turn. `story` is the public summary of a story game and `null` for an endless game (see
-`GET /chat/history`). `usage` sums the turn's model calls: `input_tokens` is everything the model read,
+`phase` is the phase after the turn. `compendium` counts the compendium entries with something the player has not
+read yet (see the compendium section below). `story` is the public summary of a story game and `null` for an endless
+game (see `GET /chat/history`). `usage` sums the turn's model calls: `input_tokens` is everything the model read,
 cached or not, and the two `cache_*` counts say how much of it was read from or written to the prompt cache.
 
 `metrics` measures the turn (docs/HISTORY.md, A). Times are milliseconds. `first_text_ms` runs from the start of the
@@ -575,11 +581,116 @@ Errors: `400` invalid name; `404` no such history. There is no endpoint that del
 
 ## GET `/health`
 
-Response `200`: `{ "status": "ok", "model": "claude-sonnet-5-5", "debug": false }`
+Response `200`: `{ "status": "ok", "model": "claude-sonnet-5-5", "debug": false, "compendium": true }`
+
+`compendium` is `true` when the server has the compendium endpoints below; older servers leave it out.
 
 `debug` is `true` when the server was started with `--debug` (or `AIGM_DEBUG=true`). Clients use it to decide whether
 to offer the context viewer and the thinking switch; it does not grant access by itself. In debug mode the response
 also has `"thinking": true|false`, the current state of the switch below.
+
+---
+
+## The compendium
+
+What the player has learned about the world (docs/COMPENDIUM.md). Every call takes the usual `session_id` query
+parameter. Only facts the player has been told, and entities they have discovered, are ever returned. The calls read the
+game as of the last finished turn, so they are safe at any time, including during a turn.
+
+Categories: `locations` (location), `characters` (npc) and `other` (faction and concept).
+
+### GET `/compendium`
+
+```json
+{
+  "session_id": "default",
+  "phase": "adventure",
+  "categories": [
+    { "id": "locations", "title": "Locations", "count": 6, "new": 1, "updated": 1 },
+    { "id": "characters", "title": "Characters", "count": 4, "new": 0, "updated": 2 },
+    { "id": "other", "title": "Other", "count": 2, "new": 0, "updated": 0 }
+  ],
+  "new": 1,
+  "updated": 3
+}
+```
+
+`new` entries are ones whose every known fact is unread; `updated` ones have some read and some unread. In Session 0
+every count is `0`.
+
+### GET `/compendium/{category}`
+
+Query: `q` (case-insensitive part of a name or a known alias), `status` (`new`, `updated` or `unseen` for either),
+`sort` (`name`, the default; `recent`, newest learned first; `tree`, locations only, parents before children). A bad
+value is `422`; an unknown category is `404`.
+
+```json
+{
+  "session_id": "default",
+  "category": "locations",
+  "title": "Locations",
+  "count": 1,
+  "entries": [
+    {
+      "id": "e007",
+      "name": "Harrow Mine",
+      "kind": "location",
+      "category": "locations",
+      "summary": "The mine lies deep in the Thornwood.",
+      "parent": { "id": "e003", "name": "Thornwood" },
+      "depth": 0,
+      "fact_count": 5,
+      "status": "updated",
+      "unseen_count": 2,
+      "learned_turn": 31
+    }
+  ]
+}
+```
+
+`parent` is set only when the parent is itself discovered. `depth` is the nesting level in a `tree` sort and `0`
+otherwise. `status` is `"new"`, `"updated"` or `null`.
+
+### GET `/compendium/entities/{entity_id}`
+
+```json
+{
+  "session_id": "default",
+  "id": "e007",
+  "name": "Harrow Mine",
+  "kind": "location",
+  "category": "locations",
+  "aliases": ["the old mine"],
+  "status": "updated",
+  "parent": { "id": "e003", "name": "Thornwood" },
+  "path": [{ "id": "e001", "name": "Ashby Vale" }, { "id": "e003", "name": "Thornwood" }],
+  "children": [{ "id": "e012", "name": "Lower Gallery", "kind": "location", "status": "new" }],
+  "facts": [
+    {
+      "id": "f0042",
+      "text": "The Harrow Mine was abandoned forty years ago after a collapse.",
+      "aspect": "history",
+      "label": "History",
+      "learned_turn": 31,
+      "new": false
+    }
+  ],
+  "related": [{ "id": "e020", "name": "Thorn Guild", "kind": "faction", "category": "other" }],
+  "learned_turn": 31,
+  "updated_turn": 48
+}
+```
+
+`facts` read subject facts first, then mentions, each in the order of the kind's checklist. `404` for an id that does
+not exist and, with the same message, for one the player has not discovered. A malformed id is `422`.
+
+### POST `/compendium/seen`
+
+Request: exactly one of `{ "entities": ["e007", "e012"] }` or `{ "all": true }`. Unknown and undiscovered ids are
+ignored. The response is the `GET /compendium` summary after the change. While a turn is running the marks are held and
+applied after it, and the response already shows them applied.
+
+`GET /chat/history` and `POST /history/{name}/restore` also carry `"compendium": { "new": n, "updated": m }`.
 
 ---
 

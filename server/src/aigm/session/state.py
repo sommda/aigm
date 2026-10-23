@@ -8,6 +8,7 @@ from typing import Any
 from aigm.errors import CorruptSave
 from aigm.rulesets import BY_ID, DEFAULT_RULESET
 from aigm.story import ENDLESS, STRUCTURES, Story
+from aigm.compendium import Compendium
 from aigm.world import World
 
 
@@ -78,6 +79,8 @@ class GameState:
     # Each character's advancement, by name; kept by the server and changed with the `award` tool (docs/PROGRESSION.md).
     # A character with no entry is at the party's starting level with no XP (see `hero`).
     heroes: dict[str, Hero] = field(default_factory=dict)
+    # What the player has already looked at in the compendium (docs/COMPENDIUM.md).
+    compendium: Compendium = field(default_factory=Compendium)
 
     @property
     def party_names(self) -> list[str]:
@@ -117,6 +120,7 @@ class GameState:
             self.structure,
             self.story.copy() if self.story else None,
             {n: Hero(h.level, h.xp, dict(h.classes)) for n, h in self.heroes.items()},
+            self.compendium.copy(),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -128,6 +132,7 @@ class GameState:
             "structure": self.structure,
             "story": self.story.to_dict() if self.story else None,
             "heroes": {n: {"level": h.level, "xp": h.xp, "classes": dict(h.classes)} for n, h in self.heroes.items()},
+            "compendium": self.compendium.to_dict(),
         }
 
     @classmethod
@@ -159,4 +164,5 @@ class GameState:
         if phase is Phase.SESSION_ZERO and story is not None:
             raise CorruptSave("a session_zero save cannot have a story")
         heroes = _read_heroes(data.get("heroes"))  # saves before version 5 have none
-        return cls(phase, campaign, world, ruleset, structure=structure, story=story, heroes=heroes)
+        return cls(phase, campaign, world, ruleset, structure=structure, story=story, heroes=heroes,
+                   compendium=Compendium.from_dict(data.get("compendium")))  # none before version 6

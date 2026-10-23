@@ -2,6 +2,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from aigm.compendium import unseen_totals
 from aigm.deps import get_repo, get_session
 from aigm.errors import Conflict
 from aigm.session.persistence import HistoryRepository
@@ -55,6 +56,7 @@ async def restore_history(name: str, request: Request, repo: RepoDep, session: S
         "phase": state.phase.value,
         "ruleset": state.ruleset,
         "story": public_summary(state.story),
+        "compendium": unseen_totals(state.world, state.compendium),
         "message_count": len(messages),
         "saved_at": info["saved_at"],
         "replaced_message_count": replaced,

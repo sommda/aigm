@@ -3,6 +3,7 @@ from typing import Any
 import logging
 
 from aigm import story as story_rules
+from aigm.compendium import Compendium
 from aigm.session.state import GameState
 from aigm.world.ops import Op, apply_ops
 
@@ -25,6 +26,8 @@ class Session:
         self.pending_plans: list[Any] = []  # finished chapter plans (aigm.world.plot.PlotResult), same wait
         self.pending_reports: list[dict[str, Any]] = []  # quests the curator saw finished, same wait
         self.plan_retry_turn = 0  # a failed chapter plan is not tried again before this turn
+        # Compendium marks sent while a turn ran: entity ids, or None for everything (docs/COMPENDIUM.md 4.3).
+        self.pending_seen: list[list[str] | None] = []
 
     def reset_world_work(self) -> None:
         """The game was replaced (new game, restore): forget in-flight and finished curator work."""
@@ -32,14 +35,19 @@ class Session:
         self.pending.clear()
         self.pending_plans.clear()
         self.pending_reports.clear()
+        self.pending_seen.clear()
         self.plan_retry_turn = 0
 
     def drain_pending(self, *, in_turn: bool = False) -> None:
         """Apply finished curator passes to the live world. Done only between turns (a turn works on
         a copy of the state and would overwrite changes made while it runs), or at the very start
         of a turn, before that copy is taken."""
-        if (self.busy and not in_turn) or not (self.pending or self.pending_plans or self.pending_reports):
+        if (self.busy and not in_turn) or not (
+            self.pending or self.pending_plans or self.pending_reports or self.pending_seen
+        ):
             return
+        self.state.compendium = self.reading_state()
+        self.pending_seen.clear()
         for ops in self.pending:
             applied = apply_ops(self.state.world, ops)
             for why in applied.skipped:
@@ -51,6 +59,24 @@ class Session:
         for report in self.pending_reports:
             self._apply_report(report)
         self.pending_reports.clear()
+
+    def mark_seen(self, entity_ids: list[str] | None) -> None:
+        """The player has read these compendium entries (None: all of it). During a turn the live state is about to be
+        replaced by the turn's copy, so the mark waits until the turn is over."""
+        if self.busy:
+            self.pending_seen.append(entity_ids)
+        else:
+            self.state.compendium = self.reading_state([entity_ids])
+
+    def reading_state(self, extra: list[list[str] | None] | None = None) -> Compendium:
+        """The compendium's reading state with the waiting marks (and `extra`) applied, as a copy."""
+        comp = self.state.compendium.copy()
+        for ids in [*self.pending_seen, *(extra or [])]:
+            if ids is None:
+                comp.mark_all(self.state.world)
+            else:
+                comp.mark_seen(self.state.world, ids)
+        return comp
 
     def _apply_plan(self, plan: Any) -> None:
         """Add a later chapter's quests, if the story is still waiting for exactly that chapter."""
