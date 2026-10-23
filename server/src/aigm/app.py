@@ -5,6 +5,7 @@ from aigm.config import Settings
 from aigm.errors import install_error_handlers
 from aigm.llm.anthropic_client import AnthropicLLM
 from aigm.llm.base import LLMClient
+from aigm.llm.ollama_client import OllamaLLM
 from aigm.llm.scripted import ScriptedLLM
 from aigm.game import Game
 from aigm.metrics import MetricsLog
@@ -13,6 +14,7 @@ from aigm.routes import chat, debug, health, history
 from aigm.session.persistence import HistoryRepository
 from aigm.session.store import SessionStore
 from aigm.world.anthropic_curator import AnthropicCurator
+from aigm.world.ollama_curator import OllamaCurator
 from aigm.world.dump import WorldDumper
 from aigm.world.passes import PassConfig
 from aigm.world.scripted import ScriptedCurator
@@ -33,6 +35,15 @@ def create_app(
     if llm is None:
         if settings.test_mode:
             llm = ScriptedLLM(delay=settings.test_delay, chunk_size=settings.test_chunk_size)
+        elif settings.provider == "ollama":
+            llm = OllamaLLM(
+                model=settings.model,
+                host=settings.ollama_host,
+                max_tokens=settings.max_tokens,
+                num_ctx=settings.ollama_num_ctx,
+                keep_alive=settings.ollama_keep_alive,
+                think=settings.ollama_think,
+            )
         else:
             llm = AnthropicLLM(
                 api_key=settings.anthropic_api_key,
@@ -73,6 +84,18 @@ def _make_curator(settings: Settings, prompts: PromptLibrary) -> CuratorService 
         return CuratorService(ScriptedCurator(), **timing)
     if not settings.world_curator:
         return None
+    if settings.provider == "ollama":
+        return CuratorService(
+            OllamaCurator(
+                prompts=prompts,
+                model=settings.curator_model,
+                expand_model=settings.curator_expand_model,
+                host=settings.ollama_host,
+                num_ctx=settings.ollama_num_ctx,
+                keep_alive=settings.ollama_keep_alive,
+            ),
+            **timing,
+        )
     return CuratorService(
         AnthropicCurator(
             api_key=settings.anthropic_api_key,

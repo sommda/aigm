@@ -21,8 +21,9 @@ cp server/.env.example server/.env   # then edit it
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | (required for chat) | Your Anthropic API key |
-| `AIGM_MODEL` | `claude-sonnet-5-5` | Claude model id to use |
+| `AIGM_PROVIDER` | `anthropic` | `anthropic`, or `ollama` to run the GM and the world curator on a local Ollama server (see below) |
+| `ANTHROPIC_API_KEY` | (required for chat) | Your Anthropic API key (not needed with `ollama`) |
+| `AIGM_MODEL` | `claude-sonnet-5-5` | Model id to use (with `ollama`, an Ollama tag such as `gemma4:12b`) |
 | `AIGM_MAX_TOKENS` | `16000` | Max output tokens per response (includes thinking) |
 | `AIGM_THINKING_SUMMARIES` | `true` | Ask the model for adaptive thinking with readable summaries. Set `false` for models without adaptive thinking (e.g. Haiku 4.5) |
 | `AIGM_EFFORT` | (model default) | Thinking depth: `low`, `medium`, `high`, `xhigh`, `max` |
@@ -40,6 +41,23 @@ cp server/.env.example server/.env   # then edit it
 | `AIGM_STORY_EXPAND_ENTITIES` | `3` | Story games: new entities one curator pass may add in chapters 2 and 3 (see [docs/STORY.md](docs/STORY.md)) |
 | `AIGM_STORY_NUDGE_TURNS` | `12` | Story games: turns without progress before the GM is asked to offer a hook (see [docs/STORY.md](docs/STORY.md)) |
 | `AIGM_PROMPT_DIR` | (none) | Directory of prompt files that override or extend the packaged ones (see Prompts) |
+
+### Local models (Ollama)
+
+```sh
+AIGM_PROVIDER=ollama
+AIGM_MODEL=gemma4:12b          # any model from `ollama list` that supports tools
+```
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AIGM_OLLAMA_HOST` | `http://localhost:11434` | Where Ollama is listening |
+| `AIGM_OLLAMA_NUM_CTX` | `32768` | Context window requested per call. Ollama's own default is small and silently cuts a long prompt |
+| `AIGM_OLLAMA_KEEP_ALIVE` | (Ollama's) | How long the model stays loaded, e.g. `1h` or `-1` |
+| `AIGM_OLLAMA_THINK` | (model's) | `true`/`false` to ask for or forbid thinking; leave empty if the model has no thinking mode |
+
+The world curator uses the same model unless `AIGM_WORLD_MODEL` / `AIGM_WORLD_EXPAND_MODEL` name another. Small local
+models follow the long GM prompt and its tools less reliably than Claude does.
 
 Or inline: `ANTHROPIC_API_KEY=sk-ant-... AIGM_MODEL=claude-opus-5-5 uv run uvicorn aigm.app:app`. The active model is
 shown by `GET /health`. The full list of settings is in [docs/BACKEND.md](docs/BACKEND.md).

@@ -10,6 +10,15 @@ from aigm.history import HistoryPolicy
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
+    # Which service runs the GM (and the world curator): "anthropic" or "ollama" (a local Ollama server).
+    provider: Literal["anthropic", "ollama"] = Field(default="anthropic", validation_alias="AIGM_PROVIDER")
+    ollama_host: str = Field(default="http://localhost:11434", validation_alias="AIGM_OLLAMA_HOST")
+    # Ollama's own default context is small and silently cuts a long prompt, so the server always asks for this much.
+    ollama_num_ctx: int = Field(default=32768, ge=2048, validation_alias="AIGM_OLLAMA_NUM_CTX")
+    # How long Ollama keeps the model loaded after a request ("5m", "1h", "-1" for always); empty: Ollama's default.
+    ollama_keep_alive: str | None = Field(default=None, validation_alias="AIGM_OLLAMA_KEEP_ALIVE")
+    # Ask the model to think (true), forbid it (false), or leave it to the model (empty). Not every model can think.
+    ollama_think: bool | None = Field(default=None, validation_alias="AIGM_OLLAMA_THINK")
     anthropic_api_key: str | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
     model: str = Field(default="claude-sonnet-5-5", validation_alias="AIGM_MODEL")
     max_tokens: int = Field(default=16000, validation_alias="AIGM_MAX_TOKENS")
@@ -68,10 +77,20 @@ class Settings(BaseSettings):
         default=["http://localhost", "http://127.0.0.1"], validation_alias="AIGM_CORS_ORIGINS"
     )
 
-    @field_validator("effort", mode="before")
+    @field_validator("effort", "ollama_think", "ollama_keep_alive", mode="before")
     @classmethod
-    def _blank_effort_is_the_models_own(cls, value: object) -> object:
+    def _blank_is_unset(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
+
+    @property
+    def curator_model(self) -> str:
+        """The cheap curator model. On Ollama it is the GM's own model unless AIGM_WORLD_MODEL names another."""
+        return self.world_model if self.provider != "ollama" or "world_model" in self.model_fields_set else self.model
+
+    @property
+    def curator_expand_model(self) -> str:
+        explicit = "world_expand_model" in self.model_fields_set
+        return self.world_expand_model if self.provider != "ollama" or explicit else self.curator_model
 
     @property
     def history_policy(self) -> HistoryPolicy:

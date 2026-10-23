@@ -72,7 +72,8 @@ Environment variables (via `pydantic-settings`, optional `.env`):
 
 | Var                    | Default               | Purpose                              |
 |------------------------|-----------------------|--------------------------------------|
-| `ANTHROPIC_API_KEY`    | (required)            | API credential                       |
+| `AIGM_PROVIDER`        | `anthropic`           | `anthropic` or `ollama` (local models, see below) |
+| `ANTHROPIC_API_KEY`    | (required)            | API credential (not used by `ollama`) |
 | `AIGM_MODEL`           | `claude-sonnet-5-5`   | Model id                             |
 | `AIGM_MAX_TOKENS`      | `16000`               | Per-response output cap (includes thinking)  |
 | `AIGM_MAX_TOOL_ITERS`  | `16`                  | Tool-loop safety limit per turn      |
@@ -420,6 +421,14 @@ stored in history). Implementations:
     SDK client is created lazily, so the server starts (and `/health` works) without a key.
   - The loop also rejects malformed completions before they reach history: an empty response, or a `tool_use` block with
     a stop reason other than `tool_use` (e.g. `max_tokens` mid tool call), both become retryable errors.
+  - **Ollama** (`AIGM_PROVIDER=ollama`, `llm/ollama_client.py`): the same `LLMClient` over Ollama's native streaming
+    `POST /api/chat`. History stays in Anthropic block format and is translated per request (tool results become
+    `tool` messages named after their call, thinking blocks are dropped). Ollama sends a tool call whole, so it
+    becomes `ToolInputStarted`, one `ToolInputChunk` and `ToolInputStopped`, with a generated tool_use id. Every
+    request sets `options.num_ctx` (`AIGM_OLLAMA_NUM_CTX`, default 32768), because Ollama's default silently truncates
+    long prompts. `think` is sent only when `AIGM_OLLAMA_THINK` is set. The world curator (`OllamaCurator`) reuses the
+    Anthropic curator's passes and gets its JSON through Ollama's `format` schema option. Other settings:
+    `AIGM_OLLAMA_HOST`, `AIGM_OLLAMA_KEEP_ALIVE`. On Ollama the curator models default to `AIGM_MODEL`.
   - Not implemented (yet): server-side refusal `fallbacks` (a beta that changes the request path),
     `eager_input_streaming` for tool inputs (dice expressions are tiny), and the 1h cache TTL.
 
