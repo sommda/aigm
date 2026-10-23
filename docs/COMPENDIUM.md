@@ -346,9 +346,11 @@ A full-screen modal over the transcript, like the context viewer, with the same 
   `1`, `2`, `3`) switch. Locations show as an indented tree (`sort=tree`); the other two as a flat list by name.
 - **Left pane: the list.** One row per entity: the new marker, the name, and a right-aligned `new` or `updated` tag.
   The marker and tag are both shown, so color is never the only signal: `new` green bold, `updated` yellow. The row
-  under the cursor also shows its `summary` dimmed on a second line. On a terminal narrower than about 100 columns the
+  under the cursor shows nothing more: the list is names only, so a location's sub-locations read as a plain
+  hierarchy. (The row's `summary` is not drawn.) On a terminal narrower than about 100 columns the
   right pane is dropped and Enter opens the detail full screen, with Esc going back to the list.
-- **Right pane: the detail** of the entry under the cursor, loaded on demand and cached for the opening. Facts are
+- **Right pane: the detail** of the entry under the cursor, loaded on demand and cached for the opening. The facts
+  with no aspect are the description: they come first, with no heading and no indent. The facts with an aspect follow,
   grouped under their aspect label, new ones marked with the same `✦`. A line of breadcrumb for locations
   (`path`), the aliases, and a `See also` line with the related entities. `Tab` moves into the detail, where `↑`/`↓`
   select a related entity or child and `Enter` jumps to it (switching tab if needed); `Backspace` goes back to where

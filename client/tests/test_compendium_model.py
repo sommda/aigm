@@ -38,16 +38,16 @@ def test_the_tabs_show_counts_and_unread():
     assert "*2" in loaded(True).tabs_text().plain
 
 
-def test_list_lines_show_the_mark_tag_indent_and_a_summary_under_the_cursor():
+def test_list_lines_show_only_names_with_the_mark_tag_and_indent():
     m = loaded()
-    lines, cursor = m.list_lines(40)
-    assert cursor == 0 and len(lines) == 3  # no summary for the first
     m.move(1)
     lines, cursor = m.list_lines(40)
     text = plain(lines)
-    assert cursor == 1 and text[1].startswith("✦   Thornwood") and text[1].endswith("updated")
-    assert text[2].strip() == "A dark forest." and text[3].startswith("✦     Harrow Mine")
-    assert all(len(t) == 40 for t in text[:2])
+    assert cursor == 1 and len(text) == 3  # one line per entry: no description under the cursor
+    assert text[1].startswith("✦   Thornwood") and text[1].endswith("updated")
+    assert text[2].startswith("✦     Harrow Mine")
+    assert "forest" not in " ".join(text)
+    assert all(len(t) == 40 for t in text)
 
 
 def test_ascii_mode_uses_plain_marks():
@@ -161,11 +161,13 @@ def test_detail_lines_group_facts_by_label_and_mark_new_ones():
     text = plain(m.detail_lines(60)[0])
     assert text[0].startswith("Harrow Mine") and text[1] == "in Ashby Vale › Thornwood"
     assert "also called: the old mine" in text
-    assert "History" in text and "✦ It was abandoned forty years ago after a collapse." in text
-    assert "  It lies east of Ashby." in text and "Also" in text
+    assert "History" in text and "  ✦ It was abandoned forty years ago after a collapse." in text
+    assert "  It lies east of Ashby." in text and "Also" not in text
+    assert "Wren mentioned it." in text  # the description has no heading and no indent
+    assert text.index("Wren mentioned it.") < text.index("History")
     assert "Places inside" in text and "See also" in text and "  → Thorn Guild  faction" in text
     m.mark_read("e007")
-    assert not any(t.startswith("✦ It was") for t in plain(m.detail_lines(60)[0]))  # read: the mark is gone
+    assert not any("✦ It was" in t for t in plain(m.detail_lines(60)[0]))  # read: the mark is gone
 
 
 def test_long_facts_wrap_to_the_width():

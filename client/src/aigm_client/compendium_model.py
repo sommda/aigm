@@ -248,9 +248,6 @@ class CompendiumModel:
                 cursor_line = len(lines)
                 line.stylize("reverse")
             lines.append(line)
-            if i == current and entry.get("summary"):
-                summary = textwrap.shorten(entry["summary"], width=max(width - 4, 10), placeholder=self.marks.ellipsis)
-                lines.append(Text("    " + summary, style="dim"))
         return lines, cursor_line
 
     def detail_lines(self, width: int) -> tuple[list[Text], int]:
@@ -274,17 +271,19 @@ class CompendiumModel:
             extra.append("also called: " + ", ".join(d["aliases"]))
         for note in extra:
             lines += [Text(part, style="dim") for part in textwrap.wrap(note, wrap) or [""]]
+        facts = d.get("facts") or []
+        plain = [f for f in facts if not f.get("label")]  # the description: no heading, no indent
+        if plain:
+            lines.append(Text(""))
+        for fact in plain:
+            lines += self._fact_lines(d, fact, wrap, indent=0)
         label = object()
-        for fact in d.get("facts") or []:
-            if fact.get("label") != label:
-                label = fact.get("label")
+        for fact in (f for f in facts if f.get("label")):  # the other properties, under their headings
+            if fact["label"] != label:
+                label = fact["label"]
                 lines.append(Text(""))
-                lines.append(Text(label or "Also", style="bold cyan"))
-            new = fact.get("new") and d["id"] not in self.read
-            body = textwrap.wrap(fact["text"], wrap - 2) or [""]
-            for j, part in enumerate(body):
-                lead = (star + " ") if (new and j == 0) else "  "
-                lines.append(Text(lead + part, style="green" if new else ""))
+                lines.append(Text(label, style="bold cyan"))
+            lines += self._fact_lines(d, fact, wrap, indent=2)
         selected = -1
         links = self.links()
         heading = None
@@ -303,6 +302,16 @@ class CompendiumModel:
                 selected = len(lines)
             lines.append(row)
         return lines, selected
+
+    def _fact_lines(self, d: dict[str, Any], fact: dict[str, Any], wrap: int, indent: int) -> list[Text]:
+        new = fact.get("new") and d["id"] not in self.read
+        lead = self.marks.star + " " if new else ""
+        pad = " " * indent
+        body = textwrap.wrap(fact["text"], max(wrap - indent - 2, 8)) or [""]
+        return [
+            Text(pad + (lead if j == 0 else " " * len(lead)) + part, style="green" if new else "")
+            for j, part in enumerate(body)
+        ]
 
     def help_text(self) -> str:
         base = "←→ tab  ↑↓ move  Tab links  / filter  u unread only  n next unread  a all read  r refresh  Esc close"
