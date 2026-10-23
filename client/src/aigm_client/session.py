@@ -65,6 +65,7 @@ class ChatSession:
         self.story: dict[str, Any] | None = None  # the server's public story summary (docs/STORY.md 11)
         self.dirty = False  # unsaved changes since last save/load/new
         self.changed = False  # set whenever anything visible changed; the UI clears it
+        self.compendium_unread = 0  # compendium entries (new or updated) the player has not read
         self.show_metrics = False  # a debug server: print each turn's timings and token use
         self._text: MarkdownBlock | None = None
         self._reasoning: ReasoningBlock | None = None
@@ -152,7 +153,9 @@ class ChatSession:
                 lines = award_lines(award.xp_gained, award.to, award.everyone, levelled, award.reason)
                 for line in lines:
                     self.add_system(line, "bold green" if "reaches level" in line else "green")
-            case ev.MessageEnd(phase=phase, ruleset_name=ruleset, metrics=metrics, story=story):
+            case ev.MessageEnd(phase=phase, ruleset_name=ruleset, metrics=metrics, story=story, compendium=comp):
+                if comp is not None:
+                    self.set_unread(comp)
                 if phase:
                     self.phase = phase
                 self.ruleset_name = ruleset or self.ruleset_name
@@ -171,6 +174,14 @@ class ChatSession:
             case _:  # MessageStart, Unknown: nothing to show
                 pass
         self._touch()
+
+    def set_unread(self, counts: dict[str, Any] | None) -> None:
+        """Take the unread totals of a server reply ({"new": n, "updated": m}); anything else means none."""
+        counts = counts or {}
+        total = sum(v for k in ("new", "updated") if isinstance((v := counts.get(k)), int) and not isinstance(v, bool))
+        if total != self.compendium_unread:
+            self.compendium_unread = total
+            self.changed = True
 
     def _announce_chapter(self, chapter: int, title: str) -> None:
         """One banner per chapter: the event and the next message_end both report the same change."""
@@ -206,12 +217,18 @@ class ChatSession:
         self._touch()
 
     def load_history(
-        self, messages: list[dict[str, Any]], phase: str = "", ruleset_name: str = "", story: dict[str, Any] | None = None
+        self,
+        messages: list[dict[str, Any]],
+        phase: str = "",
+        ruleset_name: str = "",
+        story: dict[str, Any] | None = None,
+        compendium: dict[str, Any] | None = None,
     ) -> None:
         """Replace the transcript with a server history and open on its last page."""
         self.phase = phase
         self.ruleset_name = ruleset_name
         self.story = story
+        self.set_unread(compendium)
         self.transcript.replace_blocks(history_to_blocks(messages))
         self.busy = self.thinking = False
         self.status = ""
@@ -223,6 +240,7 @@ class ChatSession:
         self.phase = phase
         self.ruleset_name = ruleset_name
         self.story = None
+        self.set_unread(None)
         self.transcript.clear()
         self.busy = self.thinking = False
         self.status = ""

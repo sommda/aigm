@@ -2,7 +2,8 @@
 
 from dataclasses import dataclass, field
 
-KNOWN = {"new", "save", "load", "saves", "info", "delete", "help", "quit", "reconnect", "context", "thinking", "story"}
+KNOWN = {"new", "save", "load", "saves", "info", "delete", "help", "quit", "reconnect", "context", "thinking", "story", "compendium"}
+ALIASES = {"journal": "compendium", "c": "compendium"}
 
 
 @dataclass(frozen=True)
@@ -23,7 +24,7 @@ def parse_command(line: str) -> Command | None:
     parts = line[1:].split()
     if not parts:
         return Command("unknown")
-    name = parts[0].lower()
+    name = ALIASES.get(parts[0].lower(), parts[0].lower())
     args = tuple(p for p in parts[1:] if not p.startswith("--"))
     flags = frozenset(p[2:] for p in parts[1:] if p.startswith("--"))
     return Command(name if name in KNOWN else "unknown", args if name in KNOWN else (name,), flags)

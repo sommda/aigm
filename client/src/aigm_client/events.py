@@ -79,6 +79,7 @@ class MessageEnd:
     ruleset_name: str = ""
     metrics: dict[str, Any] = field(default_factory=dict)  # timings and token use of the turn
     story: dict[str, Any] | None = None  # story games: {"length", "chapter", "chapter_title", "ended"}
+    compendium: dict[str, Any] | None = None  # {"new": n, "updated": m}: compendium entries with something unread
 
 
 @dataclass(frozen=True)
@@ -191,6 +192,7 @@ def parse_event(name: str, data: str) -> Event | None:
                     d.get("ruleset_name", ""),
                     d.get("metrics") or {},
                     d["story"] if isinstance(d.get("story"), dict) else None,
+                    d["compendium"] if isinstance(d.get("compendium"), dict) else None,
                 )
             case "phase_change":
                 return PhaseChange(d.get("previous", ""), d.get("phase", ""))

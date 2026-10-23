@@ -83,6 +83,24 @@ class ApiClient:
         """Turn the model's thinking on or off for the server (debug servers only; anything else answers 404)."""
         return (await self._request("PUT", "/debug/thinking", json={"enabled": enabled}))["thinking"]
 
+    async def compendium(self) -> dict[str, Any]:
+        """Counts per category and the totals of unread entries (docs/COMPENDIUM.md)."""
+        return await self._request("GET", "/compendium", params=self._session())
+
+    async def compendium_list(
+        self, category: str, q: str = "", status: str = "", sort: str = "name"
+    ) -> dict[str, Any]:
+        params = {**self._session(), "sort": sort, **({"q": q} if q else {}), **({"status": status} if status else {})}
+        return await self._request("GET", f"/compendium/{category}", params=params)
+
+    async def compendium_entity(self, entity_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/compendium/entities/{entity_id}", params=self._session())
+
+    async def compendium_seen(self, entities: list[str] | None = None) -> dict[str, Any]:
+        """Mark entries as read (None: all of them). Returns the new counts."""
+        body: dict[str, Any] = {"all": True} if entities is None else {"entities": entities}
+        return await self._request("POST", "/compendium/seen", params=self._session(), json=body)
+
     async def chat_state(self) -> dict[str, Any]:
         """The live session: `messages`, plus `phase` and `campaign` on servers that have them."""
         return await self._request("GET", "/chat/history", params=self._session())

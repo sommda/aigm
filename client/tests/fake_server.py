@@ -62,6 +62,37 @@ def sample_context() -> dict:
     }
 
 
+def sample_compendium() -> dict[str, dict]:
+    """Entities as the compendium endpoints describe them, by id (docs/COMPENDIUM.md 5)."""
+    def ent(i, name, kind, category, status, facts, parent=None, **extra):
+        return {"id": i, "name": name, "kind": kind, "category": category, "status": status, "parent": parent,
+                "facts": facts, **extra}
+
+    def fact(i, text, label, new=False):
+        return {"id": i, "text": text, "aspect": (label or "").lower() or None, "label": label,
+                "learned_turn": 3, "new": new}
+
+    vale = {"id": "e001", "name": "Ashby Vale"}
+    return {
+        "e001": ent("e001", "Ashby Vale", "location", "locations", None,
+                    [fact("f1", "Ashby Vale is a farming valley.", "History")], children=[
+                        {"id": "e003", "name": "Thornwood", "kind": "location", "status": "updated"}]),
+        "e003": ent("e003", "Thornwood", "location", "locations", "updated",
+                    [fact("f2", "The Thornwood is a dark forest east of Ashby.", "Approach"),
+                     fact("f3", "Lights are seen there at night.", "Hazards", new=True)],
+                    parent=vale, path=[vale],
+                    children=[{"id": "e007", "name": "Harrow Mine", "kind": "location", "status": "new"}]),
+        "e007": ent("e007", "Harrow Mine", "location", "locations", "new",
+                    [fact("f4", "The Harrow Mine was abandoned forty years ago after a collapse.", "History", True)],
+                    parent={"id": "e003", "name": "Thornwood"}, path=[vale, {"id": "e003", "name": "Thornwood"}],
+                    aliases=["the old mine"],
+                    related=[{"id": "e020", "name": "Thorn Guild", "kind": "faction", "category": "other"}]),
+        "e010": ent("e010", "Wren", "npc", "characters", None, [fact("f5", "Wren runs the Rusty Flagon.", "Role")]),
+        "e020": ent("e020", "Thorn Guild", "faction", "other", "new",
+                    [fact("f6", "The Thorn Guild controls the toll road.", "Goals", True)]),
+    }
+
+
 class FakeServer:
     def __init__(self, reply_events: list[tuple[str, dict]] | None = None) -> None:
         self.reply_events = reply_events or [
@@ -80,6 +111,9 @@ class FakeServer:
         self.thinking = True
         self.story: dict | None = None  # the public summary a story game reports
         self.story_text = ""
+        self.compendium: dict[str, dict] | None = None  # None = an older server without the compendium
+        self.seen: set[str] = set()
+        self.compendium_down = False  # answer the compendium calls with a 500
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -90,6 +124,54 @@ class FakeServer:
     def _err(self, status: int, code: str, msg: str) -> httpx.Response:
         return self._json(status, {"error": {"code": code, "message": msg}})
 
+    def _status(self, e: dict) -> str | None:
+        return None if e["id"] in self.seen else e["status"]
+
+    def _unread(self) -> dict[str, int]:
+        statuses = [self._status(e) for e in (self.compendium or {}).values()]
+        return {"new": statuses.count("new"), "updated": statuses.count("updated")}
+
+    def _compendium(self, method: str, path: str, params: dict, body: dict) -> httpx.Response:
+        assert self.compendium is not None
+        if self.compendium_down:
+            return self._err(500, "internal_error", "boom")
+        parts = path.strip("/").split("/")
+        if len(parts) == 1:
+            cats = []
+            for cid, title in (("locations", "Locations"), ("characters", "Characters"), ("other", "Other")):
+                ents = [e for e in self.compendium.values() if e["category"] == cid]
+                st = [self._status(e) for e in ents]
+                cats.append({"id": cid, "title": title, "count": len(ents), "new": st.count("new"),
+                             "updated": st.count("updated")})
+            return self._json(200, {"session_id": "default", "categories": cats, **self._unread()})
+        if parts[1] == "seen" and method == "POST":
+            ids = list(self.compendium) if body.get("all") else body.get("entities", [])
+            self.seen.update(i for i in ids if i in self.compendium)
+            return self._json(200, {"session_id": "default", "categories": [], **self._unread()})
+        if parts[1] == "entities" and len(parts) == 3:
+            e = self.compendium.get(parts[2])
+            if e is None:
+                return self._err(404, "not_found", "No compendium entry")
+            status = self._status(e)
+            facts = [{**f, "new": f["new"] and e["id"] not in self.seen} for f in e["facts"]]
+            return self._json(200, {"aliases": [], "path": [], "children": [], "related": [], "learned_turn": 3,
+                                    "updated_turn": 3, **e, "status": status, "facts": facts})
+        if parts[1] in ("locations", "characters", "other"):
+            q = params.get("q", "").casefold()
+            rows = []
+            for e in self.compendium.values():
+                if e["category"] != parts[1] or q not in e["name"].casefold():
+                    continue
+                depth = len(e.get("path") or []) if params.get("sort") == "tree" else 0
+                rows.append({"id": e["id"], "name": e["name"], "kind": e["kind"], "category": e["category"],
+                             "summary": e["facts"][0]["text"], "parent": e["parent"], "depth": depth,
+                             "fact_count": len(e["facts"]), "status": self._status(e), "unseen_count": 0,
+                             "learned_turn": 3})
+            rows.sort(key=lambda r: (r["depth"] and 0, r["id"]))
+            return self._json(200, {"session_id": "default", "category": parts[1], "title": parts[1].title(),
+                                    "count": len(rows), "entries": rows})
+        return self._err(404, "not_found", f"{method} {path}")
+
     def handle(self, req: httpx.Request) -> httpx.Response:
         path, method = req.url.path, req.method
         params = dict(req.url.params)
@@ -99,6 +181,8 @@ class FakeServer:
             extra = {} if self.debug is None else {"debug": self.debug}
             if self.debug:
                 extra["thinking"] = self.thinking
+            if self.compendium is not None:
+                extra["compendium"] = True
             return self._json(200, {"status": "ok", "model": "fake", **extra})
         if path == "/debug/context" and self.debug:
             return self._json(200, self.context)
@@ -107,10 +191,14 @@ class FakeServer:
             return self._json(200, {"thinking": self.thinking})
         if path == "/debug/story" and self.debug:
             return self._json(200, {"story": None, "text": self.story_text})
+        if path.startswith("/compendium") and self.compendium is not None:
+            return self._compendium(method, path, params, body)
         if path == "/chat/history":
             body = {"session_id": "default", "messages": self.messages}
             if self.story:
                 body["story"] = self.story
+            if self.compendium is not None:
+                body["compendium"] = self._unread()
             if self.phase:
                 body["phase"] = self.phase
             if self.ruleset_name:

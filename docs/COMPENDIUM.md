@@ -1,6 +1,6 @@
 # AIGM Compendium: Design
 
-Status: server built (build steps 1 to 3); client not yet.
+Status: built (server and client). Differences from the first draft are noted in section 9.
 
 This is the design for a player-facing compendium: a running list of the characters, locations and other things
 (factions, concepts) the player has learned about, with the details they know, a mark for what is new, and a server API
@@ -312,7 +312,7 @@ state and shows at once.
   (or `characters`, `other`) opens on that tab, and `/compendium Wren` opens the entry whose name or alias matches
   (a unique case-insensitive prefix or exact match; with several matches it opens the tab with the filter applied).
 - **Indicator:** when there is anything unseen, the status line shows `✦ 3 new` (`* 3 new` with `--ascii`) and the
-  footer hint reads `^G Compendium (3)`. It comes from `message_end.compendium`, `/chat/history`, and every
+  footer hint is the plain `^G Compendium`. It comes from `message_end.compendium`, `/chat/history`, and every
   compendium call, and disappears when the count reaches 0.
 - **Availability:** when `/health` has no `compendium: true`, the key is unbound, the footer omits it, and
   `/compendium` prints "This server does not offer the compendium", as the context view does for non-debug servers.
@@ -451,3 +451,14 @@ These are the choices I made where the request left room. Each is cheap to chang
    driven by `message_end.compendium`.
 8. **The party's own characters are not entries.** The compendium is what the party has learned about the world; the
    party is shown in the campaign record and the progression notes (PROGRESSION.md).
+
+## 10. What changed while building
+
+- The footer does not show the unread count (the footer is static text per binding); the status line does.
+- An entity that is only *mentioned* by a new fact counts as `updated`, so a new fact about the mine also marks the
+  Thornwood page. That follows the rule in 4.2, and it is what makes an entity first discovered by a mention show as
+  new, but it can make "updated" more common than "new". If playtesting finds it noisy, the fix is to judge `updated`
+  by subject facts only.
+- The list rows carry `depth` for the tree sort (section 5.3).
+- The Textual keys: the list holds the focus so the screen's keys work, and `Tab` is the screen's own binding for the
+  detail's links rather than the usual focus change.

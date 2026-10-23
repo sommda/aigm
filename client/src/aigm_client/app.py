@@ -9,6 +9,8 @@ from textual.worker import Worker
 from aigm_client.api import ApiClient, ApiError
 from aigm_client.blocks import MarkdownBlock, UserBlock
 from aigm_client.commands import Command, parse_command
+from aigm_client.compendium_screen import CompendiumScreen
+from aigm_client.compendium_model import TABS
 from aigm_client.context_screen import ContextScreen
 from aigm_client.dialogs import ConfirmDialog, LoadDialog, NewGameDialog, SaveDialog, suggest_name
 from aigm_client.session import ChatSession, intro_text, story_note
@@ -23,6 +25,7 @@ HELP = """Commands:
   /saves                list saved games
   /info NAME            show info about a saved game
   /delete NAME          delete a saved game
+  /compendium [TAB|NAME]  what you have learned: locations, characters, other  (Ctrl+G)
   /reconnect            retry connecting to the server
   /quit                 quit
 Keys: Space/Enter = next page, PageUp/PageDown/arrows/wheel = scroll back,
@@ -56,6 +59,8 @@ class AigmApp(App):
         # priority: the prompt's own Ctrl+K (delete to end of line) must not take it
         Binding("ctrl+k", "context", "Context", priority=True),
         Binding("f6", "thinking", "Thinking"),
+        # priority for the same reason: the prompt would otherwise take it
+        Binding("ctrl+g,f5", "compendium", "Compendium", priority=True),
     ]
 
     def __init__(self, api: ApiClient, ascii_only: bool = False) -> None:
@@ -63,6 +68,7 @@ class AigmApp(App):
         self.api = api
         self.ascii_only = ascii_only
         self.debug_server = False  # set from /health: the server offers the context view
+        self.has_compendium = False  # set from /health: the server offers the compendium
         self.model_thinking = True  # debug servers only: whether the model thinks (F6, /thinking)
         self.transcript = Transcript(ascii_only=ascii_only)
         self.session = ChatSession(self.transcript)
@@ -102,11 +108,14 @@ class AigmApp(App):
             return
         self.connected = True
         self.debug_server = health.get("debug") is True
+        self.has_compendium = health.get("compendium") is True
         self.model_thinking = health.get("thinking") is not False
         s.show_metrics = self.debug_server
         self.refresh_bindings()
         messages = state["messages"]
-        s.load_history(messages, state.get("phase", ""), state.get("ruleset_name", ""), state.get("story"))
+        s.load_history(
+            messages, state.get("phase", ""), state.get("ruleset_name", ""), state.get("story"), state.get("compendium")
+        )
         s.dirty = bool(messages)
         if not messages:
             s.add_system(intro_text(s.phase))
@@ -156,8 +165,9 @@ class AigmApp(App):
         if mode and s.ruleset_name:
             mode += f" · {s.ruleset_name}"
         story = f"   story: {s.story_label}" if s.story_label else ""
+        news = f"   {'*' if self.ascii_only else '✦'} {s.compendium_unread} new" if s.compendium_unread else ""
         debug = ("   DEBUG" + ("" if self.model_thinking else " (no thinking)")) if self.debug_server else ""
-        self.query_one("#status", Static).update(f"{left}{mode}{story}   game: {game}   {conn}{debug}")
+        self.query_one("#status", Static).update(f"{left}{mode}{story}{news}   game: {game}   {conn}{debug}")
 
     def _sync_input(self) -> None:
         prompt = self.query_one("#prompt", Input)
@@ -240,6 +250,8 @@ class AigmApp(App):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action in ("context", "thinking") and not self.debug_server:
             return False  # not bound and not shown in the footer unless the server is in debug mode
+        if action == "compendium" and not self.has_compendium:
+            return False  # likewise for a server without the compendium
         return True
 
     def action_context(self) -> None:
@@ -257,6 +269,33 @@ class AigmApp(App):
             return
         prompt = self.query_one("#prompt", Input)
         await self.push_screen_wait(ContextScreen(self.api, lambda: decode_prompt(prompt.value), self.ascii_only))
+
+    def action_compendium(self) -> None:
+        if isinstance(self.screen, CompendiumScreen):
+            self.screen.action_close()
+        else:
+            self.run_worker(self._compendium_flow(None), group="flow")
+
+    async def _compendium_flow(self, where: str | None) -> None:
+        """Open the compendium on a tab (`/compendium locations`) or on a name (`/compendium Wren`)."""
+        s = self.session
+        if not self.has_compendium:
+            s.add_system("This server does not offer the compendium.", "yellow")
+            self._kick()
+            return
+        if self._modal():
+            return
+        tab = where.lower() if where and where.lower() in TABS else None
+        name = where if where and tab is None else None
+        pending = await self.push_screen_wait(
+            CompendiumScreen(self.api, self.ascii_only, s.set_unread, tab=tab, name=name)
+        )
+        try:
+            if pending:
+                s.set_unread(await self.api.compendium_seen(pending))
+        except ApiError:
+            pass  # the marks are only a convenience; the next opening shows them again
+        self._kick()
 
     def action_thinking(self) -> None:
         self.run_worker(self._thinking_flow(None), group="flow")
@@ -390,7 +429,10 @@ class AigmApp(App):
             s.add_system(f"Load failed: {e.message}", "red")
             self._kick()
             return
-        s.load_history(state["messages"], state.get("phase", ""), state.get("ruleset_name", ""), state.get("story"))
+        s.load_history(
+            state["messages"], state.get("phase", ""), state.get("ruleset_name", ""), state.get("story"),
+            state.get("compendium"),
+        )
         s.mark_loaded(name)
         s.add_system(f"Loaded '{name}'." + (f" ({s.phase_label})" if s.phase_label else ""))
         self._kick()
@@ -426,6 +468,8 @@ class AigmApp(App):
                 s.add_system(HELP + (DEBUG_HELP if self.debug_server else ""))
             case "context":
                 await self._context_flow()
+            case "compendium":
+                await self._compendium_flow(" ".join(cmd.args) or None)
             case "story":
                 await self._story_flow()
             case "thinking":

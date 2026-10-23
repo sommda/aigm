@@ -242,6 +242,7 @@ when it is given.
 | `/story` | `GET /debug/story` | Debug servers only: prints the whole story plan (spoilers) into the transcript. |
 | `/context` | `GET /debug/context` | Debug servers only: opens the context viewer (same as `Ctrl+K`). See below. |
 | `/thinking [on\|off]` | `PUT /debug/thinking` | Debug servers only: turns the model's thinking on or off, or flips it (same as `F6`). The status line shows `DEBUG (no thinking)` while it is off. |
+| `/compendium [TAB\|NAME]` (`/journal`, `/c`) | `GET /compendium...` | Opens the compendium (same as `Ctrl+G`), on a tab (`locations`, `characters`, `other`) or on the entry with that name. See below. |
 | `/help`, `/quit` | local | |
 
 ### Context viewer (debug servers only)
@@ -281,6 +282,32 @@ server side is `GET /debug/context` in [API.md](API.md).
 - **Code.** `context_model.py` is pure (the tree, collapse state, cursor, and the colored lines for a width) and has
   its own tests; `context_screen.py` holds the thin Textual widgets; `ApiClient.context(draft)` makes the call. Unknown
   node kinds are shown as plain text.
+
+### Compendium
+
+What the player has learned about the world. The design is in [COMPENDIUM.md](COMPENDIUM.md); the endpoints are in
+[API.md](API.md).
+
+- **Availability.** `/health` reports `compendium: true`. Without it `Ctrl+G` is unbound and not in the footer, and
+  `/compendium` prints "This server does not offer the compendium."
+- **Indicator.** The status line ends its story part with `✦ 3 new` (`* 3 new` with `--ascii`) while entries with
+  something unread exist. It comes from `message_end.compendium`, `/chat/history` and the screen's own calls.
+- **Screen.** A full-screen modal: tabs for Locations, Characters and Other (with counts and unread marks), the list
+  on the left (locations as an indented tree) and the entry under the cursor on the right. Below 100 columns the two
+  take turns (`Enter` shows the detail, `Esc` goes back to the list). Unread entries carry a `✦` and a `new` or
+  `updated` tag; the facts that are new on an entry carry a `✦` too.
+- **Keys.** `←` `→` or `1` `2` `3` switch tab, `↑` `↓` `Home` `End` move, `PgUp` `PgDn` scroll the detail, `Tab`
+  moves onto the detail's links (the place it is inside, places inside it, related entries), where `↑` `↓` pick one,
+  `Enter` jumps to it and `Backspace` goes back; `/` filters the tab by name (asked of the server), `u` shows only
+  unread entries, `n` jumps to the next unread one across tabs, `a` marks everything read, `r` fetches again. `Esc`
+  undoes the innermost thing (filter box, links, filter, detail) and then closes; `q`, `Ctrl+G` and `F5` close.
+- **Reading marks.** An entry counts as read once the cursor has rested on it for about a second with its detail
+  shown. Marks are sent as one `POST /compendium/seen` every few seconds and when the screen closes; a failed send is
+  kept for the next one. The marks on rows already read stay on screen until the screen is closed. The footer does
+  not show the count; the status line does.
+- **Code.** `compendium_model.py` is pure (tabs, lists, cursor, read marks, links, and the lines for a width) and has
+  its own tests; `compendium_screen.py` holds the Textual screen; `ApiClient` has `compendium()`, `compendium_list()`,
+  `compendium_entity()` and `compendium_seen()`.
 
 ### Rebuilding the transcript from `/chat/history`
 
@@ -418,6 +445,7 @@ text segment, so the model's text before and after a roll are separate paragraph
 | `Esc` | Cancel the in-flight turn (or cancel a confirmation) |
 | `Ctrl+S` / `F2`, `Ctrl+O` / `F3`, `Ctrl+N` / `F4` | Save, Load, New game dialogs |
 | `Ctrl+T` | Toggle display of reasoning text (hidden by default) |
+| `Ctrl+G` / `F5` | Open or close the compendium (not bound on a server without it) |
 | `Ctrl+K` | Open or close the context viewer (debug servers only; not bound otherwise) |
 | `Ctrl+Q` / `/quit` | Quit |
 
