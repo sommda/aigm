@@ -270,6 +270,7 @@ def detail(world: World, comp: Compendium, entity_id: str) -> dict[str, Any] | N
                 "label": _aspect_label(f.aspect),
                 "learned_turn": _learned_turn(f),
                 "new": f.learned_seq > mark,
+                "via": list(f.via),
             }
             for f in sorted(facts, key=reading_order)
         ],

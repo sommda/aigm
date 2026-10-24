@@ -11,6 +11,9 @@ by hand, for example `echo [[fact: Wren:npc | Wren sells news to the Thorn Guild
     [[elapsed: 3]]                                             in-world hours the narration covered
     [[quest: m01 | done | what happened]]  /  [[goal: x]]      a story quest ended / the player learned the goal
 
+A party member's background may hold `[[knows: Subject[:kind] | sentence]]`: the familiarity step records it as a
+fact that character knows (a place goes under the first region in the world).
+
 Expansion writes a plain fact for up to two missing aspects, and gives a bare location a cellar."""
 
 import re
@@ -23,6 +26,7 @@ from aigm.world.curator import (
     ExtractRequest,
     Extraction,
     FactProposal,
+    FamiliarityRequest,
     Label,
     PlotProposal,
     PlotRequest,
@@ -120,6 +124,25 @@ class ScriptedCurator:
             elif name in ("fact", "hidden") and len(parts) >= 2:
                 subject = entity(parts[0], "npc")
                 out.facts.append(FactProposal(parts[1], [subject], None, "known" if name == "fact" else "hidden"))
+        return out
+
+    async def familiarity(self, request: FamiliarityRequest) -> Extraction:
+        """The `[[knows: ...]]` directives in the characters' backgrounds, and nothing else."""
+        self.calls.append("familiarity")
+        region = next((e.name for e in request.entities if e.kind == "location" and e.parent is None), None)
+        out = Extraction()
+        known = {e.name for e in request.entities}
+        for name, _, background in request.party:
+            if request.only and name not in request.only:
+                continue
+            for body in (m[1] for m in _DIRECTIVE.findall(background) if m[0] == "knows"):
+                token, _, text = body.partition("|")
+                subject, kind = _name_kind(token, "npc")
+                if subject not in known:
+                    known.add(subject)
+                    out.entities.append(EntityProposal(subject, kind, parent=region if kind == "location" else None))
+                if text.strip():
+                    out.facts.append(FactProposal(text.strip(), [subject], None, "known", via=[name]))
         return out
 
     async def plot(self, request: PlotRequest) -> PlotProposal:

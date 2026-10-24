@@ -295,7 +295,8 @@ What the player has learned about the world. The design is in [COMPENDIUM.md](CO
 - **Screen.** A full-screen modal: tabs for Locations, Characters and Other (with counts and unread marks), the list
   on the left (locations as an indented tree) and the entry under the cursor on the right. Below 100 columns the two
   take turns (`Enter` shows the detail, `Esc` goes back to the list). Unread entries carry a `✦` and a `new` or
-  `updated` tag; the facts that are new on an entry carry a `✦` too.
+  `updated` tag; the facts that are new on an entry carry a `✦` too. A fact that is a character's starting knowledge
+  ends with a dim `· Toby` (`- Toby` with `--ascii`); a server without it sends no names and nothing is drawn.
 - **Keys.** `←` `→` or `1` `2` `3` switch tab, `↑` `↓` `Home` `End` move, `PgUp` `PgDn` scroll the detail, `Tab`
   moves onto the detail's links (the place it is inside, places inside it, related entries), where `↑` `↓` pick one,
   `Enter` jumps to it and `Backspace` goes back; `/` filters the tab by name (asked of the server), `u` shows only

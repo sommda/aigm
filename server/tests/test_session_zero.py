@@ -10,13 +10,14 @@ from aigm.tools import dispatch, tool_schemas
 from tests.conftest import chat, names, reply_text
 
 SETTING = "The Misty Fens: a gritty, haunted marshland of drowned villages, smugglers and bog-witches. " * 4
+BACKGROUND = "A fen-born smuggler who knows the Drowned Lantern inn and the marsh roads, and is wary of the baron."
 SHEET = "Elf rogue, Criminal background, level 3. STR 8 DEX 17 CON 12 INT 13 WIS 14 CHA 12. HP 21, AC 15. Shortbow, rapier, thieves' tools. Wry and watchful, and always the first to spot a trap or a lie."
 GOOD = {
     "confirmed": True,
     "setting": SETTING,
     "opening": "The party arrives at the Drowned Lantern inn at dusk, just as a terrible scream comes from the cellar below.",
     "level": 3,
-    "party": [{"name": "Ann", "sheet": SHEET}],
+    "party": [{"name": "Ann", "sheet": SHEET, "background": BACKGROUND}],
 }
 
 
@@ -104,7 +105,7 @@ def test_save_after_begin_keeps_the_campaign(client, settings):
     client.post("/history/adv/restore")
     phase, campaign = state_of(client)
     assert phase == "adventure" and len(campaign["party"]) == 1 and "Rusty Flagon" in campaign["opening"]
-    assert json.loads((settings.save_dir / "adv.json").read_text())["version"] == 6
+    assert json.loads((settings.save_dir / "adv.json").read_text())["version"] == 7
 
 
 def test_old_saves_without_state_load_as_adventure(client, settings):
@@ -148,12 +149,12 @@ def test_begin_adventure_sets_state():
     assert state.phase is Phase.ADVENTURE
     assert state.campaign == {
         "setting": SETTING.strip(), "opening": GOOD["opening"], "level": 3, "gm_notes": "secret",
-        "party": [{"name": "Ann", "sheet": SHEET}],
+        "party": [{"name": "Ann", "sheet": SHEET, "background": BACKGROUND}],
     }
 
 
 def member(**kw):
-    return {"name": "Bo", "sheet": SHEET, **kw}
+    return {"name": "Bo", "sheet": SHEET, "background": BACKGROUND, **kw}
 
 
 def test_begin_adventure_rejects_thin_or_bad_input_without_changing_state():

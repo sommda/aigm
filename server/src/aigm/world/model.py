@@ -17,7 +17,7 @@ from aigm.world.text import normalize_name, normalize_text, tokens, word_count
 
 KINDS = ("location", "npc", "faction", "concept")
 DISCLOSURES = ("hidden", "hinted", "known")
-SOURCES = ("seed", "play", "generated", "improvised")
+SOURCES = ("seed", "play", "generated", "improvised", "background")
 STATUSES = ("active", "superseded")
 
 # Checklist slots a fact can fill (docs/WORLD.md 5.3). "location" is the union of the site and
@@ -122,6 +122,8 @@ class Fact:
     # Order in which the player learned it (World.learn_seq), for the compendium's "new" marks; 0 for facts the
     # player knew from the start of the adventure and for those saved before the compendium existed.
     learned_seq: int = 0
+    # Party members whose starting knowledge this is (source "background"); empty for everything else.
+    via: tuple[str, ...] = ()
 
     @property
     def subject(self) -> str:
@@ -136,7 +138,7 @@ class Fact:
             "id": self.id, "text": self.text, "about": list(self.about), "aspect": self.aspect,
             "disclosure": self.disclosure, "source": self.source, "turn": self.turn,
             "created_at": self.created_at.to_dict(), "revealed_turn": self.revealed_turn,
-            "learned_seq": self.learned_seq,
+            "learned_seq": self.learned_seq, "via": list(self.via),
             "from_time": self.from_time.to_dict() if self.from_time else None,
             "until_time": self.until_time.to_dict() if self.until_time else None,
             "status": self.status, "superseded_by": self.superseded_by,
@@ -384,10 +386,13 @@ class World:
         disclosure: str = "hidden",
         source: str = "generated",
         turn: int = 0,
+        via: Iterable[str] = (),
     ) -> Fact:
         text, about_ids = self._check_fact(text, about, aspect, disclosure, source)
         self._check_duplicate_and_cap(text, about_ids[0], replacing=None)
-        return self._insert_fact(text, about_ids, aspect, disclosure, source, turn)
+        fact = self._insert_fact(text, about_ids, aspect, disclosure, source, turn)
+        fact.via = tuple(dict.fromkeys(v.strip() for v in via if isinstance(v, str) and v.strip()))
+        return fact
 
     def supersede(
         self,
@@ -710,6 +715,10 @@ class World:
                 raw["status"], raw["superseded_by"],
             )  # fmt: skip
             fact.learned_seq = _count(raw.get("learned_seq", 0), f"fact {fact.id} learned_seq")
+            via = raw.get("via", [])
+            if not isinstance(via, list) or not all(isinstance(v, str) and v.strip() for v in via):
+                raise WorldError(f"fact {fact.id} has a bad via")
+            fact.via = tuple(via)
             if not _FACT_ID.match(str(fact.id)) or fact.id in world.facts:
                 raise WorldError(f"bad or repeated fact id {fact.id!r}")
             if not isinstance(fact.text, str) or not fact.text.strip():

@@ -63,7 +63,8 @@ class _Budget:
 
 
 def fact_line(fact: Fact, prefix: str = "") -> str:
-    return f"- {prefix}[{LABELS[fact.disclosure]}] {fact.text}"
+    who = f" ({', '.join(fact.via)} know{'s' if len(fact.via) == 1 else ''} this)" if fact.via else ""
+    return f"- {prefix}[{LABELS[fact.disclosure]}] {fact.text}{who}"
 
 
 def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budget_tokens: int = 2000) -> str:

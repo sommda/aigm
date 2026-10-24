@@ -7,6 +7,7 @@ MAX_PARTY_SIZE = 6
 MIN_SETTING = 300  # characters; a few sentences of real detail
 MIN_OPENING = 100
 MIN_SHEET = 150  # per character
+MIN_BACKGROUND = 80  # per character; origin, reputation, ties
 MAX_TOTAL = 30_000
 
 # The description is a prompt: it lives in prompts/tools/begin_adventure.md.
@@ -39,8 +40,12 @@ SCHEMA: dict[str, Any] = {
                             "type": "string",
                             "description": f"The complete character, enough to play from (at least {MIN_SHEET} characters), in the terms of the chosen ruleset: race or species, class, level, ability scores, HP, Armor Class, saves, skills or proficiencies, features, spells, equipment, and personality.",
                         },
+                        "background": {
+                            "type": "string",
+                            "description": f"The character's life before the adventure (at least {MIN_BACKGROUND} characters): where they come from and what they did, their reputation or nickname, the people and places that know them, and which parts of the setting they know well, know only by hearsay, or do not know at all.",
+                        },
                     },
-                    "required": ["name", "sheet"],
+                    "required": ["name", "sheet", "background"],
                 },
             },
             "gm_notes": {
@@ -99,10 +104,17 @@ def _party(raw: Any, problems: list[str]) -> list[dict[str, str]]:
                 f"{label}: 'sheet' is too thin (at least {MIN_SHEET} characters; give the full character: "
                 "class, level, ability scores, HP, AC, saves, features, equipment, personality)"
             )
+        background = member.get("background")
+        if not isinstance(background, str) or len(background.strip()) < MIN_BACKGROUND:
+            problems.append(
+                f"{label}: 'background' is too thin (at least {MIN_BACKGROUND} characters; give where they come "
+                "from, who knows them, and what they know of the setting)"
+            )
         party.append(
             {
                 "name": name.strip() if isinstance(name, str) else "",
                 "sheet": sheet.strip() if isinstance(sheet, str) else "",
+                "background": background.strip() if isinstance(background, str) else "",
             }
         )
     return party
@@ -134,7 +146,7 @@ def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameSta
     campaign: dict[str, Any] = {"setting": setting, "opening": opening, "level": level, "party": party}
     if notes and notes.strip():
         campaign["gm_notes"] = notes.strip()
-    if len(setting) + len(opening) + sum(len(m["sheet"]) for m in party) + len(notes or "") > MAX_TOTAL:
+    if len(setting) + len(opening) + sum(len(m["sheet"]) + len(m["background"]) for m in party) + len(notes or "") > MAX_TOTAL:
         return _error("the record is too long; condense it")
     state.phase = Phase.ADVENTURE
     state.campaign = campaign

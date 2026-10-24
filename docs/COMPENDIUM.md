@@ -1,6 +1,7 @@
 # AIGM Compendium: Design
 
-Status: built (server and client). Differences from the first draft are noted in section 9.
+Status: built (server and client). Differences from the first draft are noted in section 9. Starting knowledge from
+character backgrounds is described in [OPENING.md](OPENING.md).
 
 This is the design for a player-facing compendium: a running list of the characters, locations and other things
 (factions, concepts) the player has learned about, with the details they know, a mark for what is new, and a server API
@@ -81,8 +82,10 @@ the moment the fact becomes known: when it is created already known (`establish`
 flips it. The counter only goes up and is never reused. The turn number is not enough: several facts are learned in
 one turn, and a view can fall between them.
 
-Facts that exist when the adventure starts (the bootstrap seeds from Session 0) get `learned_seq = 0`, which means
-"known from the start, never new". The player has just spent a whole session setting those up.
+Facts from the bootstrap's seed call (the setting and opening the player just spent a whole session setting up) get
+`learned_seq = 0`, which means "known from the start, never new". The facts that record what the characters already know
+(`source: background`, OPENING.md) are different: they are new to the player until the player has looked, so they
+get a sequence number like any other revelation.
 
 ### 4.2 What is "seen"
 
@@ -443,7 +446,8 @@ These are the choices I made where the request left room. Each is cheap to chang
 3. **Aliases are shown only once met** in a known fact's text. The alternative, showing all aliases of a discovered
    entity, risks revealing a secret name; the cost of the rule is that an alias the GM used aloud but never recorded in
    a fact does not appear.
-4. **Facts from the start of the adventure are never "new".** A new game opens with an empty indicator.
+4. **Facts from the setup are never "new"; what the characters know is.** A new game opens with the characters'
+   starting knowledge marked new (OPENING.md), and the setup facts unmarked.
 5. **"Other" holds factions and concepts together**, with the kind as a label, as asked. Splitting them later is a
    change to the table in 5.1.
 6. **Marking seen is automatic on reading** (the delay in 6.3) instead of only by an explicit key, with `a` as the

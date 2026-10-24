@@ -18,6 +18,7 @@ class Marks:
     def __init__(self, ascii_only: bool) -> None:
         self.star, self.arrow, self.crumb = ("*", ">", ">") if ascii_only else ("✦", "→", "›")
         self.ellipsis = "..." if ascii_only else "…"
+        self.dot = "-" if ascii_only else "·"
 
 
 class CompendiumModel:
@@ -308,10 +309,17 @@ class CompendiumModel:
         lead = self.marks.star + " " if new else ""
         pad = " " * indent
         body = textwrap.wrap(fact["text"], max(wrap - indent - 2, 8)) or [""]
-        return [
+        out = [
             Text(pad + (lead if j == 0 else " " * len(lead)) + part, style="green" if new else "")
             for j, part in enumerate(body)
         ]
+        if fact.get("via"):  # whose starting knowledge it is
+            tag = f"{self.marks.dot} {', '.join(fact['via'])}"
+            if out[-1].cell_len + len(tag) + 2 <= wrap:
+                out[-1].append(f"  {tag}", style="dim")
+            else:
+                out.append(Text(pad + " " * len(lead) + tag, style="dim"))
+        return out
 
     def help_text(self) -> str:
         base = "←→ tab  ↑↓ move  Tab links  / filter  u unread only  n next unread  a all read  r refresh  Esc close"

@@ -33,6 +33,7 @@ class AddFact:
     disclosure: str = "hidden"
     source: str = "play"
     turn: int = 0
+    via: tuple[str, ...] = ()  # party members whose starting knowledge it is
 
 
 @dataclass
@@ -158,7 +159,7 @@ def _apply(world: World, op: Op) -> bool:
         if world.similar_fact(op.text, about[0]):
             return False
         world.add_fact(
-            op.text, about, aspect=op.aspect, disclosure=op.disclosure, source=op.source, turn=op.turn
+            op.text, about, aspect=op.aspect, disclosure=op.disclosure, source=op.source, turn=op.turn, via=op.via
         )
         return True
     if isinstance(op, Supersede):

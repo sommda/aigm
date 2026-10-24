@@ -23,6 +23,7 @@ from aigm.world.curator import (
     ExtractRequest,
     Extraction,
     FactProposal,
+    FamiliarityRequest,
     Label,
     PlotProposal,
     PlotRequest,
@@ -36,6 +37,7 @@ from aigm.world.render import (
     render_digest,
     render_expand,
     render_extract,
+    render_familiarity,
     render_plot,
     render_reconcile,
 )
@@ -84,6 +86,10 @@ BOOTSTRAP_SCHEMA = _obj(
     location=_nullable(_STR),
     present=_nullable(_STRS),
     start_hour=_nullable({"type": "integer"}),
+)
+FAMILIARITY_SCHEMA = _obj(
+    entities={"type": "array", "items": _ENTITY},
+    facts={"type": "array", "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT, via=_STRS)},
 )
 RECONCILE_SCHEMA = _obj(
     labels={
@@ -162,6 +168,7 @@ def _facts(value: Any, default_disclosure: str) -> list[FactProposal]:
                 raw.get("disclosure") if raw.get("disclosure") in DISCLOSURES else default_disclosure,
                 raw.get("evidence") if isinstance(raw.get("evidence"), str) else "",
                 replaces if isinstance(replaces, str) else None,
+                _strs(raw.get("via")),
             )
         )
     return out
@@ -185,7 +192,7 @@ class AnthropicCurator:
         self.effort, self.expand_effort = effort, expand_effort
         self.max_tokens = max_tokens
         self._client = client
-        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "digest", "plot")}
+        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "familiarity", "digest", "plot")}
         self.guides = prompts.aspect_guides()
 
     def _get_client(self) -> Any:
@@ -248,6 +255,13 @@ class AnthropicCurator:
             present=_strs(present) if isinstance(present, list) else None,
             start_hour=hour if isinstance(hour, int) and not isinstance(hour, bool) else None,
         )
+
+    async def familiarity(self, request: FamiliarityRequest) -> Extraction:
+        # Invention, like expansion, so the stronger model.
+        data = await self._ask(
+            "familiarity", self.expand_model, self.expand_effort, render_familiarity(request), FAMILIARITY_SCHEMA
+        )
+        return Extraction(entities=_entities(data.get("entities")), facts=_facts(data.get("facts"), "known"))
 
     async def reconcile(self, request: ReconcileRequest) -> ReconcileResult:
         data = await self._ask("reconcile", self.model, self.effort, render_reconcile(request), RECONCILE_SCHEMA)

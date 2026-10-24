@@ -26,6 +26,7 @@ class FactProposal:
     disclosure: str = "hidden"
     evidence: str = ""  # a short quote, for debugging; never stored
     replaces: str | None = None  # expansion only: id of a hidden fact this one corrects
+    via: list[str] = field(default_factory=list)  # familiarity only: the party members who know it
 
 
 @dataclass
@@ -56,6 +57,21 @@ class BootstrapRequest:
     level: int
     party: list[tuple[str, str]]  # (name, character sheet)
     gm_notes: str  # private notes: they become hidden facts
+
+
+@dataclass
+class FamiliarityRequest:
+    """What the party's characters already know of the world (docs/OPENING.md 5)."""
+
+    setting: str
+    opening: str
+    level: int
+    party: list[tuple[str, str, str]]  # (name, sheet, background)
+    entities: list[Entity]  # the world so far
+    facts: list[Fact]
+    gm_notes: str
+    only: list[str] = field(default_factory=list)  # a retry: write for these characters alone
+    feedback: list[str] = field(default_factory=list)  # why a first attempt was rejected
 
 
 @dataclass
@@ -193,6 +209,8 @@ class PlotRequest:
 
 class Curator(Protocol):
     async def extract(self, request: ExtractRequest) -> Extraction: ...
+
+    async def familiarity(self, request: FamiliarityRequest) -> Extraction: ...
 
     async def reconcile(self, request: ReconcileRequest) -> ReconcileResult: ...
 

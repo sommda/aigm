@@ -40,7 +40,7 @@ A **fact** is one declarative sentence about the world, true in the fiction.
   "about": ["e007", "e003", "e001"],     // entities it concerns (at least one); the first is the subject
   "aspect": "approach",                  // optional checklist slot this fact fills (section 5.3)
   "disclosure": "hidden",                // hidden | hinted | known  (section 2.3)
-  "source": "generated",                 // seed | play | generated | improvised
+  "source": "generated",                 // seed | play | generated | improvised | background
   "turn": 31,                            // game turn that created it
   "created_at": { "day": 3, "hour": 14 },// world time when recorded (2.4); past history is told in the text
   "revealed_turn": null,                 // turn the player learned it (when known)
@@ -369,6 +369,11 @@ bootstrap (`run_bootstrap` in `world/passes.py`, via `CuratorService.seed`) and 
    village, a rival, a debt) as entities with `known` facts. It sets the opening **scene** (the place, and who is there)
    and the **clock** (`start_hour`: "dusk" is 18, default 8, day 1). Containers are created before the things inside
    them. Seed facts have `source: seed` and turn 0.
+   After the seed call, a **familiarity pass** (`prompts/world/familiarity.md`, the stronger model; status "Recalling
+   what the characters know...") records what each character's background makes familiar: places, people and groups
+   with `known` facts of `source: background`, each listing the characters who know it (`via`). It never writes hidden
+   facts, keeps party names out of fact text, and does not leak the private notes. A failure is logged and the
+   bootstrap goes on without it. These facts are new in the compendium. See OPENING.md.
 3. **`gm_notes` become hidden facts**: the seed prompt turns each note into one or more self-contained `hidden`
    sentences. They surface through the briefing like any other hidden fact. The `## GM notes` section is now left out of
    the adventure system prompt whenever the world has anything in it. (It is still used when there is no world: the

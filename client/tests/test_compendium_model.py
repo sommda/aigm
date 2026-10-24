@@ -230,3 +230,22 @@ def test_message_end_parses_the_counts():
 
 def test_text_is_a_rich_text():
     assert isinstance(loaded().tabs_text(), Text)
+
+
+def test_a_fact_says_whose_starting_knowledge_it_is():
+    m = loaded()
+    m.move(2)
+    d = detail()
+    d["facts"].append({"id": "f9", "text": "The mine road is watched.", "aspect": None, "label": None,
+                       "learned_turn": 0, "new": False, "via": ["Toby", "Galvin"]})
+    m.load_detail(d)
+    assert "The mine road is watched.  · Toby, Galvin" in plain(m.detail_lines(60)[0])
+    narrow = plain(m.detail_lines(30)[0])
+    assert "· Toby, Galvin" in narrow and all(len(t) <= 30 for t in narrow)
+    ascii_m = loaded(True)
+    ascii_m.move(2)
+    ascii_m.load_detail(d)
+    assert "The mine road is watched.  - Toby, Galvin" in plain(ascii_m.detail_lines(60)[0])
+    d["facts"][-1].pop("via")
+    m.load_detail(d)
+    assert "The mine road is watched." in plain(m.detail_lines(60)[0])  # an older server sends no via

@@ -5,6 +5,7 @@ from aigm.world.curator import (
     DigestRequest,
     ExpandRequest,
     ExtractRequest,
+    FamiliarityRequest,
     PlotRequest,
     ReconcileRequest,
 )
@@ -91,6 +92,29 @@ def render_bootstrap(req: BootstrapRequest) -> str:
     members = "\n\n".join(f"### {name}\n{sheet.strip()}" for name, sheet in req.party)
     parts.append(f"## Player characters (level {req.level})\n{members}")
     parts.append("## Private GM notes (the player has not been told these)\n" + (req.gm_notes.strip() or "(none)"))
+    return "\n\n".join(parts)
+
+
+MAX_FAMILIARITY_FACTS = 120
+
+
+def render_familiarity(req: FamiliarityRequest) -> str:
+    parts = [f"## Setting\n{req.setting.strip()}", f"## Opening situation\n{req.opening.strip()}"]
+    members = "\n\n".join(
+        f"### {name}\nBackground: {background.strip() or '(none given: infer lightly from the sheet)'}\nSheet: {sheet.strip()}"
+        for name, sheet, background in req.party
+    )
+    parts.append(f"## Player characters (level {req.level})\n{members}")
+    parts.append("## Private GM notes (the player has not been told these)\n" + (req.gm_notes.strip() or "(none)"))
+    parts.append("## The world so far (entities)\n" + ("\n".join(_entity(e) for e in req.entities) or "(empty)"))
+    facts = [f for f in req.facts if f.active][:MAX_FAMILIARITY_FACTS]
+    parts.append("## The world so far (facts)\n" + ("\n".join(_fact(f) for f in facts) or "(none)"))
+    if req.only:
+        parts.append("## Write only for\n" + ", ".join(req.only))
+    if req.feedback:
+        parts.append(
+            "## Your previous answer was rejected\nFix these and answer again:\n" + "\n".join(f"- {x}" for x in req.feedback)
+        )
     return "\n\n".join(parts)
 
 

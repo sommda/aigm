@@ -1,6 +1,6 @@
 # AIGM Opening: Character Knowledge and the Setting Overview
 
-Status: draft spec. Nothing in this document is built yet; no code or prompt has changed.
+Status: built (server and client). Differences from the first draft are in section 14.
 
 This is the design for a better start to a new adventure: the characters arrive knowing things, the compendium shows it
 from the first turn, and the player gets a short picture of the setting before the action begins.
@@ -22,8 +22,8 @@ from the first turn, and the player gets a short picture of the setting before t
 - Per-character knowledge in play. The compendium stays one list for the whole party (COMPENDIUM.md): the player
   controls every character, so what any one of them knows, the player knows. Section 4 only records *whose* knowledge
   a starting fact was.
-- Rebuilding the world of a game already under way. This applies to adventures that begin after the change (section 9
-  lists the options for existing saves).
+- Rebuilding the world of a game already under way. This applies to adventures that begin after the change; existing
+  saves can be given the knowledge with the backfill (section 9).
 - Character sheets, stats or abilities in the world. Only the people, places and groups around a character are
   recorded, never the character.
 - New dice mechanics for "knowing". There is no lore skill check for the starting knowledge; it is simply given.
@@ -162,8 +162,8 @@ Rules:
 
 ### 5.4 Totals and failure
 
-- Caps in `PassConfig` for this pass (starting values): 4 new entities and 8 facts per character, 16 and 32 for the
-  party. They sit next to `BOOTSTRAP_CONFIG` so one place sets them.
+- Caps in `PassConfig` for this pass: 16 new entities and 32 facts for the whole party (`familiar_entities`,
+  `familiar_facts`). The prompt carries the per-character sizes.
 - The step reports progress ("Recalling what the characters know..."), as other bootstrap steps do.
 - **A failed familiarity pass does not fail the bootstrap.** The seed already holds a valid world, and a missing
   flavor step should not stop the game from starting (unlike a failed seed, WORLD.md 4.6). The failure is logged, the
@@ -185,8 +185,9 @@ empty for everything else. Properties:
 - Set only by the familiarity pass (`AddFact.via`). `establish` and extraction never set it, so mid-game discoveries
   keep their current form.
 - A replacement fact (a supersede) does not inherit `via`; the attribution belongs to the original starting knowledge.
-- Seed facts stay `source: seed`, `learned_seq` 0, so they are never "new" in the compendium (COMPENDIUM.md 4.1).
-  Knowledge the characters bring with them is not news.
+- These facts have `source: background` (a new source, next to `seed`). Unlike seed facts they get a `learned_seq`, so
+  the compendium shows them as **new** until the player has looked: the knowledge is old to the characters but it is
+  news to the player, who has not yet seen it written down (COMPENDIUM.md 4.1).
 - Saved as part of the fact. This is a format bump (version 7). Older saves load with no `via`. A save written by this
   version is not readable by an older server, as with the earlier bumps.
 
@@ -204,7 +205,8 @@ supply the detail in narration, and must not have a character know *more* than t
 
 ### 6.3 The compendium
 
-- **List**: unchanged. Names, hierarchy, tags. The seed entries are not `new`, so no `✦` on the first open.
+- **List**: unchanged. Names, hierarchy, tags. The starting knowledge is `new`, so the first open shows `✦` on it and
+  the status line starts with a count.
 - **Detail**: each fact in the API gains `via` (a list of names, usually empty). The client shows it as a dim suffix
   after the fact ("· Toby"), and nothing for facts with no `via`.
 - **Filter**: the `q` search stays name-based. A filter on `via` is not added.
@@ -277,12 +279,23 @@ new, which is a signal that the GM broke the rule rather than something to preve
 The docks game and other saves were created before backgrounds existed. Their worlds are already built and the first
 scene was played, so the bootstrap does not run again. Options:
 
-1. **Leave them alone** (recommended). The change applies to new games. Nothing breaks: `via` is optional, backgrounds
-   are optional outside `begin_adventure`.
-2. **A one-off "backfill" command** (a CLI subcommand, not a game command) that takes a save and a background per
-   character, runs the familiarity pass against the existing world, and writes the result. Useful to try the feature on
-   the docks game. Facts are marked `source: seed`, so they are not shown as new. It is a small addition because the
-   pass is already a function of a world and a request.
+The bootstrap does not run again for them, but nothing breaks: `via` is optional and backgrounds are optional outside
+`begin_adventure`. To give such a game the same starting knowledge there is a one-off **backfill**, a debug endpoint
+(it exists only when the server runs with `--debug`):
+
+```
+curl -X POST localhost:8000/debug/backfill -H 'content-type: application/json' \
+  -d '{"backgrounds": {"Toby": "Known as the Ghost of the Docks; grew up on the Sunken Anchor pier."}}'
+```
+
+- It runs the familiarity pass against the loaded session's existing world and applies the result. The body is
+  optional; `backgrounds` maps character names to a background, which is also stored in the campaign record. A
+  character without one is judged from the sheet.
+- The facts are `known`, `source: background`, with `via`, so they show as new in the compendium.
+- Running it twice adds nothing the second time (duplicate facts are skipped). It refuses (409) when there is no
+  adventure, the curator is off, or a turn is running; the response lists the facts added and anything dropped.
+- The GM's campaign record in the history is not rewritten: the GM learns of the new knowledge through the
+  briefing labels.
 
 ## 10. Risks
 
@@ -338,10 +351,9 @@ has castle and nobility entries, the overview appears once and is short, no GM n
    models but makes the first message a special case in history and in the API.
 5. **Backgrounds are required** in `begin_adventure` for new games (recommended). The alternative is optional, with
    the familiarity pass inferring from the sheet, which is easier on weak models but gives less to work with.
-6. **Seed knowledge is not "new"** in the compendium (recommended): the characters brought it. The alternative is to
-   show it as new on the first open, which gives the player a quick tour but the `✦` marks would mean nothing.
-7. **Existing saves**: option 1, leave alone (recommended), or add the backfill command (option 2) so the docks game
-   can be tried with it.
+6. **Starting knowledge is "new"** in the compendium until the player has seen it. Decided: it is new to the player
+   even though the characters brought it. (Setup facts from `seed`, the setting and the opening, stay not new.)
+7. **Existing saves**: add the backfill command (option 2 in section 9). Decided.
 
 ## 13. Build order
 
@@ -352,3 +364,13 @@ has castle and nobility entries, the overview appears once and is short, no GM n
 5. Compendium `via` in the API and the client.
 6. The two-part opening prompts.
 7. Docs, then live checks with both providers, and tuning of the prompts.
+
+## 14. What changed while building
+
+- The source is its own value, `background`, rather than `seed`, so that the facts are new in the compendium (the
+  decision in section 12.6). `seed` still means "the setting as told", and is never new.
+- Caps are totals for the party, not per character.
+- The backfill is `POST /debug/backfill` instead of a command-line subcommand, because it works on a live session.
+- The scripted curator reads `[[knows: Subject[:kind] | sentence]]` in a character's background, which is how the
+  tests and `--test` mode drive the pass. The scripted test hero knows an NPC, Old Tam.
+- A new place whose `parent` is missing is attached to the outermost region of the opening scene.

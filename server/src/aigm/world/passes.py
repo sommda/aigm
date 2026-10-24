@@ -21,6 +21,7 @@ from aigm.world.curator import (
     ExtractRequest,
     Extraction,
     FactProposal,
+    FamiliarityRequest,
     Label,
     ReconcileItem,
     ReconcileRequest,
@@ -72,6 +73,8 @@ class PassConfig:
     digest_batch: int = 8  # turns per curator call
     story: Story | None = None  # set in chapters 2 and 3: new regions, settlements and factions are refused
     story_entities: int = 3  # new entities per pass in those chapters (docs/STORY.md 6.4)
+    familiar_entities: int = 16  # new entities from what the characters know (docs/OPENING.md 5.4)
+    familiar_facts: int = 32  # facts from what the characters know
 
 
 @dataclass
@@ -403,11 +406,150 @@ async def run_bootstrap(
     if snap.is_empty:
         raise ValueError("the curator recorded nothing from the campaign record")
 
+    await run_familiarity(snap, campaign, curator, config, result, commit, progress=emit)
     await _expand_frontier(
         snap, curator, setting=str(campaign.get("setting", "")), party_names=[n for n, _ in party], turn=0,
         config=config, result=result, commit=commit, progress=emit,
     )  # fmt: skip
     result.ops.append(MarkProcessed(len(messages)))
+    return result
+
+
+# ---- what the characters know (docs/OPENING.md 5) ---------------------------------------
+
+
+def _members(campaign: dict[str, Any], backgrounds: dict[str, str] | None = None) -> list[tuple[str, str, str]]:
+    """(name, sheet, background) of each party member; `backgrounds` fills in or replaces what the record holds."""
+    wanted = {normalize_name(k): v for k, v in (backgrounds or {}).items() if isinstance(v, str)}
+    out = []
+    for m in campaign.get("party", []):
+        if isinstance(m, dict) and isinstance(m.get("name"), str) and m["name"].strip():
+            background = wanted.get(normalize_name(m["name"])) or str(m.get("background") or "")
+            out.append((m["name"].strip(), str(m.get("sheet", "")), background.strip()))
+    return out
+
+
+async def run_familiarity(
+    snap: World,
+    campaign: dict[str, Any],
+    curator: Curator,
+    config: PassConfig,
+    result: PassResult,
+    commit: Callable[[list[Op]], None],
+    *,
+    backgrounds: dict[str, str] | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> None:
+    """Record what each party member already knows of the world as `known` facts (source `background`), attributed
+    to them with `via`. `snap` is the world so far and is changed through `commit`. A failure is logged and changes
+    nothing: the seeded world is a valid start without it."""
+    members = _members(campaign, backgrounds)
+    if not members:
+        return
+    if progress:
+        progress("Recalling what the characters know...")
+    names = {normalize_name(n): n for n, _, _ in members}
+    left = {"entities": config.familiar_entities, "facts": config.familiar_facts}
+    covered: set[str] = set()
+
+    async def attempt(only: list[str], feedback: list[str]) -> None:
+        request = FamiliarityRequest(
+            setting=str(campaign.get("setting", "")),
+            opening=str(campaign.get("opening", "")),
+            level=int(campaign.get("level") or 1),
+            party=members,
+            entities=list(snap.entities.values()),
+            facts=list(snap.facts.values()),
+            gm_notes=str(campaign.get("gm_notes") or ""),
+            only=only,
+            feedback=feedback,
+        )
+        ex = await curator.familiarity(request)
+        ops = _familiar_ops(snap, ex, names, left, result)
+        commit(ops)
+        for op in ops:
+            if isinstance(op, AddFact):
+                covered.update(op.via)
+
+    try:
+        await attempt([], [])
+        missing = [n for n, _, background in members if background and n not in covered]
+        if missing and left["facts"] > 0:
+            await attempt(missing, [f"Nothing was written for {', '.join(missing)}. Write what they know, or nothing."])
+    except Exception as exc:
+        log.exception("the characters' knowledge could not be recorded; starting without it")
+        result.notes.append(f"familiarity skipped: {type(exc).__name__}")
+
+
+def _familiar_ops(
+    snap: World, ex: Extraction, names: dict[str, str], left: dict[str, int], result: PassResult
+) -> list[Op]:
+    """Check the curator's answer against the rules and turn it into ops. `left` is the remaining budget."""
+    by_name = {
+        normalize_name(e.name): e
+        for e in ex.entities
+        if isinstance(e.name, str) and e.name.strip() and e.kind in KINDS and normalize_name(e.name) not in names
+    }
+    here = snap.entity(snap.scene.location) if snap.scene.location else None
+    root = (snap.parent_chain(here.id) or [here])[-1] if here else None
+    region = root.name if root else None
+    ops: list[Op] = []
+    added: set[str] = set()
+
+    def depth(e: EntityProposal) -> int:
+        n, seen = 0, set()
+        while e.parent and normalize_name(e.parent) in by_name and normalize_name(e.name) not in seen:
+            seen.add(normalize_name(e.name))
+            e, n = by_name[normalize_name(e.parent)], n + 1
+        return n
+
+    for prop in sorted(by_name.values(), key=depth):
+        key = normalize_name(prop.name)
+        if snap.find(prop.name) is None:
+            if left["entities"] <= 0:
+                result.notes.append(f"dropped familiar entity (over the cap): {prop.name!r}")
+                del by_name[key]
+                continue
+            left["entities"] -= 1
+        parent = None
+        if prop.kind == "location":
+            parent = prop.parent if prop.parent and (snap.find(prop.parent) or normalize_name(prop.parent) in added) else region
+        ops.append(AddEntity(prop.name, prop.kind, tuple(prop.aliases), parent))
+        added.add(key)
+    for fact in ex.facts:
+        if left["facts"] <= 0:
+            result.notes.append("dropped familiar facts (over the cap)")
+            break
+        if not (isinstance(fact.text, str) and fact.text.strip() and fact.about):
+            continue
+        why = independence_problem(fact.text, list(names.values()))
+        refs = [snap.find(a) is not None or normalize_name(a) in added for a in fact.about]
+        if why or not all(refs):
+            result.notes.append(f"dropped familiar fact ({why or 'unknown entity'}): {fact.text!r}")
+            continue
+        subject = snap.find(fact.about[0])
+        kind = subject.kind if subject else by_name[normalize_name(fact.about[0])].kind
+        aspect = fact.aspect if fact.aspect in ASPECTS.get(kind, ()) else None
+        via = tuple(dict.fromkeys(names[normalize_name(v)] for v in fact.via if normalize_name(v) in names))
+        ops.append(AddFact(fact.text.strip(), tuple(fact.about), aspect, "known", "background", 0, via))
+        left["facts"] -= 1
+    return ops
+
+
+async def run_backfill(
+    world: World, campaign: dict[str, Any], curator: Curator, backgrounds: dict[str, str] | None = None
+) -> PassResult:
+    """Record what the characters know in a game that began without it (docs/OPENING.md 9). Returns the ops to apply
+    to `world`, which is not modified here."""
+    snap = world.copy()
+    result = PassResult()
+
+    def commit(ops: list[Op]) -> None:
+        applied = apply_ops(snap, ops)
+        result.ops += applied.ops
+        result.notes += applied.skipped
+
+    await run_familiarity(snap, campaign, curator, PassConfig(), result, commit, backgrounds=backgrounds)
     return result
 
 

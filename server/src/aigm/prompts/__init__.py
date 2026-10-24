@@ -106,6 +106,7 @@ class PromptLibrary:
                 {
                     "name": str(m.get("name", "")),
                     "sheet": str(m.get("sheet", "")).strip(),
+                    "background": self._background(m.get("background")),
                 },
             )
             for m in members
@@ -144,6 +145,12 @@ class PromptLibrary:
 
     def begin_cue(self) -> str:
         return self._template("begin_cue")
+
+    @staticmethod
+    def _background(value: Any) -> str:
+        """The background block of a party member, or nothing for a game that has none (an older save)."""
+        text = value.strip() if isinstance(value, str) else ""
+        return f"**Background.** {text}" if text else ""
 
     @staticmethod
     def _fill(template: str, values: dict[str, str]) -> str:

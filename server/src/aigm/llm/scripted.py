@@ -136,6 +136,8 @@ TEST_CAMPAIGN = {
         {
             "name": "Test Hero",
             "sheet": "Human fighter, Soldier background, level 1. STR 16, DEX 13, CON 14, INT 10, WIS 12, CHA 8. HP 12, AC 16 (chain mail, shield). Longsword, handaxes, Second Wind. Blunt, loyal, hates wizards.",
+            "background": "A former garrison soldier from the fens who knows the roads and the inns of the region well. "
+            "[[knows: Old Tam:npc | Old Tam ferries travellers across the marsh and gossips about every inn on the road.]]",
         }
     ],
     "gm_notes": (

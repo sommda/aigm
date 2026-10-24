@@ -57,6 +57,7 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | POST   | `/compendium/seen`            | Mark compendium entries as read                      | JSON       |
 | GET    | `/debug/context`              | The next request's context (**debug mode only**)     | JSON       |
 | GET    | `/debug/story`                | The whole story plan (**debug mode only**)           | JSON       |
+| POST   | `/debug/backfill`             | Record what the characters know (**debug mode only**)| JSON       |
 | GET    | `/debug/thinking`             | Whether model thinking is on (**debug mode only**)   | JSON       |
 | PUT    | `/debug/thinking`             | Turn model thinking on or off (**debug mode only**)  | JSON       |
 
@@ -672,7 +673,8 @@ otherwise. `status` is `"new"`, `"updated"` or `null`.
       "aspect": "history",
       "label": "History",
       "learned_turn": 31,
-      "new": false
+      "new": false,
+      "via": []
     }
   ],
   "related": [{ "id": "e020", "name": "Thorn Guild", "kind": "faction", "category": "other" }],
@@ -682,7 +684,8 @@ otherwise. `status` is `"new"`, `"updated"` or `null`.
 ```
 
 `facts` read subject facts first, then mentions, each in the order of the kind's checklist. `404` for an id that does
-not exist and, with the same message, for one the player has not discovered. A malformed id is `422`.
+not exist and, with the same message, for one the player has not discovered. A malformed id is `422`. A fact's `via`
+lists the party members whose starting knowledge it is (usually empty; never anything but party member names).
 
 ### POST `/compendium/seen`
 
@@ -748,6 +751,19 @@ Top-level sections, in order:
 
 Unknown `kind` values may be added later; clients should show them as plain text.
 
+
+---
+
+## POST `/debug/backfill`
+
+**Debug mode only.** Gives a game that began without it the characters' starting knowledge (OPENING.md 9): runs the
+familiarity pass against the session's world and applies the result. Body (optional): `{ "backgrounds": { "Toby":
+"Known as the Ghost of the Docks..." } }`, names matched without regard to case; each background is also saved in the
+campaign record, and a character without one is judged from the sheet. Answers `200` with `{ "facts_added": 7, "notes":
+[...], "compendium": { "new": 5, "updated": 0 } }`. The facts are `known` with `source: background`, so they show as
+new.
+`409` when there is no adventure, the curator is off, or a turn or a pass is running; `502` when the curator fails.
+Query parameter: `session_id`.
 
 ---
 
