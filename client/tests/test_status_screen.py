@@ -93,3 +93,22 @@ async def test_sheet_opens_on_a_character_by_name_or_on_the_first():
         await send(app, pilot, "/sheet")
         await settle(pilot, lambda: isinstance(app.screen, StatusScreen))
         await settle(pilot, lambda: "HP 11/15" in body_text(app.screen))
+
+
+async def test_the_arrows_keep_working_on_a_page_taller_than_the_screen():
+    fake = fake_with_status()
+    app = make_app(fake)
+    async with app.run_test(size=(100, 8)) as pilot:
+        await start(app, pilot)
+        await pilot.press("f7")
+        await settle(pilot, lambda: isinstance(app.screen, StatusScreen))
+        screen = app.screen
+        await settle(pilot, lambda: "Gulls wheel" in body_text(screen))
+        await pilot.press("right")
+        await settle(pilot, lambda: "HP 11/15" in body_text(screen))
+        await pilot.press("right")
+        await settle(pilot, lambda: "Dwarf Fighter with an axe." in body_text(screen))
+        await pilot.press("left")
+        await settle(pilot, lambda: "HP 11/15" in body_text(screen))
+        await pilot.press("left")
+        await settle(pilot, lambda: "Gulls wheel" in body_text(screen))

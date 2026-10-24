@@ -26,11 +26,13 @@ class StatusScreen(ModalScreen[None]):
     #st-body { height: 1fr; padding: 0 1; }
     #st-help { height: 1; padding: 0 1; color: $text-muted; }
     """
+    # left/right are priority bindings: a page taller than the screen gets a scrollbar, which makes the body
+    # scroll sideways a little, and the body would otherwise keep those keys for itself
     BINDINGS = [
         Binding("escape,q", "close", "Close", show=False),
         Binding("f7", "close", "Close", show=False, priority=True),
-        Binding("left", "tab(-1)", "Previous tab", show=False),
-        Binding("right", "tab(1)", "Next tab", show=False),
+        Binding("left", "tab(-1)", "Previous tab", show=False, priority=True),
+        Binding("right", "tab(1)", "Next tab", show=False, priority=True),
         Binding("up", "scroll(-1)", "Up", show=False),
         Binding("down", "scroll(1)", "Down", show=False),
         Binding("pageup", "page(-1)", "Page up", show=False),
