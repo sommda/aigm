@@ -243,6 +243,7 @@ when it is given.
 | `/context` | `GET /debug/context` | Debug servers only: opens the context viewer (same as `Ctrl+K`). See below. |
 | `/thinking [on\|off]` | `PUT /debug/thinking` | Debug servers only: turns the model's thinking on or off, or flips it (same as `F6`). The status line shows `DEBUG (no thinking)` while it is off. |
 | `/status` (`/s`) | `GET /status` | Opens the status page (same as `F7`). See below. |
+| `/sheet [NAME]` | `GET /characters...` | Opens the status page on a character's tab (the first character without a name; a start of the name will do). |
 | `/compendium [TAB\|NAME]` (`/journal`, `/c`) | `GET /compendium...` | Opens the compendium (same as `Ctrl+G`), on a tab (`locations`, `characters`, `other`) or on the entry with that name. See below. |
 | `/help`, `/quit` | local | |
 
@@ -292,12 +293,16 @@ and on `r`, and never listens for events.
 
 - **Availability.** `/health` reports `status: true`. Without it `F7` is unbound and `/status` prints "This server does
   not offer the status page."
-- **Screen.** A full-screen modal with a tab bar (`Status` so far; one tab per character comes next) and a scrolling
-  body: the place's name, where it is and the time, its description, who is here, key items, places inside, ways out,
-  and a table of everyone present. Sections with nothing in them are left out.
-- **Keys.** `←` `→` switch tab, `↑` `↓` `PgUp` `PgDn` `Home` scroll, `r` fetches again, `Esc`, `q` and `F7` close.
+- **Screen.** A full-screen modal with a tab bar (`Status`, then one tab per party member by first name) and a
+  scrolling body. The Status tab shows the place's name, where it is and the time, its description, who is here, key
+  items, places inside, ways out, and a table of everyone present with HP and conditions; sections with nothing in
+  them are left out. A character tab shows the name, headline, HP, conditions and level, then the sheet's sections in
+  the order the server sent them, or the sheet as the GM wrote it when no tidy one exists.
+- **Keys.** `←` `→` or `1`-`9` switch tab, `↑` `↓` `PgUp` `PgDn` `Home` scroll, `r` fetches again, `Esc`, `q` and
+  `F7` close.
 - **Code.** `status_model.py` is pure (tabs and the lines for a width, including the text table) and has its own
-  tests; `status_screen.py` holds the Textual screen; `ApiClient.status()` makes the call.
+  tests; `status_screen.py` holds the Textual screen; `ApiClient` has `status()`, `characters()` and
+  `character()`.
 
 ### Compendium
 

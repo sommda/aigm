@@ -75,9 +75,28 @@ def sample_status() -> dict:
         "inside": [{"id": "e005", "name": "Pier Nine", "kind": "location", "summary": "A long jetty."}],
         "exits": [{"id": "e006", "name": "Customs House", "route": "Up Dock Street from the Docks."}],
         "table": {
-            "columns": ["Name", "Who"],
-            "rows": [["Toby", "Party, level 3"], ["Galvin", "Party, level 1"],
-                     ["Elian", "A merchant who needs a crate moved."]],
+            "columns": ["Name", "HP", "Conditions", "Who"],
+            "rows": [["Toby", "11/15", "prone", "Party, level 3"], ["Galvin", "-", "-", "Party, level 1"],
+                     ["Elian", "-", "-", "A merchant who needs a crate moved."]],
+        },
+    }
+
+
+def sample_characters() -> dict[str, dict]:
+    """Two party members' pages as `/characters/{name}` returns them: one tidy, one only free text."""
+    return {
+        "Toby": {
+            "name": "Toby", "level": 3, "xp": 900, "progress": "Level 3 (Rogue 3), 900 XP",
+            "headline": "Human Rogue 3", "hp": "11/15", "conditions": ["prone"],
+            "sections": [
+                {"title": "Abilities", "lines": ["STR 10 (+0)   DEX 16 (+3)"]},
+                {"title": "Equipment", "lines": ["Shortsword", "Thieves' tools", "12 gp, 4 sp"]},
+            ],
+            "text": None,
+        },
+        "Galvin Stonehand": {
+            "name": "Galvin Stonehand", "level": 1, "xp": 0, "progress": "Level 1, 0 XP", "headline": "",
+            "hp": "", "conditions": [], "sections": [], "text": "Dwarf Fighter with an axe.\nLoyal to the Crown.",
         },
     }
 
@@ -132,6 +151,7 @@ class FakeServer:
         self.story: dict | None = None  # the public summary a story game reports
         self.story_text = ""
         self.compendium: dict[str, dict] | None = None  # None = an older server without the compendium
+        self.characters: dict[str, dict] = {}  # sheets by name, as /characters/{name} returns them
         self.status_page: dict | None = None  # None = an older server without the status page
         self.seen: set[str] = set()
         self.compendium_down = False  # answer the compendium calls with a 500
@@ -214,6 +234,17 @@ class FakeServer:
             return self._json(200, {"thinking": self.thinking})
         if path == "/debug/story" and self.debug:
             return self._json(200, {"story": None, "text": self.story_text})
+        if path.startswith("/characters") and self.status_page is not None:
+            name = path.removeprefix("/characters").strip("/")
+            if not name:
+                rows = [{"name": n, "headline": c["headline"], "level": c["level"], "hp": c["hp"],
+                         "conditions": c["conditions"]} for n, c in self.characters.items()]
+                return self._json(200, {"session_id": "default", "characters": rows})
+            from urllib.parse import unquote
+            page = self.characters.get(unquote(name))
+            if page is None:
+                return self._err(404, "not_found", "No party member")
+            return self._json(200, {"session_id": "default", **page})
         if path == "/status" and self.status_page is not None:
             return self._json(200, {"session_id": "default", "phase": "adventure", **self.status_page})
         if path.startswith("/compendium") and self.compendium is not None:

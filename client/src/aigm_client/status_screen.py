@@ -10,7 +10,7 @@ from textual.widgets import Static
 
 from aigm_client.api import ApiClient, ApiError
 from aigm_client.compendium_screen import LinesView
-from aigm_client.status_model import StatusModel
+from aigm_client.status_model import STATUS_TAB, StatusModel
 
 
 def not_available_message(error: ApiError) -> str:
@@ -37,12 +37,14 @@ class StatusScreen(ModalScreen[None]):
         Binding("pagedown", "page(1)", "Page down", show=False),
         Binding("home", "top", "Top", show=False),
         Binding("r", "refresh_page", "Refresh", show=False),
+        *(Binding(str(n), f"go_tab({n - 1})", f"Tab {n}", show=False) for n in range(1, 10)),
     ]
 
-    def __init__(self, api: ApiClient, ascii_only: bool = False) -> None:
+    def __init__(self, api: ApiClient, ascii_only: bool = False, character: str | None = None) -> None:
         super().__init__()
         self.api = api
         self.model = StatusModel(ascii_only)
+        self.start_character = character  # open on this character's tab, once the party is known
         self.error = ""
 
     def compose(self) -> ComposeResult:
@@ -60,9 +62,15 @@ class StatusScreen(ModalScreen[None]):
     # ---- loading ------------------------------------------------------------------------
 
     async def load(self) -> None:
-        tab = self.model.tab
+        """Ask for the party (the tabs) and for the page that is showing."""
         try:
-            page = await self.api.status()
+            self.model.load_roster(await self.api.characters())
+            if self.start_character is not None:  # "" means the first character
+                first = next((t for t, _ in self.model.tabs if t != STATUS_TAB), self.model.tab)
+                self.model.tab = self.model.find_tab(self.start_character) or first
+                self.start_character = None
+            tab, name = self.model.tab, self.model.character
+            page = await (self.api.character(name) if name else self.api.status())
         except ApiError as e:
             self.error = not_available_message(e)
         else:
@@ -87,6 +95,12 @@ class StatusScreen(ModalScreen[None]):
 
     def action_tab(self, step: int) -> None:
         if self.model.switch(step=step):
+            self.redraw()
+            self.action_refresh_page()
+
+    def action_go_tab(self, index: int) -> None:
+        tabs = self.model.tabs
+        if index < len(tabs) and self.model.switch(tabs[index][0]):
             self.redraw()
             self.action_refresh_page()
 

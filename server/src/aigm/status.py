@@ -6,6 +6,7 @@ discovered, and a fact that is not known, never appear."""
 
 from typing import Any
 
+from aigm.characters import hp_text
 from aigm.compendium import _path, _ref, _summary, _visible, known_facts
 from aigm.session.state import GameState
 from aigm.world import World
@@ -13,7 +14,7 @@ from aigm.world.briefing import time_of_day
 
 ROUTE_ASPECTS = ("approach", "connections")  # what to say about the way to a neighbouring place
 MAX_ROUTE_CHARS = 120
-TABLE_COLUMNS = ["Name", "Who"]
+TABLE_COLUMNS = ["Name", "HP", "Conditions", "Who"]
 
 
 def _clip(text: str, limit: int) -> str:
@@ -57,8 +58,10 @@ def _location(world: World) -> dict[str, Any] | None:
 def _party_rows(state: GameState) -> list[list[str]]:
     rows = []
     for name in state.party_names:
-        hero = state.hero(name)
-        rows.append([name, f"Party, level {hero.level}"])
+        sheet = state.sheets.get(name)
+        hp = hp_text(sheet.hp, sheet.max_hp) if sheet else ""
+        conditions = ", ".join(sheet.conditions) if sheet else ""
+        rows.append([name, hp or "-", conditions or "-", f"Party, level {state.hero(name).level}"])
     return rows
 
 
@@ -77,7 +80,7 @@ def build(state: GameState) -> dict[str, Any]:
             ent = world.entities[eid]
             if ent.kind == "location" and eid not in inside_ids and eid != world.entities[loc_id].parent and _visible(world, eid):
                 exits.append({**_ref(world, eid), "route": _route(world, eid)})
-    rows = _party_rows(state) + [[e["name"], e["summary"]] for e in here]
+    rows = _party_rows(state) + [[e["name"], "-", "-", e["summary"]] for e in here]
     return {
         "location": location,
         "here": here,

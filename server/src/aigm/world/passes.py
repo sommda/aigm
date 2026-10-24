@@ -5,6 +5,7 @@ The model-facing work is delegated to a `Curator`; every rule that must hold whi
 used (precedence between old and new facts, caps, connectivity, which entities to expand, what
 counts as a page of narration) is enforced here."""
 
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -26,7 +27,9 @@ from aigm.world.curator import (
     ReconcileItem,
     ReconcileRequest,
     ReconcileResult,
+    SheetRequest,
 )
+from aigm.sheets import Sheet, clean
 from aigm.history import digest_for, turn_chars, turns as split_turns
 from aigm.world.digest import Digest, clean_digest_text
 from aigm.world.independence import independence_problem, standalone_problem
@@ -855,3 +858,37 @@ def _plan_expansion(
             ops.append(AddFact(prop.text, tuple(prop.about), aspect, "hidden", "generated", turn))
         n_facts += 1
     return ops
+
+
+# ---- character sheets (docs/STATUS.md 3.2) ----------------------------------------------
+
+
+async def run_sheets(
+    campaign: dict[str, Any],
+    ruleset: str,
+    levels: dict[str, int],
+    curator: Curator,
+    *,
+    only: list[str] | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> tuple[dict[str, Sheet], list[str]]:
+    """Each party member's sheet written out as sections, and notes on the ones that failed. A member whose sheet
+    could not be written is left out, and the player sees the free text instead: this never fails the game."""
+    write = getattr(curator, "sheet", None)
+    members = [(n, sheet) for n, sheet, _ in _members(campaign) if sheet.strip() and (not only or n in only)]
+    if write is None or not members:
+        return {}, []
+    if progress:
+        progress("Writing the character sheets...")
+
+    async def one(name: str, text: str) -> Sheet:
+        return clean((await write(SheetRequest(ruleset, levels.get(name, 1), name, text))).to_dict())
+
+    results = await asyncio.gather(*(one(n, t) for n, t in members), return_exceptions=True)
+    sheets, notes = {}, []
+    for (name, _), result in zip(members, results):
+        if isinstance(result, BaseException):
+            notes.append(f"sheet for {name} skipped ({type(result).__name__}: {result})")
+        else:
+            sheets[name] = result
+    return sheets, notes

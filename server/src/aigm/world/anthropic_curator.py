@@ -30,7 +30,9 @@ from aigm.world.curator import (
     ReconcileRequest,
     QuestProposal,
     ReconcileResult,
+    SheetRequest,
 )
+from aigm.sheets import Sheet, clean
 from aigm.world.model import ASPECTS, DISCLOSURES, KINDS
 from aigm.world.render import (
     render_bootstrap,
@@ -38,6 +40,7 @@ from aigm.world.render import (
     render_expand,
     render_extract,
     render_familiarity,
+    render_sheet,
     render_plot,
     render_reconcile,
 )
@@ -90,6 +93,13 @@ BOOTSTRAP_SCHEMA = _obj(
 FAMILIARITY_SCHEMA = _obj(
     entities={"type": "array", "items": _ENTITY},
     facts={"type": "array", "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT, via=_STRS)},
+)
+SHEET_SCHEMA = _obj(
+    headline=_STR,
+    hp=_nullable({"type": "integer"}),
+    max_hp=_nullable({"type": "integer"}),
+    conditions=_STRS,
+    sections={"type": "array", "items": _obj(title=_STR, lines=_STRS)},
 )
 RECONCILE_SCHEMA = _obj(
     labels={
@@ -192,7 +202,7 @@ class AnthropicCurator:
         self.effort, self.expand_effort = effort, expand_effort
         self.max_tokens = max_tokens
         self._client = client
-        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "familiarity", "digest", "plot")}
+        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "familiarity", "sheet", "digest", "plot")}
         self.guides = prompts.aspect_guides()
 
     def _get_client(self) -> Any:
@@ -262,6 +272,14 @@ class AnthropicCurator:
             "familiarity", self.expand_model, self.expand_effort, render_familiarity(request), FAMILIARITY_SCHEMA
         )
         return Extraction(entities=_entities(data.get("entities")), facts=_facts(data.get("facts"), "known"))
+
+    async def sheet(self, request: SheetRequest) -> Sheet:
+        # Copying a sheet that is already written: the cheap model is enough.
+        data = await self._ask("sheet", self.model, self.effort, render_sheet(request), SHEET_SCHEMA)
+        try:
+            return clean(data)
+        except ValueError as exc:
+            raise CuratorError(f"sheet: {exc}") from None
 
     async def reconcile(self, request: ReconcileRequest) -> ReconcileResult:
         data = await self._ask("reconcile", self.model, self.effort, render_reconcile(request), RECONCILE_SCHEMA)

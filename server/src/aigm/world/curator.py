@@ -75,6 +75,16 @@ class FamiliarityRequest:
 
 
 @dataclass
+class SheetRequest:
+    """One character's free-text sheet, to be written out as sections (docs/STATUS.md 3.2)."""
+
+    ruleset: str  # the ruleset's name, e.g. "AD&D 1e"
+    level: int
+    name: str
+    text: str
+
+
+@dataclass
 class ExtractRequest:
     transcript: str  # the unprocessed conversation, as plain text
     setting: str
@@ -218,6 +228,8 @@ class Curator(Protocol):
     async def expand(self, request: ExpandRequest) -> Extraction: ...
 
     async def bootstrap(self, request: BootstrapRequest) -> Extraction: ...
+
+    # Optional: `async def sheet(self, request: SheetRequest) -> Sheet` writes a character's sheet as sections.
 
     # Optional: `async def digest(self, request: DigestRequest) -> list[str]` returns one short account per turn,
     # in order; an empty string means "no digest for this turn".

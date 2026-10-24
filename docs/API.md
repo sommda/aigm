@@ -58,6 +58,9 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | POST   | `/compendium/seen`            | Mark compendium entries as read                      | JSON       |
 | GET    | `/debug/context`              | The next request's context (**debug mode only**)     | JSON       |
 | GET    | `/debug/story`                | The whole story plan (**debug mode only**)           | JSON       |
+| GET    | `/characters`                 | The party's names and vitals, for the tabs           | JSON       |
+| GET    | `/characters/{name}`          | One character's sheet                                | JSON       |
+| POST   | `/debug/sheets`               | Write the sheets of a game that lacks them (**debug mode only**) | JSON |
 | POST   | `/debug/backfill`             | Record what the characters know (**debug mode only**)| JSON       |
 | GET    | `/debug/thinking`             | Whether model thinking is on (**debug mode only**)   | JSON       |
 | PUT    | `/debug/thinking`             | Turn model thinking on or off (**debug mode only**)  | JSON       |
@@ -619,8 +622,11 @@ asks for it when the screen opens or is refreshed; it is never pushed.
   "inside": [{ "id": "e005", "name": "Pier Nine", "kind": "location", "summary": "A long jetty." }],
   "exits": [{ "id": "e006", "name": "Customs House", "route": "Up Dock Street from the Docks." }],
   "table": {
-    "columns": ["Name", "Who"],
-    "rows": [["Toby", "Party, level 3"], ["Elian", "A merchant who needs a crate moved."]]
+    "columns": ["Name", "HP", "Conditions", "Who"],
+    "rows": [
+      ["Toby", "11/15", "prone", "Party, level 3"],
+      ["Elian", "-", "-", "A merchant who needs a crate moved."]
+    ]
   }
 }
 ```
@@ -630,8 +636,46 @@ asks for it when the screen opens or is refreshed; it is never pushed.
 - `path` is the places that contain it, outermost first, up to the first one the player does not know.
 - `here` is the people and groups present that the player knows. `inside` is the known places within this one, and
   `exits` the other known places linked to it, each with what is known of the way (`route`, or `null`).
-- `table` is ready to draw: the client prints the columns and rows as given. Later versions add columns (HP and
-  conditions) without changing its shape.
+- `table` is ready to draw: the client prints the columns and rows as given. HP and conditions come from the
+  party's sheets (`-` when there is none, and always for people who are not in the party). Later versions add
+  columns without changing its shape.
+
+## The characters
+
+The player characters' sheets (docs/STATUS.md 3). Both calls take `session_id` and answer `409 conflict` until the
+adventure has begun. Like the status page they are read from stored data and nothing is pushed.
+
+### GET `/characters`
+
+The party, for the tabs: `{ "session_id": "default", "characters": [{ "name": "Toby", "headline": "Human Rogue 3",
+"level": 3, "hp": "11/15", "conditions": ["prone"] }] }`. `headline` and `hp` are empty strings when the character has
+no tidy sheet or no hit points.
+
+### GET `/characters/{name}`
+
+One character (the name is matched without regard to case; `404` for anyone who is not in the party):
+
+```json
+{
+  "session_id": "default",
+  "name": "Toby",
+  "level": 3,
+  "xp": 900,
+  "progress": "Level 3 (Rogue 3), 900 XP",
+  "headline": "Human Rogue 3",
+  "hp": "11/15",
+  "conditions": ["prone"],
+  "sections": [
+    { "title": "Abilities", "lines": ["STR 10 (+0)   DEX 16 (+3)"] },
+    { "title": "Equipment", "lines": ["Shortsword", "Thieves' tools", "12 gp, 4 sp"] }
+  ],
+  "text": null
+}
+```
+
+`sections` are written by the model for the game's ruleset and the character's class, so their titles and lines
+differ between rulesets; clients print them in order and never interpret them. When no tidy sheet exists (the step
+failed, or the game began before sheets did) `sections` is empty and `text` holds the sheet as the GM wrote it.
 
 ---
 
@@ -807,6 +851,15 @@ campaign record, and a character without one is judged from the sheet. Answers `
 new.
 `409` when there is no adventure, the curator is off, or a turn or a pass is running; `502` when the curator fails.
 Query parameter: `session_id`.
+
+---
+
+## POST `/debug/sheets`
+
+**Debug mode only.** Writes every party member's sheet out as sections (STATUS.md 3.2) for a game that began without
+them, replacing any that exist. Answers `200` with `{ "written": ["Toby"], "notes": [...] }`; a member whose sheet
+could not be written keeps what they had and is named in `notes`. `409` when there is no adventure, the curator is
+off, or a turn or a pass is running; `502` when the curator fails. Query parameter: `session_id`.
 
 ---
 

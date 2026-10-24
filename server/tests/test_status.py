@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from aigm.app import create_app
 from aigm.config import Settings
 from aigm.session.state import GameState, Hero, Phase
+from aigm.sheets import Section, Sheet
 from aigm.status import build
 from aigm.world import World
 from tests.conftest import chat
@@ -90,9 +91,16 @@ def test_the_status_lists_places_inside_and_ways_out_that_the_party_knows():
 def test_the_table_lists_the_party_and_who_is_present():
     state, ids = harbor()
     rows = build(state)["table"]["rows"]
-    assert build(state)["table"]["columns"] == ["Name", "Who"]
-    assert rows[0] == ["Toby", "Party, level 3"] and rows[1] == ["Galvin", "Party, level 1"]
+    assert build(state)["table"]["columns"] == ["Name", "HP", "Conditions", "Who"]
+    assert rows[0] == ["Toby", "-", "-", "Party, level 3"] and rows[1] == ["Galvin", "-", "-", "Party, level 1"]
     assert [r[0] for r in rows[2:]] == ["Elian"]  # Captain Vael is not discovered
+
+
+def test_the_table_shows_hit_points_and_conditions_from_the_sheets():
+    state, ids = harbor()
+    state.sheets["Toby"] = Sheet("Human Rogue 3", 11, 15, ["prone"], [Section("Gear", ["Dagger"])])
+    rows = build(state)["table"]["rows"]
+    assert rows[0] == ["Toby", "11/15", "prone", "Party, level 3"]
 
 
 def test_nothing_hidden_is_in_the_status():
@@ -141,4 +149,4 @@ def test_entering_the_adventure_in_test_mode_gives_a_described_place(client):
     chat(client, "begin")
     body = client.get("/status").json()
     assert body["location"]["name"] == "Rusty Flagon" and body["location"]["overview"]
-    assert body["items"] and body["table"]["rows"][0][1].startswith("Party")
+    assert body["items"] and body["table"]["rows"][0][3].startswith("Party") and body["table"]["rows"][0][1] == "12/12"

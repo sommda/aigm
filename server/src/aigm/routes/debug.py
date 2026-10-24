@@ -7,6 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from aigm import rulesets
 from aigm.compendium import unseen_totals
 from aigm.context_view import build_context
 from aigm.deps import get_session
@@ -14,7 +15,7 @@ from aigm.session.state import Phase
 from aigm.session.store import Session
 from aigm.story import needs_plan, summary_so_far
 from aigm.world.ops import apply_ops
-from aigm.world.passes import run_backfill
+from aigm.world.passes import run_backfill, run_sheets
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/debug")
@@ -92,6 +93,35 @@ async def backfill(
         "notes": [*result.notes, *applied.skipped],
         "compendium": unseen_totals(state.world, session.reading_state()),
     }
+
+
+@router.post("/sheets")
+async def sheets(request: Request, session: Annotated[Session, Depends(get_session)]) -> dict[str, Any]:
+    """Writes every party member's sheet out as sections, for a game that began without them (docs/STATUS.md 9).
+    Sheets already written are replaced. A member whose sheet could not be written keeps what they had."""
+    service = request.app.state.curator
+    if service is None:
+        raise HTTPException(status_code=409, detail="The world curator is off")
+    state = session.state
+    if state.phase is not Phase.ADVENTURE or not state.campaign:
+        raise HTTPException(status_code=409, detail="There is no adventure to write sheets for")
+    if session.busy or session.curating:
+        raise HTTPException(status_code=409, detail="A turn or a curator pass is running; try again in a moment")
+    session.curating = True
+    generation = session.generation
+    try:
+        written, notes = await run_sheets(
+            state.campaign, rulesets.get(state.ruleset).name, {n: state.hero(n).level for n in state.party_names}, service.curator
+        )
+    except Exception as exc:
+        log.exception("writing sheets failed")
+        raise HTTPException(status_code=502, detail=f"The curator failed ({type(exc).__name__})") from None
+    finally:
+        session.curating = False
+    if session.generation != generation or session.busy:
+        raise HTTPException(status_code=409, detail="The game changed while this ran; try again")
+    state.sheets.update(written)
+    return {"written": sorted(written), "notes": notes}
 
 
 @router.get("/story")

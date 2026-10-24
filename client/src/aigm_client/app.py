@@ -28,6 +28,7 @@ HELP = """Commands:
   /delete NAME          delete a saved game
   /compendium [TAB|NAME]  what you have learned: locations, characters, other  (Ctrl+G)
   /status               where you are and who is with you  (F7)
+  /sheet [NAME]         a character's sheet
   /reconnect            retry connecting to the server
   /quit                 quit
 Keys: Space/Enter = next page, PageUp/PageDown/arrows/wheel = scroll back,
@@ -310,14 +311,14 @@ class AigmApp(App):
         else:
             self.run_worker(self._status_flow(), group="flow")
 
-    async def _status_flow(self) -> None:
+    async def _status_flow(self, character: str | None = None) -> None:
         if not self.has_status:
             self.session.add_system("This server does not offer the status page.", "yellow")
             self._kick()
             return
         if self._modal():
             return
-        await self.push_screen_wait(StatusScreen(self.api, self.ascii_only))
+        await self.push_screen_wait(StatusScreen(self.api, self.ascii_only, character))
         self._kick()
 
     def action_thinking(self) -> None:
@@ -495,6 +496,8 @@ class AigmApp(App):
                 await self._compendium_flow(" ".join(cmd.args) or None)
             case "status":
                 await self._status_flow()
+            case "sheet":
+                await self._status_flow(" ".join(cmd.args))
             case "story":
                 await self._story_flow()
             case "thinking":

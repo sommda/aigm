@@ -9,6 +9,7 @@ from aigm.errors import CorruptSave
 from aigm.rulesets import BY_ID, DEFAULT_RULESET
 from aigm.story import ENDLESS, STRUCTURES, Story
 from aigm.compendium import Compendium
+from aigm.sheets import Sheet, read_sheets
 from aigm.world import World
 
 
@@ -81,6 +82,8 @@ class GameState:
     heroes: dict[str, Hero] = field(default_factory=dict)
     # What the player has already looked at in the compendium (docs/COMPENDIUM.md).
     compendium: Compendium = field(default_factory=Compendium)
+    # Each party member's sheet as the player sees it, by name (docs/STATUS.md 3); a member with none shows the free text.
+    sheets: dict[str, Sheet] = field(default_factory=dict)
 
     @property
     def party_names(self) -> list[str]:
@@ -121,6 +124,7 @@ class GameState:
             self.story.copy() if self.story else None,
             {n: Hero(h.level, h.xp, dict(h.classes)) for n, h in self.heroes.items()},
             self.compendium.copy(),
+            {n: s.copy() for n, s in self.sheets.items()},
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -133,6 +137,7 @@ class GameState:
             "story": self.story.to_dict() if self.story else None,
             "heroes": {n: {"level": h.level, "xp": h.xp, "classes": dict(h.classes)} for n, h in self.heroes.items()},
             "compendium": self.compendium.to_dict(),
+            "sheets": {n: s.to_dict() for n, s in self.sheets.items()},
         }
 
     @classmethod
@@ -165,4 +170,5 @@ class GameState:
             raise CorruptSave("a session_zero save cannot have a story")
         heroes = _read_heroes(data.get("heroes"))  # saves before version 5 have none
         return cls(phase, campaign, world, ruleset, structure=structure, story=story, heroes=heroes,
-                   compendium=Compendium.from_dict(data.get("compendium")))  # none before version 6
+                   compendium=Compendium.from_dict(data.get("compendium")),  # none before version 6
+                   sheets=read_sheets(data.get("sheets")))  # none before version 8

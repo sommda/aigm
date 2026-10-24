@@ -8,6 +8,7 @@ from aigm.world.curator import (
     FamiliarityRequest,
     PlotRequest,
     ReconcileRequest,
+    SheetRequest,
 )
 from aigm.world.model import Entity, Fact
 
@@ -121,6 +122,10 @@ def render_familiarity(req: FamiliarityRequest) -> str:
             "## Your previous answer was rejected\nFix these and answer again:\n" + "\n".join(f"- {x}" for x in req.feedback)
         )
     return "\n\n".join(parts)
+
+
+def render_sheet(req: SheetRequest) -> str:
+    return f"## Ruleset\n{req.ruleset}\n\n## Level\n{req.level}\n\n## {req.name}'s sheet, as the GM wrote it\n{req.text.strip()}"
 
 
 def render_digest(req: DigestRequest) -> str:

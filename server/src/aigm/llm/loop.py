@@ -105,6 +105,13 @@ async def _seed_world(state: GameState, history: list[dict[str, Any]], curator: 
         task.cancel()  # a no-op once finished; stops the work if the client went away
     for why in apply_ops(state.world, ops).skipped:
         log.info("bootstrap op skipped: %s", why)
+    if state.campaign:
+        yield Status(stage="world", message="Writing the character sheets...")
+        levels = {n: state.hero(n).level for n in state.party_names}
+        try:
+            state.sheets = await curator.sheets(state.campaign, rulesets.get(state.ruleset).name, levels)
+        except Exception:
+            log.exception("could not write the character sheets")  # the player sees the free text instead
     if state.structure in LENGTHS:
         yield Status(stage="world", message="Planning the story...")
         try:

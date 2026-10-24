@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass, field
 
-KNOWN = {"new", "save", "load", "saves", "info", "delete", "help", "quit", "reconnect", "context", "thinking", "story", "compendium", "status"}
-ALIASES = {"journal": "compendium", "c": "compendium", "s": "status"}
+KNOWN = {"new", "save", "load", "saves", "info", "delete", "help", "quit", "reconnect", "context", "thinking", "story", "compendium", "status", "sheet"}
+ALIASES = {"journal": "compendium", "c": "compendium", "s": "status", "character": "sheet"}
 
 
 @dataclass(frozen=True)

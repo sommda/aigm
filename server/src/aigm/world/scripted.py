@@ -35,7 +35,9 @@ from aigm.world.curator import (
     EndingProposal,
     ReconcileRequest,
     ReconcileResult,
+    SheetRequest,
 )
+from aigm.sheets import Section, Sheet
 
 _DIRECTIVE = re.compile(r"\[\[(\w+):\s*(.*?)\]\]", re.DOTALL)
 _SPEAKER = re.compile(r"^(GM|PLAYER): ")
@@ -144,6 +146,18 @@ class ScriptedCurator:
                 if text.strip():
                     out.facts.append(FactProposal(text.strip(), [subject], None, "known", via=[name]))
         return out
+
+    async def sheet(self, request: SheetRequest) -> Sheet:
+        """The free text split into sentences under one heading, with hit points read from "HP 12" or "HP 12/15"."""
+        self.calls.append("sheet")
+        text = " ".join(request.text.split())
+        lines = [s.strip() for s in re.split(r"(?<=[.;])\s+", text) if s.strip()][:12] or [text[:200]]
+        found = re.search(r"\bHP:?\s*(\d+)(?:\s*/\s*(\d+))?", text, re.IGNORECASE)
+        hp = max_hp = None
+        if found:
+            hp = int(found.group(1))
+            max_hp = int(found.group(2) or found.group(1))
+        return Sheet(f"{request.name}, level {request.level}", hp, max_hp, [], [Section("Sheet", lines)])
 
     async def plot(self, request: PlotRequest) -> PlotProposal:
         """A plain plan of the size the length asks for: a chain of quests per chapter, each giving something, ending

@@ -152,7 +152,8 @@ A saved history is a "named history", like a saved game file. `HistoryRepository
   with no campaign record; version 2 files (no `world`) load with an empty world; files before version 4 have no
   `structure` or `story` and load as endless games (docs/STORY.md), and files before version 5 have no
   `heroes` (docs/PROGRESSION.md), and files before version 6 have no `compendium` reading state or
-  `learned_seq` on facts (docs/COMPENDIUM.md), and files before version 7 have no `via` on facts (docs/OPENING.md).
+  `learned_seq` on facts (docs/COMPENDIUM.md), files before version 7 have no `via` on facts (docs/OPENING.md), and
+  files before version 8 have no `sheets` (docs/STATUS.md).
   Restore also validates the state
   (known phase, `campaign` an object or null, none in `session_zero`) and the world (ids unique, every reference
   resolves, parent chains end, names unique, `next_id` above every id, supersession consistent). A `session_zero` save

@@ -8,6 +8,7 @@ from typing import Any
 from rich.text import Text
 
 STATUS_TAB = "status"
+CHARACTER_PREFIX = "c:"
 NO_LOCATION = "The party's location has not been recorded yet."
 MAX_FIRST_COLUMN = 24
 
@@ -24,13 +25,38 @@ class StatusModel:
         self.dash = "-" if ascii_only else "—"
         self.tab = STATUS_TAB
         self.pages: dict[str, dict[str, Any]] = {}
+        self.roster: list[dict[str, Any]] = []
 
     @property
     def tabs(self) -> list[tuple[str, str]]:
-        return [(STATUS_TAB, "Status")]
+        """Status, then one tab per party member, by first name."""
+        return [(STATUS_TAB, "Status")] + [
+            (CHARACTER_PREFIX + c["name"], c["name"].split()[0]) for c in self.roster if c.get("name")
+        ]
 
     def load(self, tab: str, page: dict[str, Any]) -> None:
         self.pages[tab] = page
+
+    def load_roster(self, data: dict[str, Any]) -> None:
+        self.roster = [c for c in data.get("characters") or [] if isinstance(c, dict)]
+        if self.tab not in {t for t, _ in self.tabs}:
+            self.tab = STATUS_TAB
+
+    def find_tab(self, query: str) -> str | None:
+        """The character tab a name or the start of one refers to (`/sheet toby`)."""
+        wanted = query.strip().casefold()
+        if not wanted:
+            return None
+        names = [(t, n) for t, n in self.tabs if t != STATUS_TAB]
+        for tab_id, _ in names:
+            if tab_id[len(CHARACTER_PREFIX):].casefold() == wanted:
+                return tab_id
+        return next((t for t, _ in names if t[len(CHARACTER_PREFIX):].casefold().startswith(wanted)), None)
+
+    @property
+    def character(self) -> str | None:
+        """The name of the character whose tab is showing, or None on the status tab."""
+        return self.tab[len(CHARACTER_PREFIX):] if self.tab.startswith(CHARACTER_PREFIX) else None
 
     def switch(self, tab: str | None = None, step: int = 0) -> bool:
         ids = [t for t, _ in self.tabs]
@@ -47,7 +73,7 @@ class StatusModel:
         return out
 
     def help_text(self) -> str:
-        return "Left/Right tab   Up/Down/PgUp/PgDn scroll   r refresh   q or Esc close"
+        return "Left/Right or 1-9 tab   Up/Down/PgUp/PgDn scroll   r refresh   q or Esc close"
 
     # ---- drawing ------------------------------------------------------------------------
 
@@ -55,7 +81,34 @@ class StatusModel:
         page = self.pages.get(self.tab)
         if page is None:
             return []
-        return self._status_lines(page, width)
+        return self._character_lines(page, width) if self.character else self._status_lines(page, width)
+
+    def _character_lines(self, page: dict[str, Any], width: int) -> list[Text]:
+        out = [Text(page["name"], style="bold")]
+        if page.get("headline"):
+            out.append(Text(page["headline"]))
+        vitals = Text()
+        if page.get("hp"):
+            vitals.append(f"HP {page['hp']}", style="bold green")
+        if page.get("conditions"):
+            vitals.append(("  " if vitals else "") + ", ".join(page["conditions"]), style="yellow")
+        if vitals:
+            out.append(vitals)
+        if page.get("progress"):
+            out.append(Text(page["progress"], style="dim"))
+        for section in page.get("sections") or []:
+            self._heading(out, section["title"])
+            for line in section["lines"]:
+                out.extend(Text(t) for t in wrap(line, width, "    ", "  "))
+        if page.get("text"):
+            self._heading(out, "Sheet")
+            out.append(Text("No tidy version of this sheet was written; here it is as the GM wrote it.", style="dim"))
+            for paragraph in str(page["text"]).split("\n"):
+                if paragraph.strip():
+                    out.extend(Text(t) for t in wrap(paragraph.strip(), width, "  "))
+                else:
+                    out.append(Text(""))
+        return out
 
     def _heading(self, out: list[Text], title: str) -> None:
         out.append(Text(""))

@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -104,6 +105,14 @@ class ApiClient:
     async def status(self) -> dict[str, Any]:
         """The status page: the place the party is in and who is there (docs/STATUS.md)."""
         return await self._request("GET", "/status", params=self._session())
+
+    async def characters(self) -> dict[str, Any]:
+        """The party, for the status screen's tabs (docs/STATUS.md 7)."""
+        return await self._request("GET", "/characters", params=self._session())
+
+    async def character(self, name: str) -> dict[str, Any]:
+        """One party member's sheet."""
+        return await self._request("GET", f"/characters/{quote(name, safe='')}", params=self._session())
 
     async def chat_state(self) -> dict[str, Any]:
         """The live session: `messages`, plus `phase` and `campaign` on servers that have them."""

@@ -112,7 +112,8 @@ It lives next to the scene (a field on `World.scene`'s sibling in `GameState`, s
 cleared by `end`, by a `set_scene` that moves the party, and when a new game begins.
 
 **Foes show a health word, not numbers** (for now; a later setting may choose how much data is exposed). The player is
-not told a monster's HP in the story, so the status page must not say it: `unhurt`, `scratched`, `bloodied`, `near death`, `down`. The GM picks the word. That also means
+not told a monster's HP in the story, so the status page must not say it: `unhurt`, `scratched`, `bloodied`,
+`near death`, `down`. The GM picks the word. That also means
 nothing hidden can leak from this record, because the GM writes only what the player may see. Allies and party
 members show real numbers.
 

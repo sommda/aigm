@@ -8,6 +8,7 @@ from aigm.world.curator import Curator
 from collections.abc import Callable
 from typing import Any
 
+from aigm.sheets import Sheet
 from aigm.world.ops import Op
 from aigm.world.passes import (
     DEFAULT_EVERY_PAGES,
@@ -16,6 +17,7 @@ from aigm.world.passes import (
     narration_pages,
     run_bootstrap,
     run_pass,
+    run_sheets,
 )
 from aigm.world.model import World
 from aigm import story as story_rules
@@ -137,6 +139,21 @@ class CuratorService:
         for note in result.notes:
             log.info("bootstrap: %s", note)
         return result.ops
+
+    async def sheets(
+        self,
+        campaign: dict[str, Any],
+        ruleset: str,
+        levels: dict[str, int],
+        *,
+        only: list[str] | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> dict[str, Sheet]:
+        """The party's sheets written out as sections (docs/STATUS.md 3.2). A sheet that fails is left out."""
+        sheets, notes = await run_sheets(campaign, ruleset, levels, self.curator, only=only, progress=progress)
+        for note in notes:
+            log.info("sheets: %s", note)
+        return sheets
 
     async def plan(
         self, campaign: dict[str, Any], world: World, length: str, progress: Callable[[str], None] | None = None
