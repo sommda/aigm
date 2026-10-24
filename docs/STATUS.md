@@ -1,6 +1,7 @@
 # AIGM Status Page and Character Sheets: Design
 
-Status: proposed. Nothing is built. Section 10 lists the decisions that need an answer.
+Status: decisions settled (section 10); building in the order given there. Built so far: step (a), the location half of
+the status tab.
 
 This is the design for a player-facing **status page** (where the party is, who and what is there, how everyone is
 doing) and one **character sheet** per player character, shown in a client screen that works like the
@@ -46,21 +47,20 @@ new state, and that is the real work: **structured character state** and **comba
 ### 3.1 The sheet record
 
 The free-text sheet stays (the GM reads it every turn through the campaign record). Beside it the server keeps a
-structured **`Sheet`** per party member:
+**`Sheet`** per party member, with as little structure as will do. The model decides what a sheet for this ruleset
+and class looks like; the server never knows what "Armor Class" or "spell slots" are.
 
-- **Vitals**, fixed fields every ruleset has in some form: `hp`, `max_hp`, `temp_hp` (0 if the ruleset has none),
-  `conditions` (a list of short strings), `headline` (e.g. "Human Rogue 3", built from the sheet and the level).
-- **Sections**, an ordered list that the ruleset and class decide: each has a `title` and either `rows` (label and
-  value pairs, such as `STR 10 (+0)` or `Armor Class 15`) or `items` (a list of strings, such as features or gear).
-  Typical titles: Abilities, Defenses, Skills, Attacks, Features, Spells, Equipment. A spell section can carry slots
-  (`1st: 2/3`). A fighter has no Spells section; a wizard has two.
-- **Resources**, the things that run out: spell slots, uses per day, ammunition, rage. A label with `current` and
-  `max`. These are the fields the GM changes most.
-- **Coin**, a short string in the ruleset's currency (`12 gp, 4 sp`).
+- **`headline`**: one line, such as "Human Rogue 3".
+- **`hp`** and **`max_hp`**: optional whole numbers. They exist only because the status table and the combat view
+  need one comparable number. A ruleset with no hit points (or a character the model cannot read one for) leaves
+  them out and the table shows a dash.
+- **`conditions`**: a list of short strings.
+- **`sections`**: an ordered list of `title` and `lines`, where `lines` is a list of plain strings. That is all.
+  Abilities, defenses, skills, attacks, features, spells with their slots, equipment and coin are all just sections
+  whose lines the model wrote ("STR 10 (+0)", "1st-level slots: 2/3", "Shortsword, 12 gp").
 
-Sections are generic on purpose: the client draws any ruleset (OD&D with six numbers, 4e with powers, Pathfinder
-2e with proficiency ranks) without a layout per ruleset, and a homebrew class works. Only the vitals are special,
-because the status table and the combat rows use them.
+Nothing about a ruleset lives in the server: a new ruleset, or a homebrew class, needs no schema change, only the
+model writing sensible sections. The client draws sections as titled lists, in order.
 
 ### 3.2 Where the structured sheet comes from
 
@@ -81,11 +81,13 @@ data in `begin_adventure`:
 The GM keeps HP and resources straight in the story but nothing records them. Two ways, and the design uses the
 first:
 
-1. **A new GM tool, `update_character`.** One call per change: a name, then any of `hp` (a number, or `delta`),
-   `temp_hp`, `conditions_add` / `conditions_remove`, `resource` (label and new current), `item_add` /
-   `item_remove`, `coin`, `note`. It works on the turn's working copy like `establish` and `set_scene`, so a failed
-   turn records nothing, and it is refused for a name that is not a party member. The prompt tells the GM to call it
-   whenever it states a change ("You take 4 damage (HP 11/15)"), before the reply, like `set_scene`.
+1. **A new GM tool, `update_character`.** One call per change: a name, then any of `hp` (a number) or `hp_delta`,
+   `max_hp`, `conditions_add` / `conditions_remove`, and `section` (a title and the full new list of lines, which
+   replaces that section or adds it). So a spent spell slot, a drunk potion or new coin is a rewrite of the section
+   it lives in, which the model does by reading the sheet it was given. It works on the turn's working copy like
+   `establish` and `set_scene`, so a failed turn records nothing, and it is refused for a name that is not a party
+   member. The prompt tells the GM to call it whenever it states a change ("You take 4 damage (HP 11/15)"), before
+   the reply, like `set_scene`. The tool only changes server state; nothing is pushed to the client (section 7).
 2. A curator reading the narration after the fact. Rejected: HP arithmetic and "which potion did they drink" are
    exactly what a post-hoc reader gets wrong, and a wrong HP bar is worse than none.
 
@@ -109,8 +111,8 @@ A small, explicit **encounter** record, set by a new GM tool, `set_combat`:
 It lives next to the scene (a field on `World.scene`'s sibling in `GameState`, saved with the game) and is
 cleared by `end`, by a `set_scene` that moves the party, and when a new game begins.
 
-**Foes show a health word, not numbers.** The player is not told a monster's HP in the story, so the status page
-must not say it: `unhurt`, `scratched`, `bloodied`, `near death`, `down`. The GM picks the word. That also means
+**Foes show a health word, not numbers** (for now; a later setting may choose how much data is exposed). The player is
+not told a monster's HP in the story, so the status page must not say it: `unhurt`, `scratched`, `bloodied`, `near death`, `down`. The GM picks the word. That also means
 nothing hidden can leak from this record, because the GM writes only what the player may see. Allies and party
 members show real numbers.
 
@@ -171,9 +173,8 @@ All read-only, under the same session scoping as the compendium (`?session_id=`)
 | `GET /characters` | The party: name, headline, level, HP, conditions, for the tabs |
 | `GET /characters/{name}` | One full sheet: vitals, sections, resources, coin, level/XP, free-text fallback |
 
-`GET /status` and `GET /characters` are cheap enough that the client reloads them each time the screen opens and
-whenever a turn ends. The `message_end` event gains a small `status` object (`hp` per member, `combat` yes/no) only
-if the client later wants a status-line indicator; v1 does not add it. The health check gains `"status": true` so a
+The client fetches the tab it is showing each time the screen opens, a tab is selected or the player refreshes;
+nothing is pushed, and no SSE event changes. The health check gains `"status": true` so a
 client can tell whether a server offers the page, as it does for `compendium`.
 
 A phase of Session 0 has no party yet, so the routes answer `409` there, as other adventure-only routes do.
@@ -181,17 +182,17 @@ A phase of Session 0 has no party yet, so the routes answer `409` there, as othe
 ## 8. Client
 
 A `StatusScreen`, modal like `CompendiumScreen`, opened by `/status` (alias `/s`, and `/sheet NAME` to open a
-character's tab) and a key binding (Ctrl+T). Layout:
+character's tab) and a key binding (F7; Ctrl+T already toggles reasoning). Layout:
 
 - **Tabs along the top:** `Status`, then one per character (their first names; `[` and `]` or Tab move between them,
   as in the compendium).
 - **Status tab:** the sections of section 6 as scrolling text, with the table last. Tables are drawn with Rich, so
   they adapt to terminal width.
-- **Character tab:** the sections of the sheet in order, in two columns when the terminal is wide enough and one
-  when it is not. Vitals at the top; a dim "free-text sheet" fallback when no structured sheet exists.
+- **Character tab:** the sheet's sections in order as titled lists. Headline, HP and conditions at the top; a dim
+  "free-text sheet" fallback when no structured sheet exists.
 - **Model and screen split**, as for the compendium: `status_model.py` turns server JSON into lines of styled text
   with no Textual import (unit-tested), and `status_screen.py` is the thin widget.
-- The screen refreshes on open and while open when a turn finishes, since combat changes the table.
+- The screen fetches on open, on a tab change and on a refresh key; it never listens for events.
 
 ## 9. Persistence, tests, docs
 
@@ -209,24 +210,22 @@ character's tab) and a key binding (Ctrl+T). Layout:
 - **Tests (client).** Model: calm and combat tables, a wide and a narrow sheet, the fallback; screen: tabs, refresh.
 - **Docs.** `API.md`, `CLIENT.md`, `BACKEND.md`, `WORLD.md` (the two aspects), and the README link.
 
-## 10. Decisions to confirm
+## 10. Decisions
 
-Each has a recommendation, in the order I would build them.
+Settled, with the reasons in the sections above.
 
-1. **A server-held `Sheet` made by a curator pass, kept current by a new `update_character` tool.** The
-   alternative of leaving HP in the narration cannot support a table. Recommended.
-2. **Generic sections** (titles with rows or items) rather than a fixed D&D layout. Recommended; the cost is that the
-   server cannot compute anything from a section.
-3. **Foes show a health word, never a number.** Recommended. If you would rather show numbers, the GM would have to
-   be told they are public.
-4. **No item entities in v1;** "key items" are known facts with aspect `items` on the place. The alternative is a new
-   entity kind `item` with its own compendium tab, which is a larger change to the compendium. Recommended: facts.
-5. **The overview is revealed on arrival** and so also appears in the compendium entry. The alternative is a
-   separate flag that keeps it out of the compendium, at the cost of a second visibility rule. Recommended: reveal.
-6. **No stale marks in v1.** If the GM forgets `update_character`, the page shows what it has. Staleness detection
-   (comparing the narrated HP with the record) is a later improvement.
-7. **Build order:** overview and the location half of the status tab first (no new tools, just reading), then
-   the sheet pass and character tabs, then `update_character`, then combat. Each step ships working.
+1. **A server-held `Sheet`** made by a curator pass and kept current by `update_character`. Minimal structure:
+   a headline, optional HP, conditions, and sections of plain lines (3.1). The model shapes the sheet for the ruleset.
+2. **Foes show a health word, never a number,** for now. A configurable level of exposure is future work.
+3. **No item entities in v1;** key items are known facts with aspect `items` on the place.
+4. **The overview is revealed on arrival** and so also appears in the place's compendium entry.
+5. **No stale marks in v1.** If the GM forgets `update_character`, the page shows what it has.
+6. **Pull only.** Like the compendium, the client asks the REST API for each tab when it opens (and when the player
+   refreshes it) and the server never pushes status over SSE. GM tools change server state and nothing else, so
+   the page is right whenever it is asked. The client does no work beyond drawing what it is given.
+7. **Build order:** (a) the overview and the location half of the status tab, which needs no new tools; (b) the
+   sheet pass and character tabs; (c) `update_character`; (d) combat and the table's combat columns. Each step
+   ships working.
 
 ## 11. Risks
 

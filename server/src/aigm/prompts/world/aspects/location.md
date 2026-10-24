@@ -1,4 +1,9 @@
 <!-- Aspects of a location. One "- name: meaning" line each; used by the expand prompt. -->
+- overview: what a visitor sees on arriving, in 40 to 60 words: the look, sounds and smells of the place and who is
+  plainly about. Only what anyone present could see or hear; nothing hidden, and no names of secrets
+- items: notable objects lying openly in the place that a visitor could pick up, use or notice (a barred hatch, a ship's
+  bell with no clapper, a stack of salvaged oars). Skip it for a place with nothing in particular; hidden things belong
+  in secret
 - approach: where it is and how to get there (direction, distance, terrain, landmarks on the way)
 - discovery: how it is found, and who knows it exists
 - entry: how it is entered, and what blocks or guards the way (doors, locks, passages)

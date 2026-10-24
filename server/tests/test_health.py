@@ -8,4 +8,4 @@ def test_health():
     client = TestClient(create_app(Settings(model="test-model")))
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok", "model": "test-model", "debug": False, "compendium": True}
+    assert resp.json() == {"status": "ok", "model": "test-model", "debug": False, "compendium": True, "status": True}

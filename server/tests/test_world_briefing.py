@@ -202,3 +202,15 @@ def test_explicit_breakpoint_replaces_the_automatic_one(w):
 def test_adventure_prompt_describes_the_notes_and_time_precision():
     prompt = Game().system(adventure_state(World()))
     assert "<world_notes>" in prompt and "GM only" in prompt and "say how much" in prompt
+
+
+def test_the_status_overview_of_a_place_is_not_in_the_briefing():
+    w = World()
+    inn = w.add_entity("Rusty Flagon", "location")
+    inn_two = w.add_entity("Old Mill", "location")
+    w.add_fact("Smoke hangs under low beams and a fire roars.", [inn.id], aspect="overview", disclosure="known")
+    w.add_fact("The inn stands at a crossroads.", [inn.id], aspect="approach", disclosure="known")
+    w.add_fact("Wheels turn slowly in the dark.", [inn_two.id, inn.id], aspect="overview", disclosure="known")
+    w.set_scene(inn.id, [])
+    text = build_briefing(w)
+    assert "crossroads" in text and "Smoke hangs" not in text and "Wheels turn" not in text

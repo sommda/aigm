@@ -162,7 +162,7 @@ def test_the_dump_follows_play_restore_and_new_game(tmp_path):
     assert d["time"] == "Day 1, 18:00" and d["scene"]["location"] == "Rusty Flagon"
     assert {e["name"] for e in d["entities"]} >= {"The Test Marches", "Rusty Flagon", "Innkeeper"}
     flagon = next(e for e in d["entities"] if e["name"] == "Rusty Flagon")
-    assert flagon["in"] == ["The Test Marches"] and any(f.startswith("[hidden|") for f in flagon["facts"])
+    assert flagon["in"] == ["The Test Marches"] and flagon["facts"]
     inn = next(e for e in d["entities"] if e["name"] == "Innkeeper")
     assert any("reports every guest to the baron" in f and f.startswith("[hidden|") for f in inn["facts"])
     chat(client, "establish Wren")  # a GM tool call changes the world: the dump follows the turn

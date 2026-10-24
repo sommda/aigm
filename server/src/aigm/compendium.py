@@ -19,7 +19,7 @@ CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 STATUSES = ("new", "updated", "unseen")
 SORTS = ("name", "recent", "tree")
-SUMMARY_ASPECTS = ("role", "nature", "goals", "approach", "discovery", "history")
+SUMMARY_ASPECTS = ("overview", "role", "nature", "goals", "approach", "discovery", "history")
 SUMMARY_CHARS = 140
 MAX_RELATED = 12
 

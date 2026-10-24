@@ -24,13 +24,17 @@ STATUSES = ("active", "superseded")
 # settlement lists; the curator's frontier logic refines which apply.
 ASPECTS: dict[str, tuple[str, ...]] = {
     "location": (
-        "approach", "discovery", "entry", "interior", "inhabitants", "history", "hazards",
+        "overview", "items", "approach", "discovery", "entry", "interior", "inhabitants", "history", "hazards",
         "connections", "secret", "layout", "leaders", "economy", "notable_places", "tensions",
     ),
     "npc": ("role", "appearance", "manner", "motivation", "relationships", "knowledge", "location"),
     "faction": ("goals", "leaders", "resources", "methods", "rivals", "presence", "history"),
     "concept": ("nature", "origin", "who_believes_it", "effects"),
 }  # fmt: skip
+
+# Aspects the party can plainly see on arriving at a place: a fact with one of these about the place the party is
+# in is known to the player from the moment it exists, or from the moment the party gets there (docs/STATUS.md 5).
+ARRIVAL_ASPECTS = ("overview", "items")
 
 MAX_FACT_WORDS = 40  # what the prompts ask for
 FACT_WORDS_LIMIT = 60  # what is refused: a fact a little over the ask is kept, since a refusal costs the GM a whole round
@@ -392,6 +396,8 @@ class World:
         self._check_duplicate_and_cap(text, about_ids[0], replacing=None)
         fact = self._insert_fact(text, about_ids, aspect, disclosure, source, turn)
         fact.via = tuple(dict.fromkeys(v.strip() for v in via if isinstance(v, str) and v.strip()))
+        if fact.aspect in ARRIVAL_ASPECTS and fact.subject == self.scene.location:
+            self.reveal(fact.id, turn)  # the party is standing in it
         return fact
 
     def supersede(
@@ -442,7 +448,7 @@ class World:
         self._touch()
         return True
 
-    def set_scene(self, location: str | None, present: Iterable[str] = ()) -> None:
+    def set_scene(self, location: str | None, present: Iterable[str] = (), turn: int = 0) -> None:
         if location is not None:
             loc = self.entities.get(location)
             if loc is None or loc.kind != "location":
@@ -454,6 +460,10 @@ class World:
             if eid != location and eid not in present_ids:
                 present_ids.append(eid)
         self.scene = Scene(location, present_ids)
+        if location is not None:  # arriving: what can be seen there is now known
+            for fact in self.facts_about(location):
+                if fact.aspect in ARRIVAL_ASPECTS and fact.subject == location:
+                    self.reveal(fact.id, turn)
         self._touch()
 
     def advance_time(self, hours: int, *, reported: bool = False) -> WorldTime:

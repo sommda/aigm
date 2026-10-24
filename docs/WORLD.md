@@ -442,11 +442,16 @@ compute gaps:
 
 | Kind | Aspects |
 |---|---|
-| location (site) | `approach` (where it is, how to get there), `discovery` (how it is found, who knows about it), `entry` (how it is entered, obstacles, locks), `interior` (first one or two areas), `inhabitants`, `history`, `hazards`, `connections` (other places it links to), `secret` |
-| location (settlement) | `layout`, `leaders`, `economy`, `notable_places`, `tensions`, `history`, `connections` |
+| location (site) | `overview` (what a visitor plainly sees on arriving), `items` (notable objects lying in the open), `approach` (where it is, how to get there), `discovery` (how it is found, who knows about it), `entry` (how it is entered, obstacles, locks), `interior` (first one or two areas), `inhabitants`, `history`, `hazards`, `connections` (other places it links to), `secret` |
+| location (settlement) | `overview`, `items`, `layout`, `leaders`, `economy`, `notable_places`, `tensions`, `history`, `connections` |
 | npc | `role`, `appearance`, `manner` (voice, habits), `motivation`, `relationships`, `knowledge` (what they know and would tell), `location` (where they are, routine) |
 | faction | `goals`, `leaders`, `resources`, `methods`, `rivals`, `presence` (where they operate), `history` |
 | concept | `nature`, `origin`, `who_believes_it`, `effects` |
+
+`overview` and `items` are what the status page shows (STATUS.md 5). A fact with one of them about the place the party
+is in is `known` from the moment it exists, and those about any other place become known when the party arrives
+(`set_scene` reveals them), so the description is stored before it is needed and shown with no model call. The GM's
+briefing leaves `overview` out, so the GM narrates the scene itself rather than echoing it.
 
 A fact's `aspect` is set by the extractor/expander. Coverage is the set of aspects with at least one active fact. The
 checklists are guidance, not quotas: an unremarkable cottage may need three.

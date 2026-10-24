@@ -10,7 +10,7 @@ from aigm.llm.scripted import ScriptedLLM
 from aigm.game import Game
 from aigm.metrics import MetricsLog
 from aigm.prompts import PromptLibrary
-from aigm.routes import chat, compendium, debug, health, history
+from aigm.routes import chat, compendium, debug, health, history, status
 from aigm.session.persistence import HistoryRepository
 from aigm.session.store import SessionStore
 from aigm.world.anthropic_curator import AnthropicCurator
@@ -69,6 +69,7 @@ def create_app(
     app.include_router(chat.router)
     app.include_router(history.router)
     app.include_router(compendium.router)
+    app.include_router(status.router)
     if settings.debug:  # without it the path does not exist at all
         app.include_router(debug.router)
     return app

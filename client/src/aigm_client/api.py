@@ -101,6 +101,10 @@ class ApiClient:
         body: dict[str, Any] = {"all": True} if entities is None else {"entities": entities}
         return await self._request("POST", "/compendium/seen", params=self._session(), json=body)
 
+    async def status(self) -> dict[str, Any]:
+        """The status page: the place the party is in and who is there (docs/STATUS.md)."""
+        return await self._request("GET", "/status", params=self._session())
+
     async def chat_state(self) -> dict[str, Any]:
         """The live session: `messages`, plus `phase` and `campaign` on servers that have them."""
         return await self._request("GET", "/chat/history", params=self._session())

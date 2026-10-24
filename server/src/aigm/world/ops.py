@@ -57,6 +57,7 @@ class Reveal:
 class SetScene:
     location: str | None  # name or id
     present: tuple[str, ...] | None = None  # None: leave who is present alone, unless the place changed
+    turn: int = 0
 
 
 @dataclass
@@ -186,7 +187,7 @@ def _apply(world: World, op: Op) -> bool:
             ids = [e.id for e in present]
         else:
             ids = [] if moved else list(world.scene.present)
-        world.set_scene(loc, ids)
+        world.set_scene(loc, ids, op.turn)
         return True
     if isinstance(op, SettleTime):
         world.settle_reported_hours(op.hours)

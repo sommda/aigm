@@ -10,6 +10,7 @@ from aigm_client.api import ApiClient, ApiError
 from aigm_client.blocks import MarkdownBlock, UserBlock
 from aigm_client.commands import Command, parse_command
 from aigm_client.compendium_screen import CompendiumScreen
+from aigm_client.status_screen import StatusScreen
 from aigm_client.compendium_model import TABS
 from aigm_client.context_screen import ContextScreen
 from aigm_client.dialogs import ConfirmDialog, LoadDialog, NewGameDialog, SaveDialog, suggest_name
@@ -26,6 +27,7 @@ HELP = """Commands:
   /info NAME            show info about a saved game
   /delete NAME          delete a saved game
   /compendium [TAB|NAME]  what you have learned: locations, characters, other  (Ctrl+G)
+  /status               where you are and who is with you  (F7)
   /reconnect            retry connecting to the server
   /quit                 quit
 Keys: Space/Enter = next page, PageUp/PageDown/arrows/wheel = scroll back,
@@ -61,6 +63,7 @@ class AigmApp(App):
         Binding("f6", "thinking", "Thinking"),
         # priority for the same reason: the prompt would otherwise take it
         Binding("ctrl+g,f5", "compendium", "Compendium", priority=True),
+        Binding("f7", "status", "Status", priority=True),
     ]
 
     def __init__(self, api: ApiClient, ascii_only: bool = False) -> None:
@@ -68,6 +71,7 @@ class AigmApp(App):
         self.api = api
         self.ascii_only = ascii_only
         self.debug_server = False  # set from /health: the server offers the context view
+        self.has_status = False  # set from /health: the server offers the status page
         self.has_compendium = False  # set from /health: the server offers the compendium
         self.model_thinking = True  # debug servers only: whether the model thinks (F6, /thinking)
         self.transcript = Transcript(ascii_only=ascii_only)
@@ -109,6 +113,7 @@ class AigmApp(App):
         self.connected = True
         self.debug_server = health.get("debug") is True
         self.has_compendium = health.get("compendium") is True
+        self.has_status = health.get("status") is True
         self.model_thinking = health.get("thinking") is not False
         s.show_metrics = self.debug_server
         self.refresh_bindings()
@@ -252,6 +257,8 @@ class AigmApp(App):
             return False  # not bound and not shown in the footer unless the server is in debug mode
         if action == "compendium" and not self.has_compendium:
             return False  # likewise for a server without the compendium
+        if action == "status" and not self.has_status:
+            return False
         return True
 
     def action_context(self) -> None:
@@ -295,6 +302,22 @@ class AigmApp(App):
                 s.set_unread(await self.api.compendium_seen(pending))
         except ApiError:
             pass  # the marks are only a convenience; the next opening shows them again
+        self._kick()
+
+    def action_status(self) -> None:
+        if isinstance(self.screen, StatusScreen):
+            self.screen.action_close()
+        else:
+            self.run_worker(self._status_flow(), group="flow")
+
+    async def _status_flow(self) -> None:
+        if not self.has_status:
+            self.session.add_system("This server does not offer the status page.", "yellow")
+            self._kick()
+            return
+        if self._modal():
+            return
+        await self.push_screen_wait(StatusScreen(self.api, self.ascii_only))
         self._kick()
 
     def action_thinking(self) -> None:
@@ -470,6 +493,8 @@ class AigmApp(App):
                 await self._context_flow()
             case "compendium":
                 await self._compendium_flow(" ".join(cmd.args) or None)
+            case "status":
+                await self._status_flow()
             case "story":
                 await self._story_flow()
             case "thinking":

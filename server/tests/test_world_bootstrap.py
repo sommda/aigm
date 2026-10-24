@@ -10,6 +10,7 @@ from aigm.config import Settings
 from aigm.game import Game
 from aigm.llm.scripted import ScriptedLLM, TEST_CAMPAIGN
 from aigm.llm.loop import run_turn
+from aigm.world.model import ARRIVAL_ASPECTS
 from aigm.models import ErrorEvent, MessageEnd, Status
 from aigm.session.state import GameState, Phase
 from aigm.session.store import Session
@@ -49,7 +50,11 @@ async def test_bootstrap_seeds_a_world_with_known_and_hidden_facts_and_expands_t
     assert any(f.disclosure == "hidden" and "reports every guest" in f.text for f in seeds)
     assert all(f.turn == 0 for f in seeds)
     gen = [f for f in world.facts.values() if f.source == "generated"]
-    assert gen and all(f.disclosure == "hidden" for f in gen)
+    # what can be seen where the party stands is known; the rest of the expansion is secret
+    here = world.scene.location
+    assert gen and all(
+        f.disclosure == ("known" if f.aspect in ARRIVAL_ASPECTS and f.subject == here else "hidden") for f in gen
+    )
     assert progress[0] == "Building the setting..." and any(p.startswith("Detailing ") for p in progress[1:])
 
 

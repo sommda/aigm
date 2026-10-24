@@ -1,5 +1,7 @@
 import pytest
 
+from aigm.world.model import ARRIVAL_ASPECTS
+
 from aigm.world import World, WorldTime
 from aigm.world.curator import (
     EntityProposal,
@@ -283,7 +285,7 @@ def test_frontier_ranks_by_closeness_and_sets_depth(graph):
     assert names["Rusty Flagon"][0] == "full" and names["Wren"][0] == "full"
     assert "interior" in names["Rusty Flagon"][1] and "secret" in names["Rusty Flagon"][1]
     assert names["Ashby"][0] == "most" and "interior" not in names["Ashby"][1]
-    assert names["Harrow Mine"][0] == "sketch" and names["Harrow Mine"][1] == ["approach", "entry", "inhabitants"]
+    assert names["Harrow Mine"][0] == "sketch" and names["Harrow Mine"][1] == ["overview", "approach", "entry", "inhabitants"]
     assert "Karth" not in names and "Karth Docks" not in names  # too far away
     assert len(frontier(graph, 2)) == 2 and frontier(World(), 5) == []
 
@@ -303,9 +305,12 @@ async def test_expansion_adds_hidden_generated_facts_for_the_frontier(graph):
     live = graph.copy()
     apply_ops(live, result.ops)
     new = [f for f in live.facts.values() if f.source == "generated"]
-    assert new and all(f.disclosure == "hidden" for f in new)
+    here = live.scene.location
+    assert new and all(
+        f.disclosure == ("known" if f.aspect in ARRIVAL_ASPECTS and f.subject == here else "hidden") for f in new
+    )
     assert live.find("Rusty Flagon Cellar").parent == live.find("Rusty Flagon").id
-    assert live.coverage(live.find("Rusty Flagon").id) >= {"approach", "discovery"}
+    assert live.coverage(live.find("Rusty Flagon").id) >= {"overview", "items"}
 
 
 async def test_expansion_requests_carry_context(graph):

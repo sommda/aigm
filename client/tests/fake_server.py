@@ -62,6 +62,26 @@ def sample_context() -> dict:
     }
 
 
+def sample_status() -> dict:
+    """The status page as the endpoint describes it (docs/STATUS.md 7)."""
+    return {
+        "location": {
+            "id": "e002", "name": "The Docks", "path": [{"id": "e001", "name": "Port Veyra"}],
+            "overview": "Gulls wheel over wet planks and tarred rope while stevedores shout over the tide.",
+            "time": "Day 1, 18:00", "period": "evening",
+        },
+        "here": [{"id": "e004", "name": "Elian", "kind": "npc", "summary": "A merchant who needs a crate moved."}],
+        "items": ["A barred cargo hatch."],
+        "inside": [{"id": "e005", "name": "Pier Nine", "kind": "location", "summary": "A long jetty."}],
+        "exits": [{"id": "e006", "name": "Customs House", "route": "Up Dock Street from the Docks."}],
+        "table": {
+            "columns": ["Name", "Who"],
+            "rows": [["Toby", "Party, level 3"], ["Galvin", "Party, level 1"],
+                     ["Elian", "A merchant who needs a crate moved."]],
+        },
+    }
+
+
 def sample_compendium() -> dict[str, dict]:
     """Entities as the compendium endpoints describe them, by id (docs/COMPENDIUM.md 5)."""
     def ent(i, name, kind, category, status, facts, parent=None, **extra):
@@ -112,6 +132,7 @@ class FakeServer:
         self.story: dict | None = None  # the public summary a story game reports
         self.story_text = ""
         self.compendium: dict[str, dict] | None = None  # None = an older server without the compendium
+        self.status_page: dict | None = None  # None = an older server without the status page
         self.seen: set[str] = set()
         self.compendium_down = False  # answer the compendium calls with a 500
 
@@ -183,6 +204,8 @@ class FakeServer:
                 extra["thinking"] = self.thinking
             if self.compendium is not None:
                 extra["compendium"] = True
+            if self.status_page is not None:
+                extra["status"] = True
             return self._json(200, {"status": "ok", "model": "fake", **extra})
         if path == "/debug/context" and self.debug:
             return self._json(200, self.context)
@@ -191,6 +214,8 @@ class FakeServer:
             return self._json(200, {"thinking": self.thinking})
         if path == "/debug/story" and self.debug:
             return self._json(200, {"story": None, "text": self.story_text})
+        if path == "/status" and self.status_page is not None:
+            return self._json(200, {"session_id": "default", "phase": "adventure", **self.status_page})
         if path.startswith("/compendium") and self.compendium is not None:
             return self._compendium(method, path, params, body)
         if path == "/chat/history":

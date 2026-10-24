@@ -332,7 +332,7 @@ def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     if problems:
         return ToolOutcome("Scene not changed:\n- " + "\n- ".join(problems), is_error=True)
     try:
-        world.set_scene(location, present)
+        world.set_scene(location, present, state.turn)
         if hours:
             world.advance_time(hours, reported=True)
     except WorldError as exc:

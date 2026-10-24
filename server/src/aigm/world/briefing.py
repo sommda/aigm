@@ -80,7 +80,7 @@ def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budg
         shown.add(loc.id)
         chain = " in ".join(p.name for p in world.parent_chain(loc.id))
         out.add(f"Location: {loc.name}" + (f" (in {chain})" if chain else ""), force=True)
-        for fact in _by_disclosure(world.facts_about(loc.id))[:LOCATION_FACTS]:
+        for fact in _by_disclosure(_without_overview(world.facts_about(loc.id)))[:LOCATION_FACTS]:
             out.add(fact_line(fact), fact)
     else:
         out.add("Location: not yet recorded", force=True)
@@ -99,7 +99,7 @@ def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budg
         out.add("Nearby:")
     for place in nearby:
         shown.add(place.id)
-        fact = _one_liner([f for f in world.facts_about(place.id) if f.id not in out.seen])
+        fact = _one_liner([f for f in _without_overview(world.facts_about(place.id)) if f.id not in out.seen])
         if fact is None:
             out.add(f"- {place.name}")
         else:
@@ -117,6 +117,12 @@ def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budg
             out.add(f"- {note['text']}", force=True)
 
     return "\n".join(out.lines)
+
+
+def _without_overview(facts: list[Fact]) -> list[Fact]:
+    """The status page's description of a place is left out: the GM narrates the scene itself, and a second version
+    here would invite copying it (docs/STATUS.md 5)."""
+    return [f for f in facts if f.aspect != "overview"]
 
 
 def _aliases(ent: Entity) -> str:

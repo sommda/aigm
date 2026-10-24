@@ -53,9 +53,12 @@ log = logging.getLogger(__name__)
 
 DEFAULT_PAGE_CHARS = 1800
 DEFAULT_EVERY_PAGES = 3.0
-SITE_ASPECTS = ("approach", "discovery", "entry", "interior", "inhabitants", "history", "hazards", "connections", "secret")
-SETTLEMENT_ASPECTS = ("layout", "leaders", "economy", "notable_places", "tensions", "history", "connections")
-SKETCH_ASPECTS = {"site": ("approach", "entry", "inhabitants"), "settlement": ("layout", "notable_places")}
+SITE_ASPECTS = ("overview", "items", "approach", "discovery", "entry", "interior", "inhabitants", "history", "hazards", "connections", "secret")
+SETTLEMENT_ASPECTS = ("overview", "items", "layout", "leaders", "economy", "notable_places", "tensions", "history", "connections")
+SKETCH_ASPECTS = {
+    "site": ("overview", "approach", "entry", "inhabitants"),
+    "settlement": ("overview", "layout", "notable_places"),
+}
 DEEP_ASPECTS = ("interior", "secret")  # left until the party is close
 
 

@@ -242,6 +242,7 @@ when it is given.
 | `/story` | `GET /debug/story` | Debug servers only: prints the whole story plan (spoilers) into the transcript. |
 | `/context` | `GET /debug/context` | Debug servers only: opens the context viewer (same as `Ctrl+K`). See below. |
 | `/thinking [on\|off]` | `PUT /debug/thinking` | Debug servers only: turns the model's thinking on or off, or flips it (same as `F6`). The status line shows `DEBUG (no thinking)` while it is off. |
+| `/status` (`/s`) | `GET /status` | Opens the status page (same as `F7`). See below. |
 | `/compendium [TAB\|NAME]` (`/journal`, `/c`) | `GET /compendium...` | Opens the compendium (same as `Ctrl+G`), on a tab (`locations`, `characters`, `other`) or on the entry with that name. See below. |
 | `/help`, `/quit` | local | |
 
@@ -282,6 +283,21 @@ server side is `GET /debug/context` in [API.md](API.md).
 - **Code.** `context_model.py` is pure (the tree, collapse state, cursor, and the colored lines for a width) and has
   its own tests; `context_screen.py` holds the thin Textual widgets; `ApiClient.context(draft)` makes the call. Unknown
   node kinds are shown as plain text.
+
+### Status page
+
+Where the party is, who is there and how everyone is doing. The design is in [STATUS.md](STATUS.md); the endpoint is in
+[API.md](API.md). The client is a pull-only viewer: it asks for the page when the screen opens, when a tab is selected
+and on `r`, and never listens for events.
+
+- **Availability.** `/health` reports `status: true`. Without it `F7` is unbound and `/status` prints "This server does
+  not offer the status page."
+- **Screen.** A full-screen modal with a tab bar (`Status` so far; one tab per character comes next) and a scrolling
+  body: the place's name, where it is and the time, its description, who is here, key items, places inside, ways out,
+  and a table of everyone present. Sections with nothing in them are left out.
+- **Keys.** `←` `→` switch tab, `↑` `↓` `PgUp` `PgDn` `Home` scroll, `r` fetches again, `Esc`, `q` and `F7` close.
+- **Code.** `status_model.py` is pure (tabs and the lines for a width, including the text table) and has its own
+  tests; `status_screen.py` holds the Textual screen; `ApiClient.status()` makes the call.
 
 ### Compendium
 
@@ -446,6 +462,7 @@ text segment, so the model's text before and after a roll are separate paragraph
 | `Esc` | Cancel the in-flight turn (or cancel a confirmation) |
 | `Ctrl+S` / `F2`, `Ctrl+O` / `F3`, `Ctrl+N` / `F4` | Save, Load, New game dialogs |
 | `Ctrl+T` | Toggle display of reasoning text (hidden by default) |
+| `F7` | Open or close the status page (not bound on a server without it) |
 | `Ctrl+G` / `F5` | Open or close the compendium (not bound on a server without it) |
 | `Ctrl+K` | Open or close the context viewer (debug servers only; not bound otherwise) |
 | `Ctrl+Q` / `/quit` | Quit |

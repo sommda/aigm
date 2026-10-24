@@ -51,6 +51,7 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | POST   | `/history/{name}/restore`     | Load saved history `{name}` into the live session    | JSON       |
 | DELETE | `/history/{name}`             | Delete one saved history                             | JSON       |
 | GET    | `/health`                     | Liveness check; reports whether debug mode is on     | JSON       |
+| GET    | `/status`                     | Where the party is and who is there (docs/STATUS.md) | JSON       |
 | GET    | `/compendium`                 | Counts of what the player has learned, and what is new | JSON     |
 | GET    | `/compendium/{category}`      | The known locations, characters or other things      | JSON       |
 | GET    | `/compendium/entities/{id}`   | What the player knows about one entity               | JSON       |
@@ -582,13 +583,55 @@ Errors: `400` invalid name; `404` no such history. There is no endpoint that del
 
 ## GET `/health`
 
-Response `200`: `{ "status": "ok", "model": "claude-sonnet-5-5", "debug": false, "compendium": true }`
+Response `200`: `{ "status": "ok", "model": "claude-sonnet-5-5", "debug": false, "compendium": true, "status": true }`
 
-`compendium` is `true` when the server has the compendium endpoints below; older servers leave it out.
+`compendium` is `true` when the server has the compendium endpoints below, and `status` when it has `GET /status`;
+older servers leave them out.
 
 `debug` is `true` when the server was started with `--debug` (or `AIGM_DEBUG=true`). Clients use it to decide whether
 to offer the context viewer and the thinking switch; it does not grant access by itself. In debug mode the response
 also has `"thinking": true|false`, the current state of the switch below.
+
+---
+
+## The status page
+
+Where the party is and how everyone is doing (docs/STATUS.md). It takes the usual `session_id` query parameter, reads
+stored data only (no model is called) and, like the compendium, shows only what the player has been told. The client
+asks for it when the screen opens or is refreshed; it is never pushed.
+
+### GET `/status`
+
+`409 conflict` until the adventure has begun. Response `200`:
+
+```json
+{
+  "session_id": "default",
+  "phase": "adventure",
+  "location": {
+    "id": "e002", "name": "The Docks",
+    "path": [{ "id": "e001", "name": "Port Veyra" }],
+    "overview": "Gulls wheel over wet planks and tarred rope.",
+    "time": "Day 1, 18:00", "period": "evening"
+  },
+  "here": [{ "id": "e004", "name": "Elian", "kind": "npc", "summary": "A merchant who needs a crate moved." }],
+  "items": ["A barred cargo hatch."],
+  "inside": [{ "id": "e005", "name": "Pier Nine", "kind": "location", "summary": "A long jetty." }],
+  "exits": [{ "id": "e006", "name": "Customs House", "route": "Up Dock Street from the Docks." }],
+  "table": {
+    "columns": ["Name", "Who"],
+    "rows": [["Toby", "Party, level 3"], ["Elian", "A merchant who needs a crate moved."]]
+  }
+}
+```
+
+- `location` is `null` when no place is recorded; then `here`, `items`, `inside` and `exits` are empty.
+  `overview` is `null` until a description of the place has been written.
+- `path` is the places that contain it, outermost first, up to the first one the player does not know.
+- `here` is the people and groups present that the player knows. `inside` is the known places within this one, and
+  `exits` the other known places linked to it, each with what is known of the way (`route`, or `null`).
+- `table` is ready to draw: the client prints the columns and rows as given. Later versions add columns (HP and
+  conditions) without changing its shape.
 
 ---
 
