@@ -390,3 +390,63 @@ async def test_a_curator_failure_leaves_everything_alone(world):
     with pytest.raises(RuntimeError):
         await run_pass(world, convo("x"), Boom())
     assert world.to_dict() == before
+
+
+# ---- a new person must end up with a fact (the Elian case) ---------------------------------
+
+
+class Sequenced(FakeCurator):
+    """Extraction answers in turn, so a retry can be told apart from the first ask."""
+
+    def __init__(self, *answers):
+        super().__init__()
+        self.answers = list(answers)
+
+    async def extract(self, request):
+        self.requests.append(request)
+        return self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+
+
+def elian(text, aspect=None):
+    return Extraction(
+        entities=[EntityProposal("Elian", "npc")], facts=[FactProposal(text, ["Elian"], aspect, "known")]
+    )
+
+
+async def test_a_fact_that_speaks_of_the_party_is_asked_for_again(world):
+    cur = Sequenced(
+        elian("Elian asked the party to move a crate."), elian("Elian needs a crate moved past the harbor guards.")
+    )
+    result = await run_pass(world, convo("Elian begs for help."), cur, config=PassConfig(digests=False, max_expand_entities=0))
+    asks = [r for r in cur.requests if hasattr(r, "transcript")]
+    assert len(asks) == 2 and "asked the party" in asks[1].feedback[0]
+    apply_ops(world, result.ops)
+    assert [f.text for f in world.facts_about(world.find("Elian").id)] == ["Elian needs a crate moved past the harbor guards."]
+
+
+async def test_a_retry_that_is_no_better_keeps_the_first_answer_and_a_failed_retry_is_harmless(world):
+    bad = elian("Elian asked the party to move a crate.")
+    cur = Sequenced(bad)
+    fresh = world.copy()
+    result = await run_pass(world, convo("x"), cur, config=PassConfig(digests=False, max_expand_entities=0))
+    assert world.find("Elian") is None and any(isinstance(o, type(result.ops[0])) for o in result.ops)
+    apply_ops(world, result.ops)
+    assert world.find("Elian") is not None and not world.facts_about(world.find("Elian").id)  # nothing better was offered
+
+    class Flaky(Sequenced):
+        async def extract(self, request):
+            if request.feedback:
+                raise RuntimeError("down")
+            return await super().extract(request)
+
+    again = await run_pass(fresh, convo("x"), Flaky(elian("Elian asked the party to move a crate.")), config=PassConfig(digests=False, max_expand_entities=0))
+    assert any("retry failed" in n for n in again.notes)
+
+
+async def test_a_misfiled_aspect_costs_the_label_not_the_fact(world):
+    cur = FakeCurator(elian("Elian carries a crate that officials would seize on sight.", aspect="secret"))
+    result = await run_pass(world, convo("Elian waits."), cur, config=PassConfig(digests=False, max_expand_entities=0))
+    notes = apply_ops(world, result.ops).skipped
+    assert not notes
+    fact = world.facts_about(world.find("Elian").id)[0]
+    assert fact.aspect is None and fact.disclosure == "known"

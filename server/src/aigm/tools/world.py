@@ -184,6 +184,11 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
             name, kind = raw.get("name"), raw.get("kind")
             aliases = [a for a in _as_list(raw.get("aliases")) if isinstance(a, str)]
             names = [n for n in (name, *aliases) if isinstance(n, str)]
+            if any(state.find_hero(n) for n in names):
+                raise WorldError(
+                    "that is a party member. Player characters are never recorded in the world: they are always "
+                    "with the party, so leave them out of `entities` and `present`"
+                )
             existing = next((e for e in map(world.find, names) if e is not None), None)
             if existing:
                 if existing.kind != kind:
@@ -308,6 +313,8 @@ def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     if present_in is not None:
         present = []
         for ref in _as_list(present_in):
+            if isinstance(ref, str) and state.find_hero(ref):
+                continue  # party members are always with the party; they are not recorded
             ent = world.resolve(ref) if isinstance(ref, str) else None
             if ent is None:
                 problems.append(f"{ref!r} is not recorded; add it with `establish` first")

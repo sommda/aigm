@@ -245,6 +245,17 @@ Everything the GM narrated that states something about the world becomes a candi
 told, `hidden` if it was only implied by the GM's own reasoning or notes. `evidence` is kept for debugging and dropped
 before storage.
 
+Three rules keep a newly met person from ending up as an empty entity (and so missing from the compendium):
+
+- A fact that speaks of "the party" or "you" is refused, because facts describe the world. When any are refused the
+  extraction is asked **once more**, with the rejected facts quoted ("Elian needs a crate moved", not "Elian asked the
+  party to move a crate"). The second answer replaces the first only if it has fewer such facts; a failed retry keeps
+  the first.
+- A fact whose `aspect` does not fit its subject's kind (a "secret" about a person) keeps its text and loses only the
+  aspect, as in expansion.
+- Player characters are never entities. `establish` refuses a party member's name and `set_scene` ignores them in
+  `present`; they are always with the party.
+
 ### 4.3 Pass 2: reconcile
 
 The server, not the model, first finds **candidate neighbors** for each proposed fact: existing facts about the same

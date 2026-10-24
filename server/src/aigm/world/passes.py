@@ -217,19 +217,18 @@ async def run_pass(
 
     pending = messages[world.processed_through :]
     if pending:
-        extraction = await curator.extract(
-            ExtractRequest(
-                transcript=transcript(pending),
-                setting=setting,
-                time=snap.time,
-                scene_location=snap.entity(snap.scene.location).name if snap.scene.location else None,
-                present=[snap.entities[e].name for e in snap.scene.present],
-                entity_names=[e.name for e in snap.entities.values()],
-                hidden_facts=_scene_secrets(snap),
-                quests=[(m.id, m.title, m.brief) for m in active(story)] if story else [],
-                goal=f"{story.goal.title}. {story.goal.summary}" if story and story.goal and not story.goal.revealed else "",
-            )
+        request = ExtractRequest(
+            transcript=transcript(pending),
+            setting=setting,
+            time=snap.time,
+            scene_location=snap.entity(snap.scene.location).name if snap.scene.location else None,
+            present=[snap.entities[e].name for e in snap.scene.present],
+            entity_names=[e.name for e in snap.entities.values()],
+            hidden_facts=_scene_secrets(snap),
+            quests=[(m.id, m.title, m.brief) for m in active(story)] if story else [],
+            goal=f"{story.goal.title}. {story.goal.summary}" if story and story.goal and not story.goal.revealed else "",
         )
+        extraction = await _extract_standalone(curator, request, result)
         if story:
             result.story_reports = _story_reports(extraction, story)
         commit(await _plan_extraction(snap, extraction, curator, turn, config, result))
@@ -251,6 +250,35 @@ async def run_pass(
 
     result.ops.append(MarkProcessed(len(messages)))
     return result
+
+
+async def _extract_standalone(curator: Curator, request: ExtractRequest, result: PassResult) -> Extraction:
+    """Ask for the extraction; if some facts speak of "the party" or "you" (which are refused, and may have been the only
+    fact about a new person), ask once more, telling the curator which. The second answer is used only if it is better."""
+
+    def problems(ex: Extraction) -> list[str]:
+        found = []
+        for fact in ex.facts:
+            why = standalone_problem(fact.text) if isinstance(fact.text, str) else None
+            if why:
+                found.append(f"{fact.text!r}: {why}. State what is true of the world instead, for example 'Elian needs a "
+                             "crate moved past the harbor guards', not 'Elian asked the party to move a crate'")
+        return found
+
+    first = await curator.extract(request)
+    bad = problems(first)
+    if not bad:
+        return first
+    try:
+        second = await curator.extract(replace(request, feedback=bad))
+    except Exception as exc:  # the first answer is still usable: its good facts are kept and the bad ones dropped
+        log.warning("extraction retry failed: %s", exc)
+        result.notes.append(f"extraction retry failed: {type(exc).__name__}")
+        return first
+    if len(problems(second)) < len(bad):
+        result.notes.append(f"extraction asked again: {len(bad)} fact(s) spoke of the party")
+        return second
+    return first
 
 
 async def _digest_turns(
@@ -681,6 +709,14 @@ async def _plan_extraction(
     for i, lab in labels.items():
         if lab.label == "contradicts" and lab.with_proposal is not None and lab.with_proposal < i:
             dropped.add(lab.with_proposal)  # two proposals clash: the later one wins
+    proposed_kinds = {normalize_name(e.name): e.kind for e in ex.entities}
+
+    def aspect_of(prop: FactProposal) -> str | None:
+        """The aspect if it fits the subject's kind. A misfiled aspect costs the label, never the fact."""
+        subject = world.find(prop.about[0])
+        kind = subject.kind if subject else proposed_kinds.get(normalize_name(prop.about[0]))
+        return prop.aspect if kind in ASPECTS and prop.aspect in ASPECTS[kind] else None
+
     for i, prop in enumerate(ex.facts):
         if i in dropped:
             result.notes.append(f"dropped by a later proposal: {prop.text!r}")
@@ -702,9 +738,9 @@ async def _plan_extraction(
                 )
                 result.notes.append(f"rejected, contradicts known {existing.id}: {prop.text!r}")
                 continue
-            ops.append(Supersede(existing.id, prop.text, prop.aspect, prop.disclosure, "play", turn))
+            ops.append(Supersede(existing.id, prop.text, aspect_of(prop), prop.disclosure, "play", turn))
             continue
-        ops.append(AddFact(prop.text, tuple(prop.about), prop.aspect, prop.disclosure, "play", turn))
+        ops.append(AddFact(prop.text, tuple(prop.about), aspect_of(prop), prop.disclosure, "play", turn))
 
     for fid in ex.reveals:
         if isinstance(fid, str):

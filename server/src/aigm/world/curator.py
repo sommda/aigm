@@ -85,6 +85,7 @@ class ExtractRequest:
     hidden_facts: list[Fact] = field(default_factory=list)  # GM-only facts near the scene, so reveals can name them
     quests: list[tuple[str, str, str]] = field(default_factory=list)  # story games: active (id, title, brief)
     goal: str = ""  # story games: the goal while the player may not know it yet, else ""
+    feedback: list[str] = field(default_factory=list)  # why a first attempt was rejected, on the retry
 
 
 @dataclass

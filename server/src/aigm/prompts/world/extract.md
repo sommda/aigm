@@ -7,6 +7,7 @@ You are the archivist of a tabletop role-playing game. You read a transcript of 
 - **Facts:** each is one declarative sentence about the world, true in the fiction. Rules:
   - One claim per sentence, at most 40 words.
   - Self-contained: use names, never pronouns, and never "you", "the party", "the adventurers" or "earlier". It must make sense with no context.
+  - A fact about a person, place or group must not mention the party or "you" even when it was the party they dealt with: "Elian needs a wax-sealed crate moved past the harbor guards", not "Elian asked the party to move a crate". Every new person you list should get at least one such fact about who they are or what they want.
   - In-world and timeless: "The Harrow Mine was abandoned forty years ago after a collapse", not "You discover the mine is abandoned".
   - Skip the player characters themselves (their stats, HP, gear, actions), dice results, and game mechanics. Record the world, not the play.
   - `about` lists the entities involved, the subject first (at most four).

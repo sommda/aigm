@@ -305,3 +305,17 @@ def test_world_commands_over_http_and_saved(client):
 
 def test_world_commands_are_not_available_in_session_zero(client):
     assert "[test mode: Session 0]" in reply_text(chat(client, "recall Wren"))
+
+
+def test_party_members_are_never_recorded_as_entities_or_listed_as_present():
+    from aigm.session.state import GameState, Phase
+    from aigm.tools import dispatch
+    from aigm.world import World
+
+    world = World()
+    town = world.add_entity("Ashby", "location")
+    state = GameState(Phase.ADVENTURE, {"party": [{"name": "Toby", "sheet": "x"}], "level": 1}, world)
+    out = dispatch("establish", "t", {"entities": [{"kind": "npc", "name": "toby"}], "facts": []}, state)
+    assert out.is_error and "party member" in out.content and state.world.find("Toby") is None
+    out = dispatch("set_scene", "t", {"location": "Ashby", "present": ["Toby"]}, state)
+    assert not out.is_error and state.world.scene.present == []

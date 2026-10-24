@@ -41,6 +41,11 @@ def render_extract(req: ExtractRequest) -> str:
     if req.goal:
         parts.append(f"## The final goal (set goal_revealed only if the transcript tells the player this)\n{req.goal}")
     parts.append(f"## Transcript\n{req.transcript}")
+    if req.feedback:
+        parts.append(
+            "## Your previous answer was rejected\nFix these and answer again, keeping everything else:\n"
+            + "\n".join(f"- {x}" for x in req.feedback)
+        )
     return "\n\n".join(parts)
 
 
