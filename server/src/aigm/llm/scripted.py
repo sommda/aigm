@@ -73,6 +73,7 @@ The server is running with `--test`: replies are scripted, not from a model. Try
 - `quest <id> <done|skipped|failed> [outcome]` or `quest goal`: report story progress (story games; calls `set_scene`)
 - `scene <place> [hours]`: set the scene and pass time (adventure only; calls `set_scene`)
 - `hurt <name> <n>` (or `heal <name> <n>`): change a party member's hit points (adventure only; calls `update_character`)
+- `fight [foes]` (`fight wolf 3`) starts a fight, `wound <name> <word>` changes a foe's health, `peace` ends it (adventure only; calls `set_combat`)
 - `badroll [expr]`: a malformed roll (shows the tool-error path)
 - `markdown`: a sampler of every markup form below
 - `bold`, `italic`, `strike`, `code`, `codeblock`, `list`, `numbered`, `heading`, `quote`, `table`, `link`
@@ -195,11 +196,27 @@ def _hp_plan(sign: int):
     return plan
 
 
+def _fight_plan(arg: str) -> list[Step]:
+    name, _, count = (arg or "Wolf").rpartition(" ")
+    if not count.isdigit():
+        name, count = arg or "Wolf", "1"
+    row = {"name": name.strip(), "side": "foe", "count": int(count)}
+    return [Say("Steel is drawn. "), UseTool("set_combat", {"action": "start", "combatants": [row]})]
+
+
+def _wound_plan(arg: str) -> list[Step]:
+    name, _, word = arg.partition(" ")
+    return [Say("A blow lands. "), UseTool("set_combat", {"action": "update", "combatants": [{"name": name, "health": word or "bloodied"}]})]
+
+
 WORLD_COMMANDS: dict[str, Callable[[str], list[Step]]] = {
     "quest": _quest_plan,
     "establish": _establish_plan,
     "recall": lambda arg: [Say("Let me think... "), UseTool("recall", {"about": arg or "Wren"})],
     "scene": _scene_plan,
+    "fight": _fight_plan,
+    "wound": _wound_plan,
+    "peace": lambda arg: [Say("It is over. "), UseTool("set_combat", {"action": "end"})],
     "hurt": _hp_plan(-1),
     "heal": _hp_plan(1),
 }
@@ -298,7 +315,7 @@ def narrate_tool_results(messages: list[dict[str, Any]]) -> list[Step]:
         if name == "begin_adventure":  # on success the history is replaced, so only errors get here
             lines.append(f"- The adventure could not begin: {b.get('content')}")
             continue
-        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_ruleset", "set_structure", "update_character"):
+        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_ruleset", "set_structure", "update_character", "set_combat"):
             lines.append(f"- `{name}`{' (error)' if b.get('is_error') else ''}:\n\n```\n{b.get('content')}\n```")
             continue
         expr = tool_input.get("expression", "?")

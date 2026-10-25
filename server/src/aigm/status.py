@@ -7,6 +7,7 @@ discovered, and a fact that is not known, never appear."""
 from typing import Any
 
 from aigm.characters import hp_text
+from aigm.combat import ALLY
 from aigm.compendium import _path, _ref, _summary, _visible, known_facts
 from aigm.session.state import GameState
 from aigm.world import World
@@ -15,6 +16,7 @@ from aigm.world.briefing import time_of_day
 ROUTE_ASPECTS = ("approach", "connections")  # what to say about the way to a neighbouring place
 MAX_ROUTE_CHARS = 120
 TABLE_COLUMNS = ["Name", "HP", "Conditions", "Who"]
+COMBAT_COLUMNS = ["Name", "Side", "Health", "Conditions"]
 
 
 def _clip(text: str, limit: int) -> str:
@@ -65,6 +67,23 @@ def _party_rows(state: GameState) -> list[list[str]]:
     return rows
 
 
+def _combat_rows(state: GameState, here: list[dict[str, Any]]) -> list[list[str]]:
+    """In a fight the table is by side: the party, its allies, the foes, and bystanders the scene lists. Foes show a
+    health word (the GM wrote only what the player can see)."""
+    combat = state.combat
+    assert combat is not None
+    rows = []
+    for name in state.party_names:
+        sheet = state.sheets.get(name)
+        hp = hp_text(sheet.hp, sheet.max_hp) if sheet else ""
+        rows.append([name, "Party", hp or "-", ", ".join(sheet.conditions) if sheet and sheet.conditions else "-"])
+    for side, label in ((ALLY, "Ally"), ("foe", "Foe")):
+        rows += [[c.label, label, c.health, ", ".join(c.conditions) or "-"] for c in combat.combatants if c.side == side]
+    named = {c.name.lower() for c in combat.combatants}
+    rows += [[e["name"], "Bystander", "-", "-"] for e in here if e["name"].lower() not in named]
+    return rows
+
+
 def build(state: GameState) -> dict[str, Any]:
     """The status page for the game as it stands."""
     world = state.world
@@ -80,12 +99,16 @@ def build(state: GameState) -> dict[str, Any]:
             ent = world.entities[eid]
             if ent.kind == "location" and eid not in inside_ids and eid != world.entities[loc_id].parent and _visible(world, eid):
                 exits.append({**_ref(world, eid), "route": _route(world, eid)})
-    rows = _party_rows(state) + [[e["name"], "-", "-", e["summary"]] for e in here]
+    if state.combat is not None:
+        columns, rows = COMBAT_COLUMNS, _combat_rows(state, here)
+    else:
+        columns, rows = TABLE_COLUMNS, _party_rows(state) + [[e["name"], "-", "-", e["summary"]] for e in here]
     return {
         "location": location,
         "here": here,
         "items": items,
         "inside": inside,
         "exits": exits,
-        "table": {"columns": TABLE_COLUMNS, "rows": rows},
+        "combat": {"foes": sum(c.count for c in state.combat.combatants if c.side != ALLY)} if state.combat else None,
+        "table": {"columns": columns, "rows": rows},
     }

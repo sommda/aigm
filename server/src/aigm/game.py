@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aigm.characters import sheet_notes
+from aigm.combat import notes as combat_notes
 from aigm.history import HistoryPolicy, Reduction, reduce_history
 from aigm.prompts import PromptLibrary, PromptPart
 from aigm.rulesets import RULESETS
@@ -116,6 +117,9 @@ class Game:
         if notes and state.party_names:
             who = "; ".join(self._standing(state, n) for n in state.party_names)
             notes = f"Party: {who}.\n\n{notes}"
+        fight = combat_notes(state.combat)
+        if fight:
+            notes = f"{notes}\n\n{fight}" if notes else fight
         sheets = sheet_notes(state)
         if sheets:  # kept apart from the world notes: it is the GM's copy of what the player sees (docs/STATUS.md 3.3)
             notes = f"{notes}\n\nCharacter sheets (change them with update_character):\n{sheets}" if notes else (

@@ -1002,6 +1002,24 @@ before sheets) is refused with an explanation. The result is the character's hit
 world notes end with the party's sheets (about 1,500 characters each at most), so the GM can rewrite a section from
 what is there. Experience and levels are not recorded here: that is `award`.
 
+## Tool: `set_combat`
+
+Adventure only. The GM keeps the player's table of a fight current (docs/STATUS.md 4). The party is implied: its
+numbers come from the sheets, so a party member in `combatants` is refused.
+
+| Input | Meaning |
+| --- | --- |
+| `action` (required) | `start` replaces any fight with the given combatants. `update` merges into the fight (400-style error if none). `end` clears it |
+| `combatants` | Each has `name`, `side` (`foe` or `ally`), `count` (a group is one entry), `health`, `conditions`, and for `update` `remove: true`. A new name in an `update` needs a `side` |
+
+A foe's `health` must be one of `unhurt`, `scratched`, `bloodied`, `near death`, `down`: the player is never told a
+monster's numbers, and since the GM writes only what the player may see, nothing hidden can leak. An ally's `health`
+is free text of up to 20 characters (such as `9/12`). At most 20 combatants, 6 conditions each. The fight is
+cleared by `end`, by a `set_scene` that moves the party, and when a new game starts; it is saved with the game
+(format 9). Each request's world notes remind the GM of the table. While a fight is recorded, `GET /status` returns
+`combat: {"foes": n}` and a table with the columns `Name`, `Side`, `Health`, `Conditions` (party, then allies, then
+foes, then bystanders the scene lists); otherwise `combat` is `null`.
+
 ## Tools for story games: `set_scene` story field and `end_story`
 
 Offered only when the game has a story plan (docs/STORY.md); an endless game sees neither. `set_scene` gains an

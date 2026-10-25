@@ -1,7 +1,6 @@
 # AIGM Status Page and Character Sheets: Design
 
-Status: decisions settled (section 10); building in the order given there. Built so far: steps (a), (b) and (c);
-(d) remains.
+Status: decisions settled (section 10); building in the order given there. Built: all four steps, (a) to (d).
 
 This is the design for a player-facing **status page** (where the party is, who and what is there, how everyone is
 doing) and one **character sheet** per player character, shown in a client screen that works like the
@@ -121,6 +120,9 @@ not told a monster's HP in the story, so the status page must not say it: `unhur
 `near death`, `down`. The GM picks the word. That also means
 nothing hidden can leak from this record, because the GM writes only what the player may see. Allies and party
 members show real numbers.
+
+As built: the party is never listed (its rows come from the sheets); a fight is saved with the game (format 9) and the
+GM's world notes repeat the table. In test mode `fight NAME [N]`, `wound NAME WORD` and `peace` call the tool.
 
 If the GM never calls `set_combat`, the status page simply has no combat table. Nothing breaks.
 

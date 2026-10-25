@@ -337,6 +337,8 @@ def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
             world.advance_time(hours, reported=True)
     except WorldError as exc:
         return ToolOutcome(f"Scene not changed: {exc}", is_error=True)
+    if location != state.world.scene.location:
+        state.combat = None  # a fight does not follow the party to another place
     state.world = world
     if new_story is not None:
         state.story = new_story

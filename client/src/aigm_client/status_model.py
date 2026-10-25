@@ -144,7 +144,8 @@ class StatusModel:
                     out.extend(self._named(e["name"], e.get("route"), width))
         table = page.get("table") or {}
         if table.get("rows"):
-            self._heading(out, "Everyone here")
+            fight = page.get("combat")
+            self._heading(out, "The fight" if fight else "Everyone here")
             out.extend(self._table(table["columns"], table["rows"], width))
         return out
 

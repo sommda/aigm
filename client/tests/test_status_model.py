@@ -117,3 +117,16 @@ def test_a_party_that_shrinks_returns_to_the_status_tab():
     model.switch("c:Galvin Stonehand")
     model.load_roster({"characters": [{"name": "Toby"}]})
     assert model.tab == "status"
+
+
+def test_a_fight_retitles_the_table_and_shows_its_columns():
+    table = {
+        "columns": ["Name", "Side", "Health", "Conditions"],
+        "rows": [["Toby", "Party", "11/15", "prone"], ["Wolf x3", "Foe", "bloodied", "-"]],
+    }
+    lines = text_of(loaded(combat={"foes": 3}, table=table)).splitlines()
+    assert "Everyone here" not in lines
+    at = lines.index("The fight")
+    assert lines[at + 1].split() == ["Name", "Side", "Health", "Conditions"]
+    assert lines[at + 2].split() == ["Toby", "Party", "11/15", "prone"]
+    assert lines[at + 3].split() == ["Wolf", "x3", "Foe", "bloodied", "-"]

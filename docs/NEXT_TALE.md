@@ -190,8 +190,8 @@ refer back to what happened. The tale entity and the facts it holds carry the re
 - An endless game never finishes, so it never has the offer. (Rolling over an endless game is out of scope.)
 - A failed `begin_adventure` in the new Session 0 leaves the carry-over untouched, like today. A failure in the
   time-passing or plot steps rolls the beginning back, so the game stays in Session 0 and the player can retry.
-- A save made between `/chat/next` and `begin_adventure` is a Session 0 save with a world; format 9 reads it. Older
-  saves have no `tales` and read as today.
+- A save made between `/chat/next` and `begin_adventure` is a Session 0 save with a world; the next save
+  format reads it. Older saves have no `tales` and read as today.
 - Going `/next` twice: each tale appends to `tales`; the note lists them all, newest last.
 - The chronicle for a very long tale must not exceed the model's input: it works in chunks and carries a running
   account, like the digest step's batching.
@@ -202,15 +202,15 @@ refer back to what happened. The tale entity and the facts it holds carry the re
 | --- | --- |
 | `GET /chat/history` | `story` gains `can_continue`; the top level gains `tales` (a count) |
 | `POST /chat/next` | New. 409 unless the story has ended. Runs the chronicle; returns what `POST /chat/new` returns, plus `tales` |
-| Save format | 9: `tales`; Session 0 saves may carry a world and campaign when `tales` is not empty |
+| Save format | 10: `tales`; Session 0 saves may carry a world and campaign when `tales` is not empty |
 | Tools | `begin_adventure` gains `elapsed_hours` and `opening_place` (optional), and `elapsed` (the gap in words) |
 | Curator | New steps `chronicle` and `advance`; both optional like `plot` and `digest` (a world with no curator cannot roll over) |
 | Client | The notice on `ended`; `/next`; a wait with status text during the chronicle and the passing of time |
 
 ## 6. Build order
 
-1. **State and route:** `tales`, the relaxed invariant, `POST /chat/next`, the carry-over note (without lore), format 9,
-   tests. The old transcript is dropped only once step 2 exists, so this step keeps it.
+1. **State and route:** `tales`, the relaxed invariant, `POST /chat/next`, the carry-over note (without lore),
+   the new save format, tests. The old transcript is dropped only once step 2 exists, so this step keeps it.
 2. **The chronicle:** catch-up, the `chronicle` step, the tale entity and the facts, the archive, tests. The route now
    replaces the history.
 3. **The new Session 0:** the system prompt part, the `begin_adventure` changes, the scripted GM path for `--test`.

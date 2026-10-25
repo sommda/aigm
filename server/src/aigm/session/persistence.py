@@ -15,8 +15,8 @@ from aigm.session.state import GameState
 from aigm.story import public_summary
 
 log = logging.getLogger(__name__)
-FORMAT_VERSION = 8  # 1: messages only (read as mid-adventure); 2: adds game state; 3: adds the world; 4: adds the story; 5: adds the party's level and XP; 6: adds the compendium's reading state and when facts were learned; 7: adds whom a starting fact is known by; 8: adds the character sheets
-READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)
+FORMAT_VERSION = 9  # 1: messages only (read as mid-adventure); 2: adds game state; 3: adds the world; 4: adds the story; 5: adds the party's level and XP; 6: adds the compendium's reading state and when facts were learned; 7: adds whom a starting fact is known by; 8: adds the character sheets; 9: adds the fight in progress
+READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9)
 
 
 def validate_name(name: str) -> str:

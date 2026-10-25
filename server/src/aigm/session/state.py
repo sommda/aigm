@@ -9,6 +9,7 @@ from aigm.errors import CorruptSave
 from aigm.rulesets import BY_ID, DEFAULT_RULESET
 from aigm.story import ENDLESS, STRUCTURES, Story
 from aigm.compendium import Compendium
+from aigm.combat import Combat, read_combat
 from aigm.sheets import Sheet, read_sheets
 from aigm.world import World
 
@@ -84,6 +85,8 @@ class GameState:
     compendium: Compendium = field(default_factory=Compendium)
     # Each party member's sheet as the player sees it, by name (docs/STATUS.md 3); a member with none shows the free text.
     sheets: dict[str, Sheet] = field(default_factory=dict)
+    # The fight in progress, if the GM has started one with `set_combat` (docs/STATUS.md 4); cleared when it ends or the party moves.
+    combat: Combat | None = None
 
     @property
     def party_names(self) -> list[str]:
@@ -125,6 +128,7 @@ class GameState:
             {n: Hero(h.level, h.xp, dict(h.classes)) for n, h in self.heroes.items()},
             self.compendium.copy(),
             {n: s.copy() for n, s in self.sheets.items()},
+            self.combat.copy() if self.combat else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -138,6 +142,7 @@ class GameState:
             "heroes": {n: {"level": h.level, "xp": h.xp, "classes": dict(h.classes)} for n, h in self.heroes.items()},
             "compendium": self.compendium.to_dict(),
             "sheets": {n: s.to_dict() for n, s in self.sheets.items()},
+            "combat": self.combat.to_dict() if self.combat else None,
         }
 
     @classmethod
@@ -171,4 +176,5 @@ class GameState:
         heroes = _read_heroes(data.get("heroes"))  # saves before version 5 have none
         return cls(phase, campaign, world, ruleset, structure=structure, story=story, heroes=heroes,
                    compendium=Compendium.from_dict(data.get("compendium")),  # none before version 6
-                   sheets=read_sheets(data.get("sheets")))  # none before version 8
+                   sheets=read_sheets(data.get("sheets")),  # none before version 8
+                   combat=read_combat(data.get("combat")))  # none before version 9
