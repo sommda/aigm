@@ -1,6 +1,6 @@
 from typing import Any
 
-from aigm.session.state import GameState, Phase
+from aigm.session.state import GameState, Hero, Phase
 from aigm.tools.base import Tool, ToolOutcome
 
 MAX_PARTY_SIZE = 6
@@ -9,6 +9,7 @@ MIN_OPENING = 100
 MIN_SHEET = 150  # per character
 MIN_BACKGROUND = 80  # per character; origin, reputation, ties
 MAX_TOTAL = 30_000
+MAX_XP = 100_000_000
 
 # The description is a prompt: it lives in prompts/tools/begin_adventure.md.
 SCHEMA: dict[str, Any] = {
@@ -39,6 +40,10 @@ SCHEMA: dict[str, Any] = {
                         "sheet": {
                             "type": "string",
                             "description": f"The complete character, enough to play from (at least {MIN_SHEET} characters), in the terms of the chosen ruleset: race or species, class, level, ability scores, HP, Armor Class, saves, skills or proficiencies, features, spells, equipment, and personality.",
+                        },
+                        "xp": {
+                            "type": "integer",
+                            "description": "The experience points this character starts with: the lowest total for their starting level in the chosen ruleset's advancement table, for their class (0 at level 1, and 0 under milestone leveling).",
                         },
                         "background": {
                             "type": "string",
@@ -81,7 +86,7 @@ def _text(tool_input: dict[str, Any], key: str, minimum: int, problems: list[str
     return value
 
 
-def _party(raw: Any, problems: list[str]) -> list[dict[str, str]]:
+def _party(raw: Any, problems: list[str]) -> list[dict[str, Any]]:
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_PARTY_SIZE:
         problems.append(f"'party' must be a list of 1 to {MAX_PARTY_SIZE} characters")
         return []
@@ -110,8 +115,15 @@ def _party(raw: Any, problems: list[str]) -> list[dict[str, str]]:
                 f"{label}: 'background' is too thin (at least {MIN_BACKGROUND} characters; give where they come "
                 "from, who knows them, and what they know of the setting)"
             )
+        xp = member.get("xp", 0)
+        if xp is None:
+            xp = 0
+        if isinstance(xp, bool) or not isinstance(xp, int) or not 0 <= xp <= MAX_XP:
+            problems.append(f"{label}: 'xp' must be a whole number from 0 to {MAX_XP}")
+            xp = 0
         party.append(
             {
+                "xp": xp,
                 "name": name.strip() if isinstance(name, str) else "",
                 "sheet": sheet.strip() if isinstance(sheet, str) else "",
                 "background": background.strip() if isinstance(background, str) else "",
@@ -143,6 +155,7 @@ def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameSta
         problems.append("'gm_notes' must be a string")
     if problems:
         return _error(*problems)
+    xp = {m["name"]: m.pop("xp") for m in party}  # starting experience belongs to the heroes, not to the record
     campaign: dict[str, Any] = {"setting": setting, "opening": opening, "level": level, "party": party}
     if notes and notes.strip():
         campaign["gm_notes"] = notes.strip()
@@ -150,6 +163,7 @@ def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameSta
         return _error("the record is too long; condense it")
     state.phase = Phase.ADVENTURE
     state.campaign = campaign
+    state.heroes = {name: Hero(level, points) for name, points in xp.items() if points}
     return ToolOutcome(content="The adventure has begun.")
 
 

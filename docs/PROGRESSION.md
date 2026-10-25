@@ -9,7 +9,10 @@ number the server held; the GM was told to track levels and reward quests in pro
 and `classes`, the level in each class the GM has recorded. A level belongs to a class and a character may have
 several, each at its own level. The overall level is not computed by the server, because rulesets differ (the total of
 the class levels, or the highest): the GM works it out and passes it. A character with no entry is at the party's
-starting level (`campaign["level"]`) with no XP and no recorded classes. `average_level` is the mean overall level
+starting level (`campaign["level"]`) with no XP and no recorded classes. `begin_adventure` takes an optional `xp` per
+party member, which the GM sets to the lowest total for the starting level in the ruleset's table (the server has no
+tables); a character given more than 0 gets an entry at the starting level with that XP. Games begun before this keep
+0 until an `award`. `average_level` is the mean overall level
 over the party. Everything is saved (save format 5; older saves load at the starting level with no XP) and copied with
 the turn's working state, so an award in a failed turn is lost with the turn.
 

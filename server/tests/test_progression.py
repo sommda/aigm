@@ -168,3 +168,33 @@ def test_the_briefing_says_what_the_chapter_needs():
     for q in ("m1", "m2"):
         st.report(state.story, q, "done", "Done.", 5)
     assert "below the level this chapter needs" in st.briefing_block(state.story, state.world, 10, 12)
+
+
+def begin(xps):
+    from aigm.llm.scripted import TEST_CAMPAIGN
+
+    campaign = {**TEST_CAMPAIGN, "level": 5, "party": [{**TEST_CAMPAIGN["party"][0], **xps}]}
+    state = GameState(structure="endless")
+    return state, dispatch("begin_adventure", "b1", campaign, state)
+
+
+def test_a_character_starts_with_the_xp_the_gm_gave_for_the_starting_level():
+    state, out = begin({"xp": 6500})
+    assert not out.is_error
+    name = state.party_names[0]
+    assert state.hero(name) == Hero(5, 6500) and "xp" not in state.campaign["party"][0]
+    assert state.copy().hero(name).xp == 6500
+
+
+def test_a_starting_xp_that_is_left_out_is_zero_and_a_bad_one_is_refused():
+    state, out = begin({})
+    assert not out.is_error and state.heroes == {} and state.hero(state.party_names[0]).xp == 0
+    for bad in (-1, "lots", True, 1.5):
+        state, out = begin({"xp": bad})
+        assert out.is_error and "'xp' must be" in out.content and state.heroes == {}
+
+
+def test_the_xp_is_in_the_tool_schema_and_its_prompt():
+    schema = next(t for t in tool_schemas(phase=Phase.SESSION_ZERO) if t["name"] == "begin_adventure")
+    assert "xp" in schema["input_schema"]["properties"]["party"]["items"]["properties"]
+    assert "starting `xp`" in schema["description"]

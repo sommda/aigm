@@ -1058,7 +1058,7 @@ enough:
 | `setting` | string, at least 300 characters: the world, tone, key places and factions, the central tension, how dangerous it is for this party |
 | `opening` | string, at least 100 characters: starting location, situation and immediate hook |
 | `level` | integer 1-20 |
-| `party` | 1-6 player characters `{name, sheet}`: unique non-empty `name` (compared ignoring case); `sheet` at least 150 characters (the full character). The player controls the whole party and may switch between members; NPCs are not party members |
+| `party` | 1-6 player characters `{name, sheet, background, xp}`: unique non-empty `name` (compared ignoring case); `sheet` at least 150 characters (the full character); optional `xp`, a whole number from 0, the character's starting experience (the lowest total for their starting level in the ruleset's advancement table, so a level 5 character does not start at 0; stored with the heroes, not in the record). The player controls the whole party and may switch between members; NPCs are not party members |
 | `gm_notes` | optional string of private notes |
 
 The total size is capped at 30,000 characters. A call that fails any rule returns an `is_error` tool result that lists
