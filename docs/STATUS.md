@@ -1,7 +1,7 @@
 # AIGM Status Page and Character Sheets: Design
 
-Status: decisions settled (section 10); building in the order given there. Built so far: step (a), the location half of
-the status tab.
+Status: decisions settled (section 10); building in the order given there. Built so far: steps (a), (b) and (c);
+(d) remains.
 
 This is the design for a player-facing **status page** (where the party is, who and what is there, how everyone is
 doing) and one **character sheet** per player character, shown in a client screen that works like the
@@ -93,6 +93,11 @@ first:
 
 A server that has a sheet the GM never updates is no worse off than today, and the page then shows a **stale**
 mark on a vital the GM has not touched for a long stretch only if we choose to (decision 6).
+
+As built: the party's sheets are appended to the end of each request's world notes (at most 1,500 characters each),
+so the GM can rewrite a section from what is there. Hit points are held between 0 and the maximum, so a ruleset that
+counts below zero (negative hit points, death saves) records "0" and a condition or a line in a section for the rest.
+In test mode, `hurt NAME N` and `heal NAME N` call the tool.
 
 ### 3.4 Level and XP
 

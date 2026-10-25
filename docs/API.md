@@ -984,6 +984,24 @@ games in play and older saves are `endless`), and a story game's campaign record
 
 ---
 
+## Tool: `update_character`
+
+Adventure only. The GM records a change to a party member's sheet (docs/STATUS.md 3.3); the player sees it on the
+status page and in `GET /characters`. Nothing is pushed: the client sees it when it next asks.
+
+| Input | Meaning |
+| --- | --- |
+| `name` (required) | A party member, matched without regard to case. Anyone else is refused |
+| `hp` or `hp_delta` | The new hit points, or a gain or loss. Held between 0 and the maximum, and the result says when it was |
+| `max_hp` | A new maximum. Hit points above it are brought down. `hp` or `hp_delta` need a maximum on the sheet |
+| `conditions_add`, `conditions_remove` | Short names. Matched without regard to case, never doubled, at most 12 |
+| `section` | `{title, lines}`: replaces the section with that title, adds it if there is none (at most 16 sections), and an empty `lines` removes it |
+
+It works on the turn's working copy, so a failed turn records nothing. A character with no sheet (a game that began
+before sheets) is refused with an explanation. The result is the character's hit points and conditions. Each request's
+world notes end with the party's sheets (about 1,500 characters each at most), so the GM can rewrite a section from
+what is there. Experience and levels are not recorded here: that is `award`.
+
 ## Tools for story games: `set_scene` story field and `end_story`
 
 Offered only when the game has a story plan (docs/STORY.md); an endless game sees neither. `set_scene` gains an

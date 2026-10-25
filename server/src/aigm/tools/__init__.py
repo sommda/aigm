@@ -5,13 +5,14 @@ from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
 from aigm.tools.award import AWARD
 from aigm.tools.begin_adventure import BEGIN_ADVENTURE
+from aigm.tools.character import UPDATE_CHARACTER
 from aigm.tools.roll_dice import ROLL_DICE
 from aigm.tools.ruleset import SET_RULESET
 from aigm.tools.story import END_STORY
 from aigm.tools.structure import SET_STRUCTURE
 from aigm.tools.world import ESTABLISH, RECALL, SET_SCENE
 
-REGISTRY: dict[str, Tool] = {t.schema["name"]: t for t in (ROLL_DICE, SET_RULESET, SET_STRUCTURE, BEGIN_ADVENTURE, RECALL, ESTABLISH, SET_SCENE, AWARD, END_STORY)}
+REGISTRY: dict[str, Tool] = {t.schema["name"]: t for t in (ROLL_DICE, SET_RULESET, SET_STRUCTURE, BEGIN_ADVENTURE, RECALL, ESTABLISH, SET_SCENE, UPDATE_CHARACTER, AWARD, END_STORY)}
 
 
 def tool_schemas(

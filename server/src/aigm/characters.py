@@ -61,3 +61,25 @@ def detail(state: GameState, name: str) -> dict[str, Any] | None:
         "text": None if sheet else _sheet_text(state, found),
     }
     return page
+
+
+SHEET_CHARS = 1500  # per character; the sheets travel with every request, so they are kept short
+
+
+def sheet_notes(state: GameState) -> str:
+    """The party's sheets as the GM should see them each turn, so `update_character` can rewrite a section from them."""
+    out = []
+    for name in state.party_names:
+        sheet = state.sheets.get(name)
+        if sheet is None:
+            continue
+        head = [f"{name}: {sheet.headline}".rstrip(": ")]
+        hp = hp_text(sheet.hp, sheet.max_hp)
+        head.append(f"HP {hp}" if hp else "")
+        head.append(f"conditions: {', '.join(sheet.conditions)}" if sheet.conditions else "")
+        lines = ["; ".join(h for h in head if h)]
+        for section in sheet.sections:
+            lines.append(f"  {section.title}: " + " | ".join(section.lines))
+        text = "\n".join(lines)
+        out.append(text if len(text) <= SHEET_CHARS else text[: SHEET_CHARS - 1] + "…")
+    return "\n".join(out)

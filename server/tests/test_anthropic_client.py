@@ -157,7 +157,7 @@ async def test_request_params_defaults():
     assert body["system"] == "You are the GM."
     assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert body["cache_control"] == {"type": "ephemeral"}
-    assert [t["name"] for t in body["tools"]] == ["roll_dice", "recall", "establish", "set_scene", "award"]
+    assert [t["name"] for t in body["tools"]] == ["roll_dice", "recall", "establish", "set_scene", "update_character", "award"]
     assert "Roll dice" in body["tools"][0]["description"]
     assert "temperature" not in body and "output_config" not in body
 

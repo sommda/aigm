@@ -72,6 +72,7 @@ The server is running with `--test`: replies are scripted, not from a model. Try
 - `recall <name>`: look a name up in the world (adventure only; calls `recall`)
 - `quest <id> <done|skipped|failed> [outcome]` or `quest goal`: report story progress (story games; calls `set_scene`)
 - `scene <place> [hours]`: set the scene and pass time (adventure only; calls `set_scene`)
+- `hurt <name> <n>` (or `heal <name> <n>`): change a party member's hit points (adventure only; calls `update_character`)
 - `badroll [expr]`: a malformed roll (shows the tool-error path)
 - `markdown`: a sampler of every markup form below
 - `bold`, `italic`, `strike`, `code`, `codeblock`, `list`, `numbered`, `heading`, `quote`, `table`, `link`
@@ -184,11 +185,23 @@ def _quest_plan(arg: str) -> list[Step]:
     return [Say("That settles it. "), UseTool("set_scene", {"story": {"quests": [report]}})]
 
 
+def _hp_plan(sign: int):
+    def plan(arg: str) -> list[Step]:
+        who, _, amount = arg.rpartition(" ")
+        if not amount.isdigit():
+            who, amount = arg, "1"
+        return [Say("It tells. "), UseTool("update_character", {"name": who.strip(), "hp_delta": sign * int(amount)})]
+
+    return plan
+
+
 WORLD_COMMANDS: dict[str, Callable[[str], list[Step]]] = {
     "quest": _quest_plan,
     "establish": _establish_plan,
     "recall": lambda arg: [Say("Let me think... "), UseTool("recall", {"about": arg or "Wren"})],
     "scene": _scene_plan,
+    "hurt": _hp_plan(-1),
+    "heal": _hp_plan(1),
 }
 
 
@@ -285,7 +298,7 @@ def narrate_tool_results(messages: list[dict[str, Any]]) -> list[Step]:
         if name == "begin_adventure":  # on success the history is replaced, so only errors get here
             lines.append(f"- The adventure could not begin: {b.get('content')}")
             continue
-        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_ruleset", "set_structure"):
+        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_ruleset", "set_structure", "update_character"):
             lines.append(f"- `{name}`{' (error)' if b.get('is_error') else ''}:\n\n```\n{b.get('content')}\n```")
             continue
         expr = tool_input.get("expression", "?")
