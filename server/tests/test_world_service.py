@@ -299,3 +299,13 @@ def test_new_game_forgets_curator_work(eager):
     eager.post("/chat/new")
     eager.put("/history/n/save")
     assert eager.get("/history/n").json()["fact_count"] == 0
+
+
+def test_the_first_pass_after_the_opening_does_not_wait_for_the_usual_pages():
+    svc = service(every_pages=3)
+    s = adventure("x" * 100, turns=2)  # two pages: not enough for a later pass
+    assert not svc.due(s)
+    s.state.world.mark_processed(3)  # the world was just built from the opening record
+    assert svc.due(s)
+    s.state.world.mark_processed(4)  # a pass has run since
+    assert not svc.due(s)

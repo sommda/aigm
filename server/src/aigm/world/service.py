@@ -25,6 +25,8 @@ from aigm.world.plot import PlotResult, run_chapter_plot, run_plot
 
 log = logging.getLogger(__name__)
 PLAN_RETRY_TURNS = 3  # a chapter plan that failed is tried again after this many more turns
+SEED_MESSAGES = 3  # what the world was built from when the adventure began (the note, the record and the cue)
+FIRST_PASS_PAGES = 1.0  # the opening scene introduces the cast, so the first pass does not wait for the usual pages
 REQUESTED_MIN_PAGES = 1.0  # a lookup miss asks for a pass, but only once there is something to digest
 
 
@@ -50,7 +52,8 @@ class CuratorService:
         if session.state.phase is not Phase.ADVENTURE or session.curating or session.busy:
             return False
         pages = self.pages(session)
-        if pages >= self.every_pages:
+        first = session.state.world.processed_through == SEED_MESSAGES
+        if pages >= (min(FIRST_PASS_PAGES, self.every_pages) if first else self.every_pages):
             return True
         return session.state.pass_requested and pages >= min(REQUESTED_MIN_PAGES, self.every_pages)
 

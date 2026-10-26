@@ -209,7 +209,8 @@ structured output without disturbing the GM's context.
 - **Periodically**, after a turn commits, once enough narration has accumulated since the last pass: at least
   `AIGM_WORLD_EVERY_PAGES` (default **3**) pages. Pacing by narration rather than by turns means the curator runs only
   when enough meaningful play has happened; a string of short exchanges ("I open the door." / "It's locked.") costs
-  nothing.
+  nothing. The **first** pass after the adventure begins needs only one page, because the opening scene introduces
+  the cast and the compendium would otherwise lack them for several turns.
   - **What a page is.** Clients differ in size, so the server defines it: `AIGM_WORLD_PAGE_CHARS` (default **1,800**
     characters, roughly 300 words, one printed page). Only the GM's narration counts: the text blocks of assistant
     messages after `processed_through`. Thinking, tool calls and results, the player's own messages and the
