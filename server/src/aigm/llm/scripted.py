@@ -70,6 +70,8 @@ The server is running with `--test`: replies are scripted, not from a model. Try
 - `begin`: end Session 0 and start the adventure (calls the real `begin_adventure` tool; a new game starts in Session 0)
 - `establish <name>`: record a new person in the world (adventure only; calls the real `establish` tool)
 - `recall <name>`: look a name up in the world (adventure only; calls `recall`)
+- `persuade <name> [words]`: a social check on a person (adventure only; calls `social_check`). With no words the GM asks what you say; with words of your own it rolls, and eight or more words count as strong. Name a person you have `establish`ed
+- `motive <name> [text]`: give a recorded person a scene motive (adventure only; calls `set_motive`)
 - `quest <id> <done|skipped|failed> [outcome]` or `quest goal`: report story progress (story games; calls `set_scene`)
 - `scene <place> [hours]`: set the scene and pass time (adventure only; calls `set_scene`)
 - `hurt <name> <n>` (or `heal <name> <n>`): change a party member's hit points (adventure only; calls `update_character`)
@@ -166,6 +168,26 @@ def _establish_plan(name: str) -> list[Step]:
     ]
 
 
+def _motive_plan(arg: str) -> list[Step]:
+    name, _, text = arg.partition(" ")
+    name = name or "Wren"
+    text = text.strip() or f"{name} wants the visitors gone before the captain returns."
+    change = {"op": "add", "owner": name, "text": text, "scope": "scene", "kind": "want", "strength": "driven",
+              "tells": [f"{name} keeps glancing at the door."]}
+    return [Say("A hush falls. "), UseTool("set_motive", {"changes": [change]})]
+
+
+def _persuade_plan(arg: str) -> list[Step]:
+    name, _, words = arg.partition(" ")
+    name, words = name or "Wren", words.strip()
+    if not words:  # a declared intention, not a played one: the real GM asks what the character says
+        return [Say(f"{name} waits, watching you. What do you say?")]
+    quality = "strong" if len(words.split()) >= 8 else "ordinary"
+    check = {"character": "Test Hero", "skill": "Persuasion", "target": name, "spoken": words, "quality": quality,
+             "modifier": 3, "dc": 12, "narration": f"You turn to {name} and speak plainly."}
+    return [UseTool("set_scene", {"present": [name]}), UseTool("social_check", check)]
+
+
 def _scene_plan(arg: str) -> list[Step]:
     place, _, hours = arg.rpartition(" ")
     if not hours.isdigit():
@@ -212,6 +234,8 @@ def _wound_plan(arg: str) -> list[Step]:
 WORLD_COMMANDS: dict[str, Callable[[str], list[Step]]] = {
     "quest": _quest_plan,
     "establish": _establish_plan,
+    "motive": _motive_plan,
+    "persuade": _persuade_plan,
     "recall": lambda arg: [Say("Let me think... "), UseTool("recall", {"about": arg or "Wren"})],
     "scene": _scene_plan,
     "fight": _fight_plan,
@@ -315,7 +339,7 @@ def narrate_tool_results(messages: list[dict[str, Any]]) -> list[Step]:
         if name == "begin_adventure":  # on success the history is replaced, so only errors get here
             lines.append(f"- The adventure could not begin: {b.get('content')}")
             continue
-        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_ruleset", "set_structure", "update_character", "set_combat"):
+        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_motive", "social_check", "set_ruleset", "set_structure", "update_character", "set_combat"):
             lines.append(f"- `{name}`{' (error)' if b.get('is_error') else ''}:\n\n```\n{b.get('content')}\n```")
             continue
         expr = tool_input.get("expression", "?")

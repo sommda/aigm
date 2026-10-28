@@ -139,7 +139,7 @@ def test_tools_offered_depend_on_phase():
     zero = [t["name"] for t in tool_schemas(phase=Phase.SESSION_ZERO)]
     adventure = [t["name"] for t in tool_schemas(phase=Phase.ADVENTURE)]
     assert zero == ["roll_dice", "set_ruleset", "set_structure", "begin_adventure"]
-    assert adventure == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "award"]
+    assert adventure == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
 
 
 def test_begin_adventure_sets_state():
@@ -225,7 +225,7 @@ def test_game_prompts_and_tools_follow_the_state():
     assert "Current mode: Adventure" in text and "Current mode: Session 0" not in text
     assert "The mayor is a vampire." in text  # private notes are in the system prompt
     assert SETTING.strip() not in text and SHEET not in text  # the record is a history entry, not in the prompt
-    assert [t["name"] for t in game.tools(adv)] == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "award"]
+    assert [t["name"] for t in game.tools(adv)] == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
     assert "## GM notes" not in game.system(GameState(Phase.ADVENTURE))  # old saves have none
 
 
@@ -269,7 +269,7 @@ async def test_next_request_in_the_same_turn_uses_the_adventure_prompt_and_tools
     assert [type(e) for e in events if isinstance(e, (PhaseChange, MessageEnd))] == [PhaseChange, MessageEnd]
     (sys1, tools1), (sys2, tools2) = llm.calls
     assert "Current mode: Session 0" in sys1 and tools1 == ["roll_dice", "set_ruleset", "set_structure", "begin_adventure"]
-    assert "Current mode: Adventure" in sys2 and tools2 == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "award"]
+    assert "Current mode: Adventure" in sys2 and tools2 == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
     assert session.state.phase is Phase.ADVENTURE and session.state.campaign["level"] == 3
     assert len(llm.requests[1]) == 3  # the second request saw only: note, campaign record, cue
     assert [m["role"] for m in session.messages] == ["user", "assistant", "user", "assistant"]

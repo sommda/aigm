@@ -17,7 +17,7 @@ from textual.strip import Strip
 from textual.widgets import Input, Static
 
 from aigm_client.api import ApiClient, ApiError
-from aigm_client.compendium_model import TABS, CompendiumModel
+from aigm_client.compendium_model import HIDDEN, TABS, CompendiumModel
 
 _console = Console(file=io.StringIO(), force_terminal=True, color_system="truecolor", width=500)
 NARROW = 100  # below this many columns the list and the detail take turns
@@ -79,6 +79,7 @@ class CompendiumScreen(ModalScreen[list[str]]):
         Binding("1", "go_tab('locations')", "Locations", show=False),
         Binding("2", "go_tab('characters')", "Characters", show=False),
         Binding("3", "go_tab('other')", "Other", show=False),
+        Binding("4", "go_tab('hidden')", "Hidden", show=False),
         Binding("up", "move(-1)", "Up", show=False),
         Binding("down", "move(1)", "Down", show=False),
         Binding("home", "edge(False)", "Top", show=False),
@@ -102,10 +103,12 @@ class CompendiumScreen(ModalScreen[list[str]]):
         on_counts: Callable[[dict[str, Any]], None] | None = None,
         tab: str | None = None,
         name: str | None = None,
+        hidden: bool = False,
     ) -> None:
+        """`hidden` adds the debug tab of what the player has not been told (a debug server only)."""
         super().__init__()
         self.api, self.ascii_only, self.on_counts = api, ascii_only, on_counts
-        self.model = CompendiumModel(ascii_only)
+        self.model = CompendiumModel(ascii_only, hidden)
         self.start_tab, self.start_name = tab, name
         self.error = ""
         self.detail_open = False  # narrow terminals: showing the detail instead of the list
@@ -145,9 +148,11 @@ class CompendiumScreen(ModalScreen[list[str]]):
             self.error = not_available_message(e)
             self.redraw()
             return
+        if HIDDEN in m.tabs:
+            await self._load_hidden()
         self.error = ""
         self._report(summary)
-        if self.start_tab in TABS:
+        if self.start_tab in m.tabs:
             m.switch_tab(self.start_tab)
         self.start_tab = None
         if self.start_name:
@@ -160,10 +165,24 @@ class CompendiumScreen(ModalScreen[list[str]]):
         self.redraw()
         await self.ensure_detail()
 
+    async def _load_hidden(self) -> None:
+        """The debug tab. A server that cannot answer leaves it empty, and the other tabs work as usual."""
+        m = self.model
+        try:
+            m.load_list(HIDDEN, await self.api.debug_hidden(q=m.query if m.on_hidden else ""))
+        except ApiError as e:
+            m.load_list(HIDDEN, {"entries": []})
+            self.app.notify(f"The hidden tab is not available: {e.message}", severity="warning")
+
     async def reload_tab(self) -> None:
         m = self.model
         try:
-            m.load_list(m.tab, await self.api.compendium_list(m.tab, q=m.query, sort="tree" if m.tab == "locations" else "name"))
+            if m.on_hidden:
+                await self._load_hidden()
+            else:
+                m.load_list(
+                    m.tab, await self.api.compendium_list(m.tab, q=m.query, sort="tree" if m.tab == "locations" else "name")
+                )
         except ApiError as e:
             self.error = not_available_message(e)
         self.redraw()
@@ -172,15 +191,16 @@ class CompendiumScreen(ModalScreen[list[str]]):
     async def ensure_detail(self) -> None:
         m = self.model
         entity_id = m.current_id
-        if entity_id is None or entity_id in m.details:
+        if entity_id is None or m.has_detail(entity_id):
             self.redraw()
             self._rest()
             return
+        hidden = m.on_hidden
         try:
-            detail = await self.api.compendium_entity(entity_id)
+            detail = await (self.api.debug_hidden_entity if hidden else self.api.compendium_entity)(entity_id)
         except ApiError:
             return
-        m.load_detail(detail)
+        m.load_detail(detail, hidden)
         self.redraw()
         self._rest()
 
@@ -194,7 +214,7 @@ class CompendiumScreen(ModalScreen[list[str]]):
 
     def _read_current(self) -> None:
         m = self.model
-        if m.current_id in m.details and m.mark_read(m.current_id):
+        if not m.on_hidden and m.current_id in m.details and m.mark_read(m.current_id):
             self.redraw()
 
     def _flush_later(self) -> None:

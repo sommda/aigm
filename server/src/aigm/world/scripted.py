@@ -14,7 +14,8 @@ by hand, for example `echo [[fact: Wren:npc | Wren sells news to the Thorn Guild
 A party member's background may hold `[[knows: Subject[:kind] | sentence]]`: the familiarity step records it as a
 fact that character knows (a place goes under the first region in the world).
 
-Expansion writes a plain fact for up to two missing aspects, and gives a bare location a cellar."""
+Expansion writes a plain fact for up to two missing aspects, gives a bare location a cellar and every person a lasting
+motive."""
 
 import re
 
@@ -28,6 +29,7 @@ from aigm.world.curator import (
     FactProposal,
     FamiliarityRequest,
     Label,
+    MotiveProposal,
     PlotProposal,
     PlotRequest,
     QuestProposal,
@@ -226,9 +228,16 @@ class ScriptedCurator:
         self.calls.append("expand")
         ent = request.entity
         out = Extraction()
-        for aspect in request.missing[:2]:
+        for aspect in [a for a in request.missing if a != "motives"][:2]:
             text = f"The {aspect.replace('_', ' ')} of {ent.name} predates the arrival of any traveler."
             out.facts.append(FactProposal(text, [ent.name], aspect, "hidden"))
+        if "motives" in request.missing:  # a lasting want for every person who steps on stage
+            out.motives.append(
+                MotiveProposal(
+                    ent.name, f"Wants to keep {ent.name}'s place in the world safe from any trouble.", "want", "driven",
+                    ["steady coin", "a favor owed"], ["loud demands"], [f"{ent.name} glances at the door."],
+                )
+            )
         if ent.kind == "location" and request.tier == "full" and not ent.name.endswith("Cellar"):
             cellar = f"{ent.name} Cellar"
             out.entities.append(EntityProposal(cellar, "location", parent=ent.name))

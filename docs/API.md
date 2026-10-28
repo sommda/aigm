@@ -58,6 +58,8 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | POST   | `/compendium/seen`            | Mark compendium entries as read                      | JSON       |
 | GET    | `/debug/context`              | The next request's context (**debug mode only**)     | JSON       |
 | GET    | `/debug/story`                | The whole story plan (**debug mode only**)           | JSON       |
+| GET    | `/debug/hidden`               | Entities with hidden facts (**debug mode only**)     | JSON       |
+| GET    | `/debug/hidden/{entity_id}`   | One entity's hidden facts and motives (**debug mode only**) | JSON |
 | GET    | `/characters`                 | The party's names and vitals, for the tabs           | JSON       |
 | GET    | `/characters/{name}`          | One character's sheet                                | JSON       |
 | POST   | `/debug/sheets`               | Write the sheets of a game that lacks them (**debug mode only**) | JSON |
@@ -860,6 +862,48 @@ Query parameter: `session_id`.
 them, replacing any that exist. Answers `200` with `{ "written": ["Toby"], "notes": [...] }`; a member whose sheet
 could not be written keeps what they had and is named in `notes`. `409` when there is no adventure, the curator is
 off, or a turn or a pass is running; `502` when the curator fails. Query parameter: `session_id`.
+
+---
+
+## GET `/debug/hidden` and `/debug/hidden/{entity_id}`
+
+**Debug mode only** (absent otherwise, like `/debug/context`). The opposite of the compendium: the entities that have
+facts the player has not been told, so hidden facts and motives can be inspected (COMPENDIUM.md 11). Query parameter:
+`session_id`.
+
+`GET /debug/hidden` answers `200` with `{ "session_id", "category": "hidden", "title": "Hidden", "count", "entries" }`.
+It lists every entity of any kind, discovered or not, that has an active `hidden` or `hinted` fact (or an active
+motive), by name. Optional `q` is a case-insensitive substring of the name or any alias. Each entry:
+
+```json
+{
+  "id": "e010", "name": "Wren", "kind": "npc", "discovered": true,
+  "hidden_count": 2, "hinted_count": 1, "motive_count": 1,
+  "parent": null
+}
+```
+
+`GET /debug/hidden/{entity_id}` adds `aliases` (all of them), `facts` and `motives`:
+
+```json
+{
+  "facts": [
+    {
+      "id": "f0041", "text": "Wren's true name is Mara and she serves Captain Vael.",
+      "aspect": "knowledge", "label": "Knowledge", "disclosure": "hidden", "source": "generated", "turn": 2,
+      "about": [ { "id": "e010", "name": "Wren" }, { "id": "e030", "name": "Captain Vael" } ]
+    }
+  ],
+  "motives": []
+}
+```
+
+`facts` are the entity's active `hidden` and `hinted` facts, subject facts first. `motives` is always present
+(ROLEPLAY.md 7); each has `id`, `kind` (`want`, `fear`, `loyalty`, `grudge`, `vice` or `belief`), `scope`
+(`underlying` or `scene`), `strength` (`leaning`, `driven` or `absolute`), `disclosure`, `text`, `moved_by`, `resists`,
+`tells`, `source`, `turn` and `status` (`active`, or `expired` for a scene motive whose moment has passed). An entity
+with only motives is listed too. `404 not_found` for an unknown entity or one with nothing hidden, `422`
+for a malformed id.
 
 ---
 

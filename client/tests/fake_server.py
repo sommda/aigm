@@ -132,6 +132,33 @@ def sample_compendium() -> dict[str, dict]:
     }
 
 
+def sample_hidden() -> dict[str, dict]:
+    """Entities with secrets as GET /debug/hidden/{id} describes them (docs/COMPENDIUM.md 11), by id."""
+    def fact(i, text, label, disclosure="hidden", about=()):
+        return {"id": i, "text": text, "aspect": (label or "").lower() or None, "label": label,
+                "disclosure": disclosure, "source": "generated", "turn": 2, "about": list(about)}
+
+    wren = {"id": "e010", "name": "Wren"}
+    vael = {"id": "e030", "name": "Captain Vael"}
+    return {
+        "e007": {"id": "e007", "name": "Harrow Mine", "kind": "location", "discovered": True, "aliases": [],
+                 "parent": None, "motives": [],
+                 "facts": [fact("f40", "The lower gallery joins the smugglers' cellar.", "Secret")]},
+        "e010": {"id": "e010", "name": "Wren", "kind": "npc", "discovered": True, "aliases": ["Wren Tallow"],
+                 "parent": None,
+                 "facts": [fact("f41", "Wren's true name is Mara and she serves Captain Vael.", "Knowledge",
+                                about=[wren, vael]),
+                           fact("f42", "Someone whispers that Wren keeps a ledger.", "Knowledge", "hinted")],
+                 "motives": [{"id": "m1", "text": "Fears the Guild will learn of the false tally.",
+                              "kind": "fear", "scope": "underlying", "strength": "driven", "disclosure": "hidden",
+                              "tells": ["Glances at the cellar door."], "moved_by": ["a promise of silence"],
+                              "resists": ["open threats"]}]},
+        "e030": {"id": "e030", "name": "Captain Vael", "kind": "npc", "discovered": False, "aliases": [],
+                 "parent": None, "motives": [],
+                 "facts": [fact("f43", "Vael commands the smugglers.", "Role")]},
+    }
+
+
 class FakeServer:
     def __init__(self, reply_events: list[tuple[str, dict]] | None = None) -> None:
         self.reply_events = reply_events or [
@@ -155,6 +182,7 @@ class FakeServer:
         self.status_page: dict | None = None  # None = an older server without the status page
         self.seen: set[str] = set()
         self.compendium_down = False  # answer the compendium calls with a 500
+        self.hidden: dict[str, dict] = {}  # what GET /debug/hidden serves; only a debug server has the route
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -232,6 +260,22 @@ class FakeServer:
         if path == "/debug/thinking" and method == "PUT" and self.debug:
             self.thinking = body["enabled"]
             return self._json(200, {"thinking": self.thinking})
+        if path == "/debug/hidden" and self.debug:
+            q = params.get("q", "").casefold()
+            rows = [{"id": e["id"], "name": e["name"], "kind": e["kind"], "discovered": e["discovered"],
+                     "hidden_count": sum(f["disclosure"] == "hidden" for f in e["facts"]),
+                     "hinted_count": sum(f["disclosure"] == "hinted" for f in e["facts"]),
+                     "motive_count": len(e["motives"]), "parent": e["parent"]}
+                    for e in sorted(self.hidden.values(), key=lambda e: e["name"].casefold())
+                    if q in e["name"].casefold()]
+            return self._json(200, {"session_id": "default", "category": "hidden", "title": "Hidden",
+                                    "count": len(rows), "entries": rows})
+        if path.startswith("/debug/hidden/") and self.debug:
+            e = self.hidden.get(path.rsplit("/", 1)[1])
+            if e is None:
+                return self._err(404, "not_found", "No hidden facts")
+            return self._json(200, {"session_id": "default", **e, "hidden_count": 0, "hinted_count": 0,
+                                    "motive_count": len(e["motives"])})
         if path == "/debug/story" and self.debug:
             return self._json(200, {"story": None, "text": self.story_text})
         if path.startswith("/characters") and self.status_page is not None:

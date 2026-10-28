@@ -11,7 +11,7 @@ from aigm_client.blocks import MarkdownBlock, UserBlock
 from aigm_client.commands import Command, parse_command
 from aigm_client.compendium_screen import CompendiumScreen
 from aigm_client.status_screen import StatusScreen
-from aigm_client.compendium_model import TABS
+from aigm_client.compendium_model import HIDDEN, TABS
 from aigm_client.context_screen import ContextScreen
 from aigm_client.dialogs import ConfirmDialog, LoadDialog, NewGameDialog, SaveDialog, suggest_name
 from aigm_client.session import ChatSession, intro_text, story_note
@@ -37,6 +37,7 @@ DEBUG_HELP = (
     "\nDebug server: /context (Ctrl+K) shows exactly what the model will be sent for your next message."
     "\n  /story  prints the whole story plan (spoilers)"
     "\n  /thinking [on|off]  (F6) turn the model's thinking on or off, to compare a move both ways"
+    "\n  /compendium hidden  (or key 4 in the compendium) browses the facts and motives the player has not been told"
 )
 
 
@@ -293,10 +294,11 @@ class AigmApp(App):
             return
         if self._modal():
             return
-        tab = where.lower() if where and where.lower() in TABS else None
+        tabs = (*TABS, HIDDEN) if self.debug_server else TABS
+        tab = where.lower() if where and where.lower() in tabs else None
         name = where if where and tab is None else None
         pending = await self.push_screen_wait(
-            CompendiumScreen(self.api, self.ascii_only, s.set_unread, tab=tab, name=name)
+            CompendiumScreen(self.api, self.ascii_only, s.set_unread, tab=tab, name=name, hidden=self.debug_server)
         )
         try:
             if pending:

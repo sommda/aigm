@@ -468,3 +468,35 @@ These are the choices I made where the request left room. Each is cheap to chang
 - The list rows carry `depth` for the tree sort (section 5.3).
 - The Textual keys: the list holds the focus so the screen's keys work, and `Tab` is the screen's own binding for the
   detail's links rather than the usual focus change.
+
+## 11. The hidden tab (debug servers only)
+
+Status: **implemented**, for hidden and hinted facts and for motives (ROLEPLAY.md 7).
+
+On a server started with `--debug`, the compendium gains a fourth tab, **Hidden**, which is the inverse of the other
+three: it lists the entities that have facts the player has *not* been told, so the hidden world, and later the
+motives, can be browsed and checked. It is a debugging aid, like the context viewer (CONTEXT.md), and shows spoilers.
+
+- **Which entities.** Every entity, of any kind (location, npc, faction, concept) and whether or not the player has
+  discovered it, that has at least one active fact whose disclosure is `hidden` or `hinted` (counting facts that merely
+  mention it), or an active motive. Known and superseded facts are not shown here; they are in the other tabs or gone.
+- **The list.** Sorted by name; a row shows the name, kind and the number of secrets. Filtering by name or alias works
+  as in the other tabs, asked of the server.
+- **The detail.** The entity's kind, whether the player has met it, its parent and all its aliases, then **Motives**,
+  then **Hidden facts**, then **Hinted facts**, each fact with its aspect, id, source and the other entities it is
+  about. A motive is headed by its **type** (`want`, `fear`, `loyalty`, `grudge`, `vice` or `belief`) followed by its
+  strength, scope (`underlying` or `scene`) and disclosure level, then its text, the levers (`moved by`, `resists`) and
+  the tells.
+- **No marks.** The tab has no new/updated state and sends no read marks, and it does not touch the player's reading
+  state.
+- **Server.** `aigm/hidden_view.py` (pure, over the world) and two routes on the debug router, `GET /debug/hidden` and
+  `GET /debug/hidden/{entity_id}` (API.md). The router exists only with `--debug`, so a normal server answers `404` to
+  both, and `compendium.py` is unchanged: it still shows only known facts, on every server. A test checks that the
+  compendium endpoints on a debug server leak nothing the hidden tab shows.
+- **Client.** Key `4` or `/compendium hidden`, only when `/health` says `debug: true` (CLIENT.md). If the debug route
+  fails, the tab shows empty with a warning and the other tabs work.
+- **Motives.** `hidden_view._motives` is the one place that reads the motive records. It lists an entity's active
+  motives, strongest lasting first, each with `kind`, `scope`, `strength`, `disclosure`, `text`, the levers and tells,
+  and a `status` of `active` or `expired` (a scene motive whose moment has passed; the GM is no longer shown it). An
+  entity with only motives still appears in the list. No motives exist in play until the tools and the curator build
+  them (ROLEPLAY.md 14, steps 2 and 4).

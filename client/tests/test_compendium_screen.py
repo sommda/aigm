@@ -5,7 +5,7 @@ import pytest
 from aigm_client import compendium_screen
 from aigm_client.app import AigmApp
 from aigm_client.compendium_screen import CompendiumScreen, LinesView
-from tests.fake_server import FakeServer, sample_compendium
+from tests.fake_server import FakeServer, sample_compendium, sample_hidden
 from tests.test_app_pilot import make_app, send, settle, start
 
 
@@ -197,3 +197,75 @@ async def test_a_failing_server_shows_an_error_and_retries():
         fake.compendium_down = False
         await pilot.press("r")
         await settle(pilot, lambda: "Harrow Mine" in pane_text(screen, "#cp-list"))
+
+
+# ---- the hidden tab ---------------------------------------------------------------------------
+
+
+async def test_a_debug_server_has_a_hidden_tab_with_motives_and_secrets():
+    fake = fake_with_compendium()
+    fake.debug = True
+    fake.hidden = sample_hidden()
+    app = make_app(fake)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await start(app, pilot)
+        screen = await open_screen(app, pilot)
+        assert "4 Hidden (3)" in screen.model.tabs_text().plain
+        await pilot.press("4")
+        await settle(pilot, lambda: "Captain Vael" in pane_text(screen, "#cp-list"))
+        listing = pane_text(screen, "#cp-list")
+        assert "Harrow Mine" in listing and "Wren" in listing and "npc" in listing
+        await pilot.press("down", "down")  # Harrow Mine, Captain Vael, Wren
+        await settle(pilot, lambda: "Mara" in pane_text(screen, "#cp-detail"))
+        detail = pane_text(screen, "#cp-detail")
+        assert "fear" in detail and "driven" in detail and "Fears the Guild" in detail
+        assert "Hidden facts" in detail and "Hinted facts" in detail
+        assert any(path == "/debug/hidden/e010" for _, path, _ in fake.calls)
+        await pilot.press("escape")
+        await settle(pilot, lambda: not isinstance(app.screen, CompendiumScreen))
+
+
+async def test_looking_at_the_hidden_tab_marks_nothing_read():
+    fake = fake_with_compendium()
+    fake.debug = True
+    fake.hidden = sample_hidden()
+    app = make_app(fake)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await start(app, pilot)
+        screen = await open_screen(app, pilot)
+        await pilot.press("4")
+        await settle(pilot, lambda: "Harrow Mine" in pane_text(screen, "#cp-list"))
+        await settle(pilot, lambda: "smugglers" in pane_text(screen, "#cp-detail"))
+        await pilot.pause(0.3)  # longer than the dwell time
+        assert fake.seen == set() and screen.model.pending == []
+
+
+async def test_the_hidden_filter_asks_the_debug_route():
+    fake = fake_with_compendium()
+    fake.debug = True
+    fake.hidden = sample_hidden()
+    app = make_app(fake)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await start(app, pilot)
+        screen = await open_screen(app, pilot)
+        await pilot.press("4", "slash")
+        await pilot.press(*"wren", "enter")
+        await settle(pilot, lambda: "Harrow Mine" not in pane_text(screen, "#cp-list"))
+        assert "Wren" in pane_text(screen, "#cp-list")
+        assert any(path == "/debug/hidden" and params.get("q") == "wren" for _, path, params in fake.calls)
+
+
+async def test_a_server_that_is_not_in_debug_mode_has_no_hidden_tab():
+    fake = fake_with_compendium()
+    fake.debug = False
+    fake.hidden = sample_hidden()
+    app = make_app(fake)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await start(app, pilot)
+        screen = await open_screen(app, pilot)
+        await pilot.press("4")
+        await pilot.pause(0.2)
+        assert screen.model.tab == "locations" and "Hidden" not in screen.model.tabs_text().plain
+        assert not any(path.startswith("/debug/hidden") for _, path, _ in fake.calls)
+        await pilot.press("escape")
+        await settle(pilot, lambda: not isinstance(app.screen, CompendiumScreen))

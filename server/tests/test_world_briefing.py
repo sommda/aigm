@@ -1,6 +1,6 @@
 import pytest
 
-from aigm.game import BRIEFING_CLOSE, BRIEFING_OPEN, Game
+from aigm.game import BRIEFING_CLOSE, BRIEFING_NOTICE, BRIEFING_OPEN, Game
 from aigm.llm.base import Completed, TextChunk
 from aigm.llm.anthropic_client import AnthropicLLM
 from aigm.llm.loop import run_turn
@@ -124,7 +124,7 @@ def test_request_messages_appends_notes_and_a_cache_breakpoint_without_touching_
     assert history == [USER] and "cache_control" not in USER["content"][0]  # nothing stored or mutated
     blocks = sent[-1]["content"]
     assert blocks[0] == {"type": "text", "text": "I enter the mine.", "cache_control": {"type": "ephemeral"}}
-    assert blocks[1]["text"].startswith(BRIEFING_OPEN + "\nTime:") and blocks[1]["text"].endswith(BRIEFING_CLOSE)
+    assert blocks[1]["text"].startswith(f"{BRIEFING_OPEN}\n{BRIEFING_NOTICE}\nTime:") and blocks[1]["text"].endswith(BRIEFING_CLOSE)
     assert len(blocks) == 2
 
 

@@ -20,6 +20,15 @@ For each aspect listed as missing, write one fact (two at most when it truly nee
 
 You may add up to a few new entities (people, places, groups, ideas) when the aspects call for them (an inhabitant, a nearby place, a rival). Every new entity must connect to the existing world: give a new place a `parent` that exists, and mention an existing entity in at least one of its facts. About one in three new entities should have nothing to do with the main story (a farm, a shrine, an unrelated rival): a world where everything is relevant feels staged. Use a new name that is not in the list of known names.
 
+## People's motives
+
+When the entity is a person and `motives` is listed as missing, write up to two lasting motives for them in `motives`, with `owner` set to their name. A motive is a reason they act as they do, not a fact about the world: what they want, fear, are loyal to, resent, cannot resist or believe, in one sentence of at most 40 words, using names. Give each a `kind` (`want`, `fear`, `loyalty`, `grudge`, `vice` or `belief`) and a `strength`:
+
+- `leaning` tilts a person's choices. `driven` shapes them, but the right action, offer or truth could still move them. Most motives are one of these.
+- `absolute` is a very deep property of who the person is, a line they will not cross or a cause they will not ignore, which nothing the player does could change: not argument, bribe, threat or favor. Use it rarely, for at most one person in ten and never for more than one motive of a person. If something could sway them, it is `driven`.
+
+Also give `moved_by` (up to three short phrases: kinds of argument or offer that engage the motive), `resists` (kinds that bounce off) and `tells` (up to two pieces of behavior a careful observer might notice without understanding it, never a statement of the motive). Make motives specific to this person, their role and their ties, and let them pull in different directions. They are secrets of the world and, like facts, must not depend on the party: no "the party", no "you", no player character names, nothing caused by recent events. A person who is only tired and ordinary may have a single small motive. Do not repeat a motive already recorded. Leave `motives` empty for anything that is not a person.
+
 ## Review
 
 If facts are listed under "Review", they were written before the world changed and may now clash with it. For each that no longer fits, write a replacement fact and set `replaces` to the old fact's id. Otherwise leave `replaces` null. Never replace anything not listed there.

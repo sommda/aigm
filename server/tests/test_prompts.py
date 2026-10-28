@@ -77,7 +77,7 @@ def test_override_dir_replaces_and_adds(tmp_path):
     (tmp_path / "system" / "common").mkdir(parents=True)
     (tmp_path / "system" / "common" / "01_role.md").write_text("You are a PIRATE GM.")
     (tmp_path / "system" / "adventure").mkdir()
-    (tmp_path / "system" / "adventure" / "05_extra.md").write_text("Extra rule.\n<!-- note -->")
+    (tmp_path / "system" / "adventure" / "09_extra.md").write_text("Extra rule.\n<!-- note -->")
     (tmp_path / "tools").mkdir()
     (tmp_path / "tools" / "roll_dice.md").write_text("Custom dice text.")
     lib = PromptLibrary(tmp_path)

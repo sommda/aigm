@@ -47,7 +47,7 @@ from aigm.world.service import CuratorService
 log = logging.getLogger(__name__)
 
 
-SILENT_TOOLS = frozenset({"recall", "establish", "set_scene"})  # bookkeeping: text written beside these is dropped
+SILENT_TOOLS = frozenset({"recall", "establish", "set_scene", "set_motive"})  # bookkeeping: text written beside these is dropped
 HELD_CHARS = 240  # text this long before any tool call is story, not a remark about bookkeeping; it is shown at once
 STREAMED_TOOLS = frozenset({"roll_dice"})  # tools whose `narration` is shown while the model is still writing it
 ALREADY_SHOWN = (
@@ -151,6 +151,7 @@ async def run_turn(
     staged = [*session.messages, {"role": "user", "content": [{"type": "text", "text": user_text}]}]
     state = session.state.copy()
     state.turn = turn_number(staged)
+    state.player_text = user_text
     tail = ""  # the last characters of the text shown so far this turn, to keep paragraphs apart
     shown_corrections = list(state.world.corrections)  # the GM sees these in this turn's notes
     usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}

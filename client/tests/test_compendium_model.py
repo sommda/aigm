@@ -12,8 +12,8 @@ def row(i, name, status=None, depth=0, parent=None, summary=""):
     return {"id": i, "name": name, "status": status, "depth": depth, "parent": parent, "summary": summary, "kind": "x"}
 
 
-def loaded(ascii_only=False) -> CompendiumModel:
-    m = CompendiumModel(ascii_only)
+def loaded(ascii_only=False, hidden=False) -> CompendiumModel:
+    m = CompendiumModel(ascii_only, hidden)
     m.load_summary({"categories": [
         {"id": "locations", "count": 3, "new": 1, "updated": 1},
         {"id": "characters", "count": 1, "new": 0, "updated": 0},
@@ -249,3 +249,103 @@ def test_a_fact_says_whose_starting_knowledge_it_is():
     d["facts"][-1].pop("via")
     m.load_detail(d)
     assert "The mine road is watched." in plain(m.detail_lines(60)[0])  # an older server sends no via
+
+
+# ---- the hidden tab (debug servers) -----------------------------------------------------------
+
+
+def hidden_row(i, name, kind="npc", hidden=1, hinted=0, motives=0):
+    return {"id": i, "name": name, "kind": kind, "discovered": True, "hidden_count": hidden,
+            "hinted_count": hinted, "motive_count": motives, "parent": None}
+
+
+def hidden_loaded() -> CompendiumModel:
+    m = loaded(hidden=True)
+    m.load_list("hidden", {"entries": [hidden_row("e010", "Wren", hidden=2, hinted=1, motives=1),
+                                       hidden_row("e007", "Harrow Mine", "location")]})
+    return m
+
+
+def test_the_hidden_tab_exists_only_when_asked_for():
+    assert CompendiumModel().tabs == ("locations", "characters", "other")
+    m = CompendiumModel(hidden=True)
+    assert m.tabs[-1] == "hidden"
+    m.switch_tab(step=-1)  # tabs wrap, so the hidden tab is last
+    assert m.tab == "hidden"
+    plain_model = CompendiumModel()
+    plain_model.switch_tab("hidden")
+    assert plain_model.tab == "locations"
+
+
+def test_the_hidden_tab_is_in_the_tab_line_with_its_count():
+    m = CompendiumModel(hidden=True)
+    m.load_list("hidden", {"entries": [hidden_row("e010", "Wren")]})
+    assert "4 Hidden (1)" in m.tabs_text().plain
+    assert "Hidden" not in CompendiumModel().tabs_text().plain
+
+
+def test_hidden_rows_say_their_kind_and_how_many_secrets():
+    m = CompendiumModel(hidden=True)
+    m.load_list("hidden", {"entries": [hidden_row("e010", "Wren", hidden=2, hinted=1, motives=1)]})
+    m.switch_tab("hidden")
+    lines, cursor = m.list_lines(40)
+    assert cursor == 0 and lines[0].plain.startswith("  Wren") and lines[0].plain.endswith("npc 4")
+
+
+def test_hidden_details_do_not_collide_with_the_compendium_details():
+    m = CompendiumModel(hidden=True)
+    m.load_list("locations", {"entries": [row("e007", "Harrow Mine")]})
+    m.load_list("hidden", {"entries": [hidden_row("e007", "Harrow Mine", "location")]})
+    m.load_detail(detail(id="e007", name="Harrow Mine"))
+    m.switch_tab("hidden")
+    assert not m.has_detail("e007") and m.current_detail is None
+    m.load_detail({"id": "e007", "name": "Harrow Mine", "kind": "location", "facts": [], "motives": []}, hidden=True)
+    assert m.has_detail("e007") and m.current_detail["motives"] == []
+    m.switch_tab("locations")
+    assert m.current_detail["id"] == "e007" and "motives" not in m.current_detail  # the compendium's own
+
+
+def test_a_hidden_detail_shows_motives_by_type_then_facts_by_disclosure():
+    m = CompendiumModel(hidden=True)
+    m.load_list("hidden", {"entries": [hidden_row("e010", "Wren")]})
+    m.switch_tab("hidden")
+    m.load_detail({
+        "id": "e010", "name": "Wren", "kind": "npc", "discovered": False, "aliases": ["Wren Tallow"], "parent": None,
+        "motives": [{"id": "m1", "kind": "fear", "scope": "underlying", "strength": "driven", "disclosure": "hidden",
+                     "text": "Fears the Guild will learn of the false tally.", "tells": ["Glances at the door."],
+                     "moved_by": ["a promise of silence"], "resists": ["open threats"]}],
+        "facts": [
+            {"id": "f41", "text": "Wren serves Vael.", "label": "Knowledge", "disclosure": "hidden", "source": "generated",
+             "about": [{"id": "e010", "name": "Wren"}, {"id": "e030", "name": "Captain Vael"}]},
+            {"id": "f42", "text": "Wren keeps a ledger.", "label": None, "disclosure": "hinted", "source": "play", "about": []},
+        ],
+    }, hidden=True)
+    text = plain(m.detail_lines(60)[0])
+    joined = "\n".join(text)
+    assert "not discovered this" in joined and "also called: Wren Tallow" in joined
+    assert text.index("Motives") < text.index("Hidden facts") < text.index("Hinted facts")
+    assert "  fear  (driven, underlying, hidden)" in text
+    assert "Moved by: a promise of silence" in joined and "Resists: open threats" in joined
+    assert "Tells: Glances at the door." in joined
+    assert "Knowledge: Wren serves Vael." in joined and "also about Captain Vael" in joined
+    assert "Wren keeps a ledger." in joined
+
+
+def test_hidden_rows_are_never_unread_and_the_unread_filter_ignores_the_tab():
+    m = hidden_loaded()
+    m.switch_tab("hidden")
+    m.unseen_only = True
+    assert len(m.entries) == 2
+    assert m.unread_count() == 3  # the compendium's own marks only; the hidden rows add none
+    assert not m.mark_read("e010") and m.pending == []
+
+
+def test_a_lapsed_scene_motive_says_it_expired():
+    m = CompendiumModel(hidden=True)
+    m.load_list("hidden", {"entries": [hidden_row("e010", "Wren", motives=1)]})
+    m.switch_tab("hidden")
+    m.load_detail({"id": "e010", "name": "Wren", "kind": "npc", "discovered": True, "aliases": [], "parent": None,
+                   "facts": [], "motives": [{"id": "m2", "kind": "want", "scope": "scene", "strength": "leaning",
+                                             "disclosure": "hidden", "status": "expired", "text": "Wants a drink."}]},
+                  hidden=True)
+    assert "  want  (leaning, scene, hidden, expired)" in plain(m.detail_lines(60)[0])

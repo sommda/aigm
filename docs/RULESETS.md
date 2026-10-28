@@ -43,13 +43,17 @@ that way. Later editions use ascending AC.
 
 ### Prompts
 
-Each ruleset has two files in `prompts/rulesets/<id>/`:
+Each ruleset has three files in `prompts/rulesets/<id>/`:
 
 - `01_rules.md` (heading `## Ruleset: <name>`): the mechanics: character creation (ability score methods, races,
   classes, hit points, AC convention), the core resolution system, combat, saves, death, magic, advancement, and the
   edition's own danger level. It is written for the GM as a reminder and a set of choices, not as a rulebook.
 - `02_era.md` (heading `### Period feel: ...`): the style: diction, tropes, fiction touchstones, the look of the era's
   illustration, and the tone, all as things to hint at while staying in the fiction.
+- `03_roleplay.md` (heading `### Role play: <name>`): how the edition pays good role play (advantage, a bonus, a
+  better reaction roll, Inspiration or a Hero Point). It is used in the adventure only, and goes in after the other two
+  files. The catalog entry's `social_style` (`advantage`, `bonus`, `circumstance` or `reaction`) is what the server's
+  `social_check` tool builds the dice from. See [ROLEPLAY.md](ROLEPLAY.md).
 
 The system prompt is built from, in order: the common files (`system/common`), the chosen ruleset's two files, then the
 files of the current mode (`system/session_zero` or `system/adventure`). Everything edition-specific was moved out of
@@ -91,9 +95,10 @@ character, but suggests settings and hooks that suit the era.
   GM and the campaign record, so a 1e game's world already reads as 1e, but the curator's own prompts are
   edition-neutral.
 - Pathfinder's default setting is Golarion, and Basic/BECMI's is the Known World, but a custom setting is always fine.
-- To add a ruleset: add a `Ruleset` to `aigm/rulesets.py`, add `prompts/rulesets/<id>/01_rules.md` and `02_era.md`, and
-  list it in `prompts/system/session_zero/01a_ruleset.md`. Tests check that every catalog entry has both files and is
-  named in the Session 0 text.
+- To add a ruleset: add a `Ruleset` (with its `social_style`) to `aigm/rulesets.py`, add
+  `prompts/rulesets/<id>/01_rules.md`, `02_era.md` and `03_roleplay.md`, and list it in
+  `prompts/system/session_zero/01a_ruleset.md`. Tests check that every catalog entry has all three files and is named
+  in the Session 0 text.
 
 ## 5. Possible later work
 

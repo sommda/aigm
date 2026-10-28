@@ -7,7 +7,8 @@ from typing import Any
 from rich.text import Text
 
 TABS = ("locations", "characters", "other")
-TITLES = {"locations": "Locations", "characters": "Characters", "other": "Other"}
+HIDDEN = "hidden"  # the debug-only tab of what the player has not been told (docs/COMPENDIUM.md 11)
+TITLES = {"locations": "Locations", "characters": "Characters", "other": "Other", HIDDEN: "Hidden"}
 EMPTY = "Nothing is known yet."
 STATUS_STYLE = {"new": "bold green", "updated": "yellow"}
 
@@ -22,13 +23,15 @@ class Marks:
 
 
 class CompendiumModel:
-    def __init__(self, ascii_only: bool = False) -> None:
+    def __init__(self, ascii_only: bool = False, hidden: bool = False) -> None:
         self.marks = Marks(ascii_only)
+        self.tabs = (*TABS, HIDDEN) if hidden else TABS  # the hidden tab only on a debug server
         self.tab = "locations"
-        self.lists: dict[str, list[dict[str, Any]]] = {t: [] for t in TABS}
-        self.counts: dict[str, dict[str, int]] = {t: {"count": 0, "new": 0, "updated": 0} for t in TABS}
-        self.cursor: dict[str, int] = {t: 0 for t in TABS}
+        self.lists: dict[str, list[dict[str, Any]]] = {t: [] for t in (*TABS, HIDDEN)}
+        self.counts: dict[str, dict[str, int]] = {t: {"count": 0, "new": 0, "updated": 0} for t in (*TABS, HIDDEN)}
+        self.cursor: dict[str, int] = {t: 0 for t in (*TABS, HIDDEN)}
         self.details: dict[str, dict[str, Any]] = {}
+        self.hidden_details: dict[str, dict[str, Any]] = {}  # apart from `details`: the ids are the same entities
         self.query = ""
         self.unseen_only = False
         self.read: set[str] = set()  # read during this opening: their marks stay on screen until it closes
@@ -50,20 +53,31 @@ class CompendiumModel:
         keep = self.current_id if category == self.tab else None
         self.lists[category] = [e for e in data.get("entries") or [] if isinstance(e, dict)]
         self.cursor[category] = self.index_of(category, keep) if keep else 0
+        if category == HIDDEN:
+            self.counts[HIDDEN]["count"] = len(self.lists[HIDDEN])
+            self.hidden_details.clear()  # a secret can change under the cursor: always fetch it again
+            return
         self.details = {k: v for k, v in self.details.items() if k in {e["id"] for t in TABS for e in self.lists[t]}}
 
     def index_of(self, category: str, entity_id: str | None) -> int:
         return next((i for i, e in enumerate(self.lists[category]) if e["id"] == entity_id), 0)
 
-    def load_detail(self, detail: dict[str, Any]) -> None:
-        self.details[detail["id"]] = detail
+    def load_detail(self, detail: dict[str, Any], hidden: bool = False) -> None:
+        (self.hidden_details if hidden else self.details)[detail["id"]] = detail
+
+    @property
+    def on_hidden(self) -> bool:
+        return self.tab == HIDDEN
+
+    def has_detail(self, entity_id: str) -> bool:
+        return entity_id in (self.hidden_details if self.on_hidden else self.details)
 
     # ---- the cursor ---------------------------------------------------------------------
 
     @property
     def entries(self) -> list[dict[str, Any]]:
         rows = self.lists[self.tab]
-        return [e for e in rows if self.unread(e)] if self.unseen_only else rows
+        return [e for e in rows if self.unread(e)] if self.unseen_only and not self.on_hidden else rows
 
     @property
     def current(self) -> dict[str, Any] | None:
@@ -76,7 +90,7 @@ class CompendiumModel:
 
     @property
     def current_detail(self) -> dict[str, Any] | None:
-        return self.details.get(self.current_id or "")
+        return (self.hidden_details if self.on_hidden else self.details).get(self.current_id or "")
 
     def unread(self, entry: dict[str, Any]) -> bool:
         return bool(entry.get("status")) and entry["id"] not in self.read
@@ -100,8 +114,8 @@ class CompendiumModel:
 
     def switch_tab(self, tab: str | None = None, step: int = 0) -> None:
         if tab is None:
-            tab = TABS[(TABS.index(self.tab) + step) % len(TABS)]
-        if tab in TABS:
+            tab = self.tabs[(self.tabs.index(self.tab) + step) % len(self.tabs)]
+        if tab in self.tabs:
             self.tab, self.link_mode = tab, False
 
     def select(self, category: str, entity_id: str) -> bool:
@@ -174,7 +188,7 @@ class CompendiumModel:
         """What the detail points at: (heading, {id, name, kind, category}) for the parent, the children and the
         related entities, in the order they are drawn."""
         d = self.current_detail
-        if not d:
+        if not d or self.on_hidden:
             return []
         out: list[tuple[str, dict[str, Any]]] = []
         if d.get("parent"):
@@ -219,8 +233,8 @@ class CompendiumModel:
 
     def tabs_text(self) -> Text:
         text = Text()
-        for i, tab in enumerate(TABS, 1):
-            unread = self.unread_count(tab)
+        for i, tab in enumerate(self.tabs, 1):
+            unread = self.unread_count(tab) if tab != HIDDEN else 0
             label = f"{i} {TITLES[tab]} ({self.counts[tab]['count']})" + (f" {self.marks.star}{unread}" if unread else "")
             text.append(f" {label} ", style="reverse bold" if tab == self.tab else "")
             text.append(" ")
@@ -236,7 +250,7 @@ class CompendiumModel:
         current = self.cursor[self.tab]
         for i, entry in enumerate(rows):
             status = entry.get("status")
-            tag = status or ""
+            tag = self._hidden_tag(entry) if self.on_hidden else status or ""
             mark = (self.marks.star + " ") if status else "  "
             indent = "  " * int(entry.get("depth") or 0)
             room = max(width - len(tag) - 1, 8)
@@ -259,6 +273,8 @@ class CompendiumModel:
             return [], -1
         if d is None:
             return [Text("Loading...", style="dim")], -1
+        if self.on_hidden:
+            return self._hidden_detail_lines(d, max(width - 2, 10)), -1
         wrap = max(width - 2, 10)
         star = self.marks.star
         lines: list[Text] = []
@@ -320,6 +336,70 @@ class CompendiumModel:
             else:
                 out.append(Text(pad + " " * len(lead) + tag, style="dim"))
         return out
+
+    # ---- the hidden tab (debug servers) -------------------------------------------------
+
+    @staticmethod
+    def _hidden_tag(entry: dict[str, Any]) -> str:
+        """What the row says on the right: its kind, and how many secrets it holds."""
+        total = sum(int(entry.get(k) or 0) for k in ("hidden_count", "hinted_count", "motive_count"))
+        return f"{entry.get('kind', '')} {total}"
+
+    def _hidden_detail_lines(self, d: dict[str, Any], wrap: int) -> list[Text]:
+        """An entity with everything the player has not been told: its motives, then its hidden and hinted facts."""
+        lines: list[Text] = []
+        head = Text(d["name"][: wrap - len(d.get("kind", "")) - 2], style="bold")
+        head.append(f"  {d.get('kind', '')}", style="dim")
+        lines.append(head)
+        notes = ["the player has " + ("met this" if d.get("discovered") else "not discovered this")]
+        if d.get("parent"):
+            notes.append("in " + d["parent"]["name"])
+        if d.get("aliases"):
+            notes.append("also called: " + ", ".join(d["aliases"]))
+        for note in notes:
+            lines += [Text(part, style="dim") for part in textwrap.wrap(note, wrap) or [""]]
+        motives = d.get("motives") or []
+        if motives:
+            lines += [Text(""), Text("Motives", style="bold magenta")]
+        for m in motives:
+            lines += self._motive_lines(m, wrap)
+        for level, title in (("hidden", "Hidden facts"), ("hinted", "Hinted facts")):
+            facts = [f for f in d.get("facts") or [] if f.get("disclosure") == level]
+            if not facts:
+                continue
+            lines += [Text(""), Text(title, style="bold yellow" if level == "hinted" else "bold cyan")]
+            for fact in facts:
+                lines += self._hidden_fact_lines(d, fact, wrap)
+        if len(lines) <= 3 and not motives and not d.get("facts"):
+            lines += [Text(""), Text("Nothing hidden.", style="dim")]
+        return lines
+
+    def _motive_lines(self, m: dict[str, Any], wrap: int) -> list[Text]:
+        """A motive: its type first (want, fear, ...), then how strong it is and how long it lasts."""
+        qualifiers = [m[k] for k in ("strength", "scope", "disclosure") if m.get(k)]
+        if m.get("status") and m["status"] != "active":
+            qualifiers.append(m["status"])  # a scene motive that has lapsed shows as "expired"
+        head = Text(f"  {m.get('kind', 'motive')}", style="bold magenta")
+        if qualifiers:
+            head.append(f"  ({', '.join(qualifiers)})", style="dim")
+        lines = [head]
+        lines += [Text("    " + part) for part in textwrap.wrap(m.get("text", ""), max(wrap - 4, 8)) or [""]]
+        for label, key in (("Moved by", "moved_by"), ("Resists", "resists"), ("Tells", "tells")):
+            if m.get(key):
+                body = textwrap.wrap(f"{label}: " + "; ".join(m[key]), max(wrap - 4, 8))
+                lines += [Text("    " + part, style="dim") for part in body]
+        return lines
+
+    def _hidden_fact_lines(self, d: dict[str, Any], fact: dict[str, Any], wrap: int) -> list[Text]:
+        label = f"{fact['label']}: " if fact.get("label") else ""
+        body = textwrap.wrap(label + fact["text"], max(wrap - 2, 8)) or [""]
+        lines = [Text("  " + part) for part in body]
+        meta = [fact["id"], fact.get("source", "")]
+        others = [a["name"] for a in fact.get("about") or [] if a["id"] != d["id"]]
+        if others:
+            meta.append("also about " + ", ".join(others))
+        lines.append(Text(f"  {self.marks.dot} " + f" {self.marks.dot} ".join(x for x in meta if x), style="dim"))
+        return lines
 
     def help_text(self) -> str:
         base = "←→ tab  ↑↓ move  Tab links  / filter  u unread only  n next unread  a all read  r refresh  Esc close"

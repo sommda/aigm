@@ -33,18 +33,22 @@ from aigm.sheets import Sheet, clean
 from aigm.history import digest_for, turn_chars, turns as split_turns
 from aigm.world.digest import Digest, clean_digest_text
 from aigm.world.independence import independence_problem, standalone_problem
-from aigm.world.model import ASPECTS, DISCLOSURES, KINDS, Entity, Fact, World
+from aigm.world.model import ASPECTS, DISCLOSURES, KINDS, Entity, Fact, Motive, World
 from aigm.world.ops import (
     AddAlias,
     AddDigest,
     AddEntity,
     AddFact,
+    AddMotive,
     Correct,
+    DiscloseMotive,
     MarkProcessed,
     Op,
+    ResolveMotive,
     Reveal,
     SetScene,
     SettleTime,
+    ShiftMotive,
     StartClock,
     Supersede,
     apply_ops,
@@ -63,6 +67,8 @@ SKETCH_ASPECTS = {
     "settlement": ("overview", "layout", "notable_places"),
 }
 DEEP_ASPECTS = ("interior", "secret")  # left until the party is close
+MOTIVES_SLOT = "motives"  # the checklist slot of a person with no lasting motive yet; filled by `Extraction.motives`
+MAX_MOTIVES_PER_CALL = 4
 
 
 @dataclass
@@ -116,7 +122,7 @@ def player_turns(messages: list[dict[str, Any]]) -> int:
     )
 
 
-WORLD_TOOLS = ("establish", "set_scene")
+WORLD_TOOLS = ("establish", "set_scene", "set_motive")
 
 
 def transcript(messages: list[dict[str, Any]]) -> str:
@@ -145,6 +151,8 @@ def transcript(messages: list[dict[str, Any]]) -> str:
 
 
 def checklist(world: World, ent: Entity) -> tuple[str, ...]:
+    if ent.kind == "npc":  # a person's wants are motives (docs/ROLEPLAY.md 7), not a "motivation" fact
+        return (*(a for a in ASPECTS["npc"] if a != "motivation"), MOTIVES_SLOT)
     if ent.kind != "location":
         return ASPECTS[ent.kind]
     settlement_only = set(SETTLEMENT_ASPECTS) - set(SITE_ASPECTS)
@@ -186,6 +194,8 @@ def frontier(world: World, limit: int) -> list[tuple[Entity, str, list[str]]]:
         else:
             continue
         covered = world.coverage(ent.id)
+        if any(m.scope == "underlying" for m in world.motives_of(ent.id, live_only=False)):
+            covered = covered | {MOTIVES_SLOT}
         missing = [a for a in wanted_aspects(world, ent, tier) if a not in covered]
         if missing:
             ranked.append(((rank, d, not ent.discovered, ent.id), ent, tier, missing))
@@ -231,6 +241,7 @@ async def run_pass(
             present=[snap.entities[e].name for e in snap.scene.present],
             entity_names=[e.name for e in snap.entities.values()],
             hidden_facts=_scene_secrets(snap),
+            motives=_scene_motives(snap),
             quests=[(m.id, m.title, m.brief) for m in active(story)] if story else [],
             goal=f"{story.goal.title}. {story.goal.summary}" if story and story.goal and not story.goal.revealed else "",
         )
@@ -351,6 +362,7 @@ async def _expand_frontier(
             neighbor_facts=[f for n in sorted(snap.neighbors(ent.id)) for f in snap.facts_about(n)][:20],
             review=review.get(ent.id, []),
             known_names=[e.name for e in snap.entities.values()],
+            motives=snap.motives_of(ent.id, live_only=False) if ent.kind == "npc" else [],
             setting=setting,
             time=snap.time,
         )
@@ -597,6 +609,16 @@ def _scene_secrets(world: World, limit: int = 40) -> list[Fact]:
     return list(facts.values())[:limit]
 
 
+def _scene_motives(world: World) -> list[tuple[str, Motive]]:
+    """The motives of the people present that play could change: live and not absolute (those never change)."""
+    return [
+        (world.entities[eid].name, m)
+        for eid in world.scene.present
+        for m in world.motives_of(eid)
+        if m.strength != "absolute"
+    ]
+
+
 async def _independent_expansion(curator: Curator, request: ExpandRequest, party: list[str], result: PassResult) -> Extraction:
     """Ask the world-builder, check the answer against the independence rules, and ask once more
     (telling it what was wrong) if anything fails. Facts that still fail are dropped."""
@@ -609,12 +631,28 @@ async def _independent_expansion(curator: Curator, request: ExpandRequest, party
                 found[i] = why
         return found
 
+    def motive_problems(ex: Extraction) -> dict[int, str]:
+        found = {}
+        for i, motive in enumerate(ex.motives):
+            texts = [motive.text, *motive.tells] if isinstance(motive.text, str) else []
+            why = next((w for t in texts if (w := independence_problem(t, party))), None) if texts else "no text"
+            if why:
+                found[i] = why
+        return found
+
     out = await curator.expand(request)
-    bad = problems(out)
-    if bad:
-        retry = replace(request, feedback=[f"{out.facts[i].text!r}: {why}" for i, why in bad.items()])
+    bad, bad_motives = problems(out), motive_problems(out)
+    if bad or bad_motives:
+        retry = replace(
+            request,
+            feedback=[f"{out.facts[i].text!r}: {why}" for i, why in bad.items()]
+            + [f"motive {out.motives[i].text!r}: {why}" for i, why in bad_motives.items()],
+        )
         out = await curator.expand(retry)
-        bad = problems(out)
+        bad, bad_motives = problems(out), motive_problems(out)
+    for i in sorted(bad_motives, reverse=True):
+        result.notes.append(f"dropped generated motive ({bad_motives[i]}): {out.motives[i].text!r}")
+        del out.motives[i]
     judge = getattr(curator, "judge_independence", None)
     if judge and out.facts:
         try:
@@ -757,7 +795,32 @@ async def _plan_extraction(
         loc = world.entity(world.scene.location) if world.scene.location else None
         if loc:
             ops.append(SetScene(loc.name, tuple(ex.present)))
+    ops += _motive_report_ops(world, ex, turn, result)
     ops.append(SettleTime(ex.elapsed_hours))
+    return ops
+
+
+def _motive_report_ops(world: World, ex: Extraction, turn: int, result: PassResult) -> list[Op]:
+    """What the narration showed happening to recorded motives. Only motives the world has and that can change are
+    kept: an absolute one is never offered and never changed, however the curator reports it."""
+    ops: list[Op] = []
+    for report in ex.motive_reports:
+        motive = world.motives.get(report.motive) if isinstance(report.motive, str) else None
+        if motive is None or not motive.active or motive.strength == "absolute":
+            result.notes.append(f"dropped motive report for {report.motive!r}: not a motive that can change")
+        elif report.action == "hint":
+            ops.append(DiscloseMotive(motive.id))
+        elif report.action == "resolve" and report.outcome in ("satisfied", "frustrated"):
+            ops.append(ResolveMotive(motive.id, report.outcome))
+        elif report.action == "shift" and isinstance(report.text, str) and report.text.strip():
+            why = standalone_problem(report.text)
+            strength = report.strength if report.strength in ("leaning", "driven") else None
+            if why:
+                result.notes.append(f"dropped motive change ({why}): {report.text!r}")
+            else:
+                ops.append(ShiftMotive(motive.id, text=report.text, strength=strength, source="play", turn=turn))
+        else:
+            result.notes.append(f"dropped unusable motive report: {report!r}")
     return ops
 
 
@@ -857,6 +920,18 @@ def _plan_expansion(
         else:
             ops.append(AddFact(prop.text, tuple(prop.about), aspect, "hidden", "generated", turn))
         n_facts += 1
+    for prop in out.motives[:MAX_MOTIVES_PER_CALL]:
+        if kind_of(prop.owner) != "npc":
+            result.notes.append(f"dropped motive for something that is not a recorded person: {prop.text!r}")
+            continue
+        ops.append(
+            AddMotive(
+                prop.owner, prop.text, "underlying", prop.kind, prop.strength, tuple(prop.moved_by),
+                tuple(prop.resists), tuple(prop.tells), "generated", turn,
+            )  # fmt: skip
+        )
+    for prop in out.motives[MAX_MOTIVES_PER_CALL:]:
+        result.notes.append(f"over the motive cap: {prop.text!r}")
     return ops
 
 

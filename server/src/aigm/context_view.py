@@ -6,7 +6,7 @@ real request, not a second implementation of it. Debug mode only (docs/CONTEXT.m
 import json
 from typing import Any
 
-from aigm.game import BRIEFING_CLOSE, BRIEFING_OPEN, Game
+from aigm.game import BRIEFING_CLOSE, BRIEFING_NOTICE, BRIEFING_OPEN, Game
 from aigm.history import STORY_OPEN, Reduction, message_chars
 from aigm.llm.loop import turn_number
 from aigm.session.state import Phase
@@ -104,7 +104,7 @@ def _message_nodes(messages: list[dict[str, Any]], reduction: Reduction) -> list
 
 
 def _briefing_node(briefing: str) -> dict:
-    body = briefing.removeprefix(BRIEFING_OPEN).removesuffix(BRIEFING_CLOSE).strip("\n")
+    body = briefing.removeprefix(BRIEFING_OPEN).removesuffix(BRIEFING_CLOSE).strip("\n").removeprefix(BRIEFING_NOTICE).strip("\n")
     sections: list[tuple[str, list[str]]] = []
     for line in body.split("\n"):
         title = next((t for prefix, t in _BRIEFING_SECTIONS if line.startswith(prefix)), None)

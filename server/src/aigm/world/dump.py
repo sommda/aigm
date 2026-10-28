@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from aigm.errors import CorruptSave
-from aigm.world.model import Fact, World
+from aigm.world.model import Fact, Motive, World
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,16 @@ def fact_line(world: World, fact: Fact) -> str:
     line = f"[{head}] {fact.text}"
     others = [world.entities[e].name for e in fact.about[1:]]
     return line + (f"  (also: {', '.join(others)})" if others else "")
+
+
+def motive_line(motive: Motive, state: str) -> str:
+    """`[fear|driven|underlying|hidden|m031] Fears the Guild ...` plus the levers and tells."""
+    line = f"[{motive.kind}|{motive.strength}|{motive.scope}|{motive.disclosure}|{motive.id}"
+    line += f"{'' if state == 'active' else ' ' + state}] {motive.text}"
+    for label, phrases in (("moved by", motive.moved_by), ("resists", motive.resists), ("tells", motive.tells)):
+        if phrases:
+            line += f"  ({label}: {'; '.join(phrases)})"
+    return line
 
 
 def dump_world(world: World, *, known_only: bool = False, session_id: str | None = None) -> dict[str, Any]:
@@ -75,6 +85,8 @@ def dump_world(world: World, *, known_only: bool = False, session_id: str | None
         entry["facts"] = [fact_line(world, f) for f in shown]
         if replaced:
             entry["superseded"] = [fact_line(world, f) for f in replaced]
+        if not known_only and (motives := world.motives_of(ent.id, live_only=False)):
+            entry["motives"] = [motive_line(m, world.motive_state(m)) for m in motives]
         entities.append(entry)
     out["entities"] = entities
     if world.digests and not known_only:

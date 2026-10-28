@@ -3,7 +3,7 @@
 Built from the world state by fixed rules, in priority order, within a size budget (docs/WORLD.md
 6.1). It includes hidden facts, labeled so the GM can tell what the player has not been told."""
 
-from aigm.world.model import Entity, Fact, World
+from aigm.world.model import SCENE_MOTIVE_HOURS, Entity, Fact, Motive, World
 
 CHARS_PER_TOKEN = 4  # rough; the budget is a guide, not a hard limit
 LABELS = {
@@ -111,12 +111,32 @@ def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budg
     for fact in relevant:
         out.add(fact_line(fact), fact)
 
+    motives = [(npc, m) for npc in present for m in world.motives_of(npc.id)]
+    if motives:  # last of the sections, so it is the first to be cut when the budget is tight
+        out.add("What the people present want (GM only: play them from this, show tells, never state a motive):")
+    for npc, motive in motives:
+        out.add(motive_line(npc, motive))
+
     if world.corrections:
         out.add("Corrections (reconcile these in your next reply if natural, without breaking the fiction):", force=True)
         for note in world.corrections:
             out.add(f"- {note['text']}", force=True)
 
     return "\n".join(out.lines)
+
+
+def motive_line(owner: Entity, motive: Motive) -> str:
+    """`- Harlan Voss: fear (driven, underlying): ... Moved by: ...  Resists: ...  Tells: ...` (docs/ROLEPLAY.md 7.5)."""
+    scope = (
+        motive.scope
+        if motive.scope == "underlying"
+        else f"scene, lapses when the party leaves or after {SCENE_MOTIVE_HOURS} hours"
+    )
+    parts = [f"- {owner.name}: {motive.kind} ({motive.strength}, {scope}): {motive.text}"]
+    for label, phrases in (("Moved by", motive.moved_by), ("Resists", motive.resists), ("Tells", motive.tells)):
+        if phrases:
+            parts.append(f"{label}: {'; '.join(phrases)}.")
+    return " ".join(parts)
 
 
 def _without_overview(facts: list[Fact]) -> list[Fact]:

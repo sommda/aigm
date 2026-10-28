@@ -51,12 +51,12 @@ def test_system_prompt_is_the_parts_joined_in_order():
 
 def test_override_files_keep_their_place_and_source(tmp_path):
     (tmp_path / "system" / "adventure").mkdir(parents=True)
-    (tmp_path / "system" / "adventure" / "05_extra.md").write_text("Extra rule.\n<!-- note -->")
+    (tmp_path / "system" / "adventure" / "09_extra.md").write_text("Extra rule.\n<!-- note -->")
     (tmp_path / "system" / "common").mkdir()
     (tmp_path / "system" / "common" / "01_role.md").write_text("You are a PIRATE GM.")
     parts = PromptLibrary(tmp_path).system_parts(Phase.ADVENTURE)
     assert parts[0].source == "system/common/01_role.md" and parts[0].text == "You are a PIRATE GM."
-    assert parts[-1].source == "system/adventure/05_extra.md" and parts[-1].text == "Extra rule."
+    assert parts[-1].source == "system/adventure/09_extra.md" and parts[-1].text == "Extra rule."
 
 
 def test_gm_notes_are_a_part_only_when_the_world_is_empty(world):

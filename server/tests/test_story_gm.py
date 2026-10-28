@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from aigm import story as st
 from aigm.app import create_app
 from aigm.config import Settings
-from aigm.game import Game
+from aigm.game import BRIEFING_NOTICE, Game
 from aigm.prompts import PromptLibrary
 from aigm.session.state import GameState, Phase
 from aigm.tools import dispatch, tool_schemas
@@ -40,14 +40,14 @@ def props(tools, name):
 
 def test_endless_games_see_no_story_tools_or_fields():
     tools = tool_schemas(phase=Phase.ADVENTURE)
-    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "award"]
+    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
     assert "story" not in props(tools, "set_scene")
     assert "report its progress" not in next(t for t in tools if t["name"] == "set_scene")["description"]
 
 
 def test_story_games_get_end_story_and_the_story_field():
     tools = tool_schemas(phase=Phase.ADVENTURE, structured=True)
-    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "award", "end_story"]
+    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award", "end_story"]
     assert "story" in props(tools, "set_scene") and "goal_revealed" in str(props(tools, "set_scene")["story"])
     description = next(t for t in tools if t["name"] == "set_scene")["description"]
     assert description.startswith("Tell the world notes") and "report its progress" in description
@@ -91,7 +91,7 @@ def test_the_briefing_has_the_chapter_goal_and_active_quests():
 def test_it_is_part_of_the_world_notes_above_them():
     state = state_with_story()
     notes = Game().briefing(state, "hello", "")
-    assert notes.startswith("<world_notes>\n## Story (private)") and "Time:" in notes and "Ashby" in notes
+    assert notes.startswith(f"<world_notes>\n{BRIEFING_NOTICE}\n## Story (private)") and "Time:" in notes and "Ashby" in notes
     assert "## Story" not in Game().briefing(GameState(Phase.ADVENTURE, {"setting": "x"}, state.world), "hi", "")
 
 

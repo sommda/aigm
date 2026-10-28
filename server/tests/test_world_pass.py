@@ -293,7 +293,7 @@ def test_frontier_ranks_by_closeness_and_sets_depth(graph):
 def test_frontier_skips_covered_aspects_and_treats_known_entities_as_closer(graph):
     graph.add_fact("Wren is a barmaid with a quick wit.", [graph.find("Wren").id], aspect="role")
     wren = [m for e, t, m in frontier(graph, 20) if e.name == "Wren"][0]
-    assert "role" not in wren and "motivation" in wren
+    assert "role" not in wren and "motives" in wren and "motivation" not in wren  # a person's wants are motives
     graph.add_fact("Karth is rumored to be rich.", [graph.find("Karth").id], disclosure="known")
     assert "Karth" in [e.name for e, _, _ in frontier(graph, 20)]
 

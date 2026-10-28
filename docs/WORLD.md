@@ -91,6 +91,14 @@ Facts hang off entities so that retrieval and reconciliation have something to k
   what is "near" the party (5.2).
 - Entities are cheap stubs: a name and kind are enough to exist. Their substance is their facts.
 
+### 2.2a Motives
+
+NPCs can also have **motives** (what they want, fear or hold to), kept apart from facts because they are hidden GM
+state with a scope and a strength. They are designed in [ROLEPLAY.md](ROLEPLAY.md) 7. The record, saves, the briefing's
+"What the people present want" section, the debug views, the GM's `set_motive` tool and the curator's part (expansion
+writes a person's lasting motives, extraction reports changes) are built. A person's checklist has a `motives` slot in
+place of `motivation`.
+
 ### 2.3 Disclosure: what the player knows
 
 Every fact is one of:

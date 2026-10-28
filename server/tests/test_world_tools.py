@@ -319,3 +319,13 @@ def test_party_members_are_never_recorded_as_entities_or_listed_as_present():
     assert out.is_error and "party member" in out.content and state.world.find("Toby") is None
     out = dispatch("set_scene", "t", {"location": "Ashby", "present": ["Toby"]}, state)
     assert not out.is_error and state.world.scene.present == []
+
+
+def test_motive_command_in_test_mode_adds_a_scene_motive_the_gm_recalls(client):
+    chat(client, "begin")
+    chat(client, "establish Wren")
+    chat(client, "scene Rusty Flagon")
+    ev = chat(client, "motive Wren Wants the guests gone before the captain returns")
+    assert re.search(r"Recorded\. m\d+: Wren, want \(driven, scene\)", reply_text(ev))
+    assert "Motives (GM only, never state them):" in reply_text(chat(client, "recall Wren"))
+    assert "Recorded" not in reply_text(chat(client, "motive Nobody"))  # a person who is not recorded is refused

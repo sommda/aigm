@@ -10,7 +10,7 @@ from aigm.world.curator import (
     ReconcileRequest,
     SheetRequest,
 )
-from aigm.world.model import Entity, Fact
+from aigm.world.model import Entity, Fact, Motive
 
 
 def _fact(f: Fact) -> str:
@@ -20,6 +20,14 @@ def _fact(f: Fact) -> str:
 def _entity(e: Entity) -> str:
     also = f"; also called {', '.join(e.aliases)}" if e.aliases else ""
     return f"{e.id} {e.name} ({e.kind}{also})"
+
+
+def _motive(m: Motive, owner: str | None = None) -> str:
+    who = f"{owner}, " if owner else ""
+    line = f"- {m.id} ({who}{m.kind}, {m.strength}, {m.scope}, {m.disclosure}) {m.text}"
+    if m.tells:
+        line += f" Tells: {'; '.join(m.tells)}."
+    return line
 
 
 def render_extract(req: ExtractRequest) -> str:
@@ -34,6 +42,11 @@ def render_extract(req: ExtractRequest) -> str:
         "## GM-only facts (true, not yet told to the player)\n"
         + ("\n".join(f"- {f.id}: {f.text}" for f in req.hidden_facts) if req.hidden_facts else "(none)")
     )
+    if req.motives:
+        parts.append(
+            "## GM-only motives of the people present (report one only if the transcript shows it changed or shown)\n"
+            + "\n".join(_motive(m, owner) for owner, m in req.motives)
+        )
     if req.quests:
         parts.append(
             "## Active story quests (report one only if the transcript shows it finished, bypassed or made impossible)\n"
@@ -81,6 +94,11 @@ def render_expand(req: ExpandRequest, guides: dict[str, dict[str, str]]) -> str:
         "## Missing aspects\n" + "\n".join(f"- {a}: {guide.get(a, '')}".rstrip(": ") for a in req.missing)
     )
     parts.append("## Already recorded about it\n" + ("\n".join(_fact(f) for f in req.facts) or "(nothing yet)"))
+    if ent.kind == "npc":
+        parts.append(
+            "## Motives already recorded for them (do not repeat)\n"
+            + ("\n".join(_motive(m) for m in req.motives) or "(none yet)")
+        )
     if req.neighbor_facts:
         parts.append("## Nearby facts (do not restate)\n" + "\n".join(_fact(f) for f in req.neighbor_facts))
     if req.review:

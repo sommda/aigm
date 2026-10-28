@@ -3,7 +3,8 @@ from typing import Any
 import d20
 
 from aigm.models import DiceRoll, DiceTerm, DieRoll
-from aigm.session.state import GameState
+from aigm.roleplay import SOCIAL_SKILL
+from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
 
 MAX_EXPRESSION_LENGTH = 200
@@ -120,6 +121,13 @@ def roll_dice(tool_use_id: str, tool_input: dict[str, Any], state: GameState | N
     # so split off a '# comment' ourselves and parse the rest strictly.
     dice_part, _, comment_part = expression.partition("#")
     comment = comment_part.strip() or None
+    if comment and SOCIAL_SKILL.search(comment) and state is not None and state.phase is Phase.ADVENTURE:
+        return ToolOutcome(
+            "Nothing was rolled: a social check is made with `social_check`, once the player has said what the "
+            "character says. If they have not, ask them what the character says and end your turn. Do not mention "
+            "this error to the player.",
+            is_error=True,
+        )
     try:
         result = d20.roll(dice_part)
         payload = build_roll_payload(tool_use_id, expression, result, comment)

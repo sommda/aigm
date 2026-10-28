@@ -7,3 +7,5 @@ Every call needs a `narration`. It is shown to the player as story text just bef
 Never roll damage in the same response as the attack it depends on: roll the attack, see that it hit, then roll the damage in a later call.
 
 Write no text beside a roll that is not story: no rulings, no reasoning about the rules, no remarks on what you are about to do. Put rules details in the `# comment`.
+
+Do not use it for social checks (persuading, deceiving, intimidating, haggling): those go through `social_check`, which needs the words the player has typed for the character.

@@ -25,6 +25,8 @@ from aigm.world.curator import (
     FactProposal,
     FamiliarityRequest,
     Label,
+    MotiveProposal,
+    MotiveReport,
     PlotProposal,
     PlotRequest,
     ReconcileRequest,
@@ -33,7 +35,7 @@ from aigm.world.curator import (
     SheetRequest,
 )
 from aigm.sheets import Sheet, clean
-from aigm.world.model import ASPECTS, DISCLOSURES, KINDS
+from aigm.world.model import ASPECTS, DISCLOSURES, KINDS, MOTIVE_KINDS
 from aigm.world.render import (
     render_bootstrap,
     render_digest,
@@ -62,6 +64,23 @@ _STRS = {"type": "array", "items": _STR}
 _ASPECT = _nullable({"type": "string", "enum": sorted({a for v in ASPECTS.values() for a in v})})
 _ENTITY = _obj(name=_STR, kind={"type": "string", "enum": list(KINDS)}, aliases=_STRS, parent=_nullable(_STR))
 
+_MOTIVE_REPORT = _obj(
+    id=_STR,
+    action={"type": "string", "enum": ["shift", "resolve", "hint"]},
+    text=_nullable(_STR),
+    strength=_nullable({"type": "string", "enum": ["leaning", "driven"]}),
+    outcome=_nullable({"type": "string", "enum": ["satisfied", "frustrated"]}),
+)
+_MOTIVE = _obj(
+    owner=_STR,
+    text=_STR,
+    kind={"type": "string", "enum": list(MOTIVE_KINDS)},
+    strength={"type": "string", "enum": ["leaning", "driven", "absolute"]},
+    moved_by=_STRS,
+    resists=_STRS,
+    tells=_STRS,
+)
+
 EXTRACT_SCHEMA = _obj(
     entities={"type": "array", "items": _ENTITY},
     facts={
@@ -74,6 +93,7 @@ EXTRACT_SCHEMA = _obj(
     location=_nullable(_STR),
     present=_nullable(_STRS),
     elapsed_hours={"type": "integer"},
+    motive_reports={"type": "array", "items": _MOTIVE_REPORT},
 )
 STORY_EXTRACT_SCHEMA = _obj(
     **EXTRACT_SCHEMA["properties"],
@@ -119,6 +139,7 @@ EXPAND_SCHEMA = _obj(
         "type": "array",
         "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT, replaces=_nullable(_STR)),
     },
+    motives={"type": "array", "items": _MOTIVE},
 )
 PLOT_SCHEMA = _obj(
     goal_title=_STR,
@@ -181,6 +202,35 @@ def _facts(value: Any, default_disclosure: str) -> list[FactProposal]:
                 _strs(raw.get("via")),
             )
         )
+    return out
+
+
+def _motives(value: Any) -> list[MotiveProposal]:
+    out = []
+    for raw in value if isinstance(value, list) else []:
+        if isinstance(raw, dict) and isinstance(raw.get("owner"), str) and isinstance(raw.get("text"), str):
+            out.append(
+                MotiveProposal(
+                    raw["owner"], raw["text"],
+                    raw["kind"] if raw.get("kind") in MOTIVE_KINDS else "want",
+                    raw["strength"] if raw.get("strength") in ("leaning", "driven", "absolute") else "leaning",
+                    _strs(raw.get("moved_by")), _strs(raw.get("resists")), _strs(raw.get("tells")),
+                )  # fmt: skip
+            )
+    return out
+
+
+def _motive_reports(value: Any) -> list[MotiveReport]:
+    out = []
+    for raw in value if isinstance(value, list) else []:
+        if isinstance(raw, dict) and isinstance(raw.get("id"), str) and isinstance(raw.get("action"), str):
+            text, strength, outcome = raw.get("text"), raw.get("strength"), raw.get("outcome")
+            out.append(
+                MotiveReport(
+                    raw["id"], raw["action"], text if isinstance(text, str) else None,
+                    strength if isinstance(strength, str) else None, outcome if isinstance(outcome, str) else None,
+                )  # fmt: skip
+            )
     return out
 
 
@@ -251,6 +301,7 @@ class AnthropicCurator:
             location=data["location"] if isinstance(data.get("location"), str) else None,
             present=_strs(present) if isinstance(present, list) else None,
             elapsed_hours=elapsed if isinstance(elapsed, int) and not isinstance(elapsed, bool) else 0,
+            motive_reports=_motive_reports(data.get("motive_reports")),
         )
 
     async def bootstrap(self, request: BootstrapRequest) -> Extraction:
@@ -299,7 +350,11 @@ class AnthropicCurator:
     async def expand(self, request: ExpandRequest) -> Extraction:
         user = render_expand(request, self.guides)
         data = await self._ask("expand", self.expand_model, self.expand_effort, user, EXPAND_SCHEMA)
-        return Extraction(entities=_entities(data.get("entities")), facts=_facts(data.get("facts"), "hidden"))
+        return Extraction(
+            entities=_entities(data.get("entities")),
+            facts=_facts(data.get("facts"), "hidden"),
+            motives=_motives(data.get("motives")),
+        )
 
     async def plot(self, request: PlotRequest) -> PlotProposal:
         # Invention that shapes a whole game: the stronger model.

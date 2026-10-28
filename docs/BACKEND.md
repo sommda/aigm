@@ -54,6 +54,8 @@ server/              # (inside the repo root; docs live in ../docs)
       __init__.py     # Registry: name -> (schema, handler)
       roll_dice.py    # roll_dice tool
       world.py        # recall / establish / set_scene (the world tools, see WORLD.md)
+      motive.py       # set_motive (hidden NPC motives, see ROLEPLAY.md)
+      social.py       # social_check (spoken role play, see ROLEPLAY.md)
     session/
       store.py        # In-memory SessionStore + per-session lock
       persistence.py  # Save/restore snapshots to disk
@@ -261,6 +263,7 @@ change.
 change it, all on the turn's working copy of the state, so a failed turn records nothing. `establish` and `set_scene`
 build a copy of the world and swap it in only if every part is accepted. `GameState.turn` (not saved) is set by the loop
 to the number of player messages so far, and stamps the facts. Details in [WORLD.md](WORLD.md) section 6.
+`set_motive` (`tools/motive.py`) is the same kind of tool for the hidden motives of NPCs ([ROLEPLAY.md](ROLEPLAY.md) 7).
 
 Every refused call costs the player a whole model round (about ten seconds in a long game), so `establish` forgives
 what it can: a fact up to 60 words is kept (the prompt asks for about 40; longer is refused), a `parent` on a person
@@ -320,12 +323,12 @@ All prompt text lives in Markdown files, never in Python. `aigm.prompts.PromptLi
 ```
 prompts/system/common/      01_role 02_rules 03_dice 04_formatting     # every phase
 prompts/system/session_zero/ 01_mode 01a_ruleset 01b_structure 02_party 03_scaling 04_wrapup  # Session 0 only
-prompts/rulesets/<id>/       01_rules.md 02_era.md                       # the chosen ruleset, see RULESETS.md
-prompts/system/adventure/    01_role 02_rules 03_style 04_world          # Adventure only
+prompts/rulesets/<id>/       01_rules.md 02_era.md 03_roleplay.md        # the chosen ruleset, see RULESETS.md
+prompts/system/adventure/    01_role 02_rules 03_style 04_world 05_roleplay  # Adventure only
 prompts/system/story/        01_story                                    # Added for story games only
 prompts/templates/           campaign_record.md party_member.md gm_notes.md session_zero_done.md begin_cue.md
 prompts/tools/               roll_dice.md set_ruleset.md set_structure.md begin_adventure.md
-                             recall.md establish.md set_scene.md
+                             recall.md establish.md set_scene.md set_motive.md social_check.md
 ```
 
 - A phase's system prompt is the `common` files followed by that phase's files, each in filename order. Session 0

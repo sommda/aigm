@@ -330,6 +330,12 @@ What the player has learned about the world. The design is in [COMPENDIUM.md](CO
 - **Code.** `compendium_model.py` is pure (tabs, lists, cursor, read marks, links, and the lines for a width) and has
   its own tests; `compendium_screen.py` holds the Textual screen; `ApiClient` has `compendium()`, `compendium_list()`,
   `compendium_entity()` and `compendium_seen()`.
+- **The hidden tab (debug servers only).** When `/health` reports `debug: true`, a fourth tab, **Hidden** (key `4`, or
+  `/compendium hidden`), lists the entities that have facts the player has not been told, of every kind, from
+  `GET /debug/hidden`; the detail comes from `GET /debug/hidden/{id}` and shows the motives (each headed by its type,
+  with strength, scope and disclosure) and the hidden and hinted facts. It has no read marks, no links and no unread
+  filter, and reloads its detail each time the list is refreshed. The filter box (`/`) filters it by name through the
+  server. On any other server the tab does not exist and key `4` does nothing. See COMPENDIUM.md 11.
 
 ### Rebuilding the transcript from `/chat/history`
 

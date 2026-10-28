@@ -87,6 +87,10 @@ class GameState:
     sheets: dict[str, Sheet] = field(default_factory=dict)
     # The fight in progress, if the GM has started one with `set_combat` (docs/STATUS.md 4); cleared when it ends or the party moves.
     combat: Combat | None = None
+    # What the player typed in the turn in progress, and the social checks already made on it as (turn, person id)
+    # pairs (docs/ROLEPLAY.md 5). Set by the turn loop; not saved.
+    player_text: str = field(default="", compare=False)
+    social_done: set[tuple[int, str]] = field(default_factory=set, compare=False)
 
     @property
     def party_names(self) -> list[str]:
@@ -129,6 +133,8 @@ class GameState:
             self.compendium.copy(),
             {n: s.copy() for n, s in self.sheets.items()},
             self.combat.copy() if self.combat else None,
+            self.player_text,
+            set(self.social_done),
         )
 
     def to_dict(self) -> dict[str, Any]:

@@ -10,7 +10,7 @@ from aigm.tools.base import Tool, ToolOutcome
 from aigm.story import addition_allowed
 from aigm.tools.story import STORY_PROPERTY, check_story_report
 from aigm.world import DISCLOSURES, KINDS, Entity, Fact, World, WorldError
-from aigm.world.briefing import LABELS
+from aigm.world.briefing import LABELS, motive_line
 from aigm.world.text import normalize_name
 
 ADVENTURE = frozenset({Phase.ADVENTURE})
@@ -65,6 +65,10 @@ def _describe(world: World, ent: Entity) -> list[str]:
         lines.append(f"(+{len(facts) - RECALL_FACTS} more facts not shown)")
     if not facts:
         lines.append("No facts recorded yet.")
+    motives = world.motives_of(ent.id) if ent.kind == "npc" else []
+    if motives:
+        lines.append("Motives (GM only, never state them):")
+        lines += [motive_line(ent, m) for m in motives]
     linked = [world.entities[e] for e in sorted(world.neighbors(ent.id))]
     if linked:
         lines.append(f"Connected to: {_names(linked)}")

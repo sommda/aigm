@@ -4,13 +4,14 @@ so without it these paths do not exist."""
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel
 
-from aigm import rulesets
+from aigm import hidden_view, rulesets
 from aigm.compendium import unseen_totals
 from aigm.context_view import build_context
 from aigm.deps import get_session
+from aigm.errors import NotFound
 from aigm.session.state import Phase
 from aigm.session.store import Session
 from aigm.story import needs_plan, summary_so_far
@@ -136,3 +137,23 @@ def story(session: Annotated[Session, Depends(get_session)]) -> dict[str, Any]:
         "text": summary_so_far(plan) if plan else "",
         "waiting_for_plan": needs_plan(plan) if plan else None,
     }
+
+
+ENTITY_ID = r"^e\d+$"
+
+
+@router.get("/hidden")
+def hidden(session: Annotated[Session, Depends(get_session)], q: Annotated[str | None, Query(max_length=80)] = None) -> dict[str, Any]:
+    """The entities with facts the player has not been told, of every kind, for the client's "hidden" tab."""
+    rows = hidden_view.entries(session.state.world, q=q)
+    return {"session_id": session.id, "category": "hidden", "title": "Hidden", "count": len(rows), "entries": rows}
+
+
+@router.get("/hidden/{entity_id}")
+def hidden_entity(
+    session: Annotated[Session, Depends(get_session)], entity_id: Annotated[str, Path(pattern=ENTITY_ID)]
+) -> dict[str, Any]:
+    found = hidden_view.detail(session.state.world, entity_id)
+    if found is None:
+        raise NotFound(f"No hidden facts about {entity_id!r}")
+    return {"session_id": session.id, **found}

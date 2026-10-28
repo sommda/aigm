@@ -25,6 +25,16 @@ Lines of the form `[GM called establish: ...]` or `[GM called set_scene: ...]` s
 
 Prefer fewer, clearer facts over many weak ones. If the transcript establishes nothing about the world, return empty lists.
 
+## Motives (only when the request has a "GM-only motives" section)
+
+That section lists secret motives of the people present, each with an id, and any `tells` they have. Report in `motive_reports` only what the transcript clearly shows happening to one of them, using its id:
+
+- `hint`: the narration showed one of the motive's tells to the player (a glance, a slip, an over-explanation), without stating the motive.
+- `shift`: events changed the motive (a debt was cleared, a fear came true, a loyalty broke). Give `text`, a one-sentence statement of what it has become, written about the person ("Harlan Voss no longer fears the Guild now that the tally is burned") and never mentioning the party or "you"; give `strength` (`leaning` or `driven`) only if it clearly got weaker or stronger, else null.
+- `resolve`: the motive is over. Give `outcome`: `satisfied` (they got what they wanted) or `frustrated` (they can no longer have it).
+
+Do not report a motive because a person merely acted in character. When unsure, report nothing. Never invent motive ids, and leave `motive_reports` empty when there is no such section.
+
 ## Story quests (only when the request has these sections)
 
 If the request lists "Active story quests", also report in `quest_reports` any of them that the transcript shows has ended: `done` (the party achieved it), `skipped` (they got around it by other means) or `failed` (it can no longer be done). Give the quest's id, the status and an `outcome` of one or two sentences saying what happened and what the party chose. Report only what the GM's narration clearly shows; when unsure, leave it out. If the request has "The final goal" section, set `goal_revealed` to true only if the narration tells the player what that goal is. Otherwise leave `quest_reports` empty and `goal_revealed` false.

@@ -7,7 +7,7 @@ so a scripted curator and the real one are held to the same rules."""
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from aigm.world.model import Entity, Fact, WorldTime
+from aigm.world.model import Entity, Fact, Motive, WorldTime
 
 
 @dataclass
@@ -30,6 +30,30 @@ class FactProposal:
 
 
 @dataclass
+class MotiveProposal:
+    """A lasting motive for a person, written by expansion (docs/ROLEPLAY.md 7.3)."""
+
+    owner: str  # the person's name
+    text: str
+    kind: str = "want"
+    strength: str = "leaning"
+    moved_by: list[str] = field(default_factory=list)
+    resists: list[str] = field(default_factory=list)
+    tells: list[str] = field(default_factory=list)
+
+
+@dataclass
+class MotiveReport:
+    """What the narration showed happening to a motive that is already recorded (extraction)."""
+
+    motive: str  # its id, from the request
+    action: str  # shift | resolve | hint
+    text: str | None = None  # shift: what it has become
+    strength: str | None = None  # shift: leaning | driven
+    outcome: str | None = None  # resolve: satisfied | frustrated
+
+
+@dataclass
 class Extraction:
     """What the narration established (extract) or what was invented to flesh something out (expand)."""
 
@@ -42,6 +66,8 @@ class Extraction:
     start_hour: int | None = None  # bootstrap only: the hour of day (0-23) the opening situation implies
     quest_reports: list[tuple[str, str, str]] = field(default_factory=list)  # (quest id, status, outcome) seen in play
     goal_revealed: bool = False  # the narration told the player what the final goal is
+    motives: list[MotiveProposal] = field(default_factory=list)  # expansion: lasting motives for people
+    motive_reports: list[MotiveReport] = field(default_factory=list)  # extraction: changes to recorded motives
 
 
 class CuratorError(Exception):
@@ -96,6 +122,7 @@ class ExtractRequest:
     quests: list[tuple[str, str, str]] = field(default_factory=list)  # story games: active (id, title, brief)
     goal: str = ""  # story games: the goal while the player may not know it yet, else ""
     feedback: list[str] = field(default_factory=list)  # why a first attempt was rejected, on the retry
+    motives: list[tuple[str, Motive]] = field(default_factory=list)  # (owner name, motive) of people present, changeable
 
 
 @dataclass
@@ -146,6 +173,7 @@ class ExpandRequest:
     time: WorldTime
     known_names: list[str] = field(default_factory=list)  # every entity name in the world, so new ones are fresh
     feedback: list[str] = field(default_factory=list)  # why a first attempt was rejected, on the retry
+    motives: list[Motive] = field(default_factory=list)  # the entity's recorded motives (a person), not to be repeated
 
 
 @dataclass

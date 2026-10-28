@@ -36,6 +36,22 @@ ASPECTS: dict[str, tuple[str, ...]] = {
 # in is known to the player from the moment it exists, or from the moment the party gets there (docs/STATUS.md 5).
 ARRIVAL_ASPECTS = ("overview", "items")
 
+# Motives (docs/ROLEPLAY.md 7): what an NPC wants or fears. GM-only state, never shown to the player as such.
+MOTIVE_SCOPES = ("underlying", "scene")
+MOTIVE_KINDS = ("want", "fear", "loyalty", "grudge", "vice", "belief")
+MOTIVE_STRENGTHS = ("leaning", "driven", "absolute")  # absolute: fixed for the life of the game, underlying only
+MOTIVE_STATUSES = ("active", "satisfied", "frustrated", "superseded")  # "expired" is computed, never stored
+MOTIVE_SOURCES = ("seed", "generated", "improvised", "play")
+ABSOLUTE_SOURCES = ("seed", "generated")  # an absolute motive is written ahead of play, never in it
+MAX_UNDERLYING_MOTIVES = 2  # live motives per person: two lasting and one for the scene
+MAX_SCENE_MOTIVES = 1
+SCENE_MOTIVE_HOURS = 2  # a scene motive lapses this many in-world hours after it was set
+MAX_MOTIVE_WORDS = 40
+MOTIVE_WORDS_LIMIT = 60
+MIN_MOTIVE_WORDS = 3
+MAX_MOTIVE_PHRASES = 4  # moved_by, resists and tells: at most this many of each
+MAX_PHRASE_CHARS = 140
+
 MAX_FACT_WORDS = 40  # what the prompts ask for
 FACT_WORDS_LIMIT = 60  # what is refused: a fact a little over the ask is kept, since a refusal costs the GM a whole round
 MIN_FACT_WORDS = 3
@@ -46,6 +62,7 @@ MAX_ALIASES = 8
 HOURS_PER_DAY = 24
 
 _FACT_ID = re.compile(r"^f\d+$")
+_MOTIVE_ID = re.compile(r"^m\d+$")
 _ENTITY_ID = re.compile(r"^e\d+$")
 
 
@@ -150,6 +167,45 @@ class Fact:
 
 
 @dataclass
+class Motive:
+    """One thing an NPC wants, fears or holds to (docs/ROLEPLAY.md 7.1). Hidden from the player until disclosed.
+
+    A `scene` motive belongs to the place and the moment it was set (`scene_location`, `set_at`); it lapses when the
+    party leaves or SCENE_MOTIVE_HOURS pass, which `World.motive_live` works out from these, so nothing has to expire it.
+    """
+
+    id: str
+    owner: str  # an npc entity id
+    text: str
+    scope: str = "underlying"
+    kind: str = "want"
+    strength: str = "leaning"
+    moved_by: tuple[str, ...] = ()  # kinds of argument that engage it
+    resists: tuple[str, ...] = ()  # kinds that bounce off
+    tells: tuple[str, ...] = ()  # behavior that hints at it
+    disclosure: str = "hidden"
+    status: str = "active"
+    superseded_by: str | None = None
+    source: str = "generated"
+    turn: int = 0
+    scene_location: str | None = None  # scene motives only
+    set_at: WorldTime = field(default_factory=WorldTime)
+
+    @property
+    def active(self) -> bool:
+        return self.status == "active"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id, "owner": self.owner, "text": self.text, "scope": self.scope, "kind": self.kind,
+            "strength": self.strength, "moved_by": list(self.moved_by), "resists": list(self.resists),
+            "tells": list(self.tells), "disclosure": self.disclosure, "status": self.status,
+            "superseded_by": self.superseded_by, "source": self.source, "turn": self.turn,
+            "scene_location": self.scene_location, "set_at": self.set_at.to_dict(),
+        }  # fmt: skip
+
+
+@dataclass
 class Scene:
     """Where the party is and who is with them (entity ids). Drives retrieval."""
 
@@ -169,10 +225,11 @@ class World:
         self.reported_hours = 0  # hours the GM moved the clock itself (set_scene) since the last pass
         self.corrections: list[dict[str, Any]] = []  # notes for the GM's next briefing: {"text", "turn"}
         self.digests: dict[int, Digest] = {}  # turn digests by the index of the turn's first message
-        self.next_id = {"f": 1, "e": 1}
+        self.next_id = {"f": 1, "e": 1, "m": 1}
         self.learn_seq = 0  # last number given to a fact the player learned; only goes up
         self.entities: dict[str, Entity] = {}
         self.facts: dict[str, Fact] = {}
+        self.motives: dict[str, Motive] = {}
         self._reindex()
 
     def __eq__(self, other: object) -> bool:
@@ -540,6 +597,162 @@ class World:
         self._touch()
         return True
 
+    # ---- motives -----------------------------------------------------------------------
+
+    def motive_live(self, motive: Motive) -> bool:
+        """Does it count right now? An underlying motive does while it is active. A scene motive also needs the party
+        to still be where it was set and fewer than SCENE_MOTIVE_HOURS in-world hours to have passed."""
+        if not motive.active:
+            return False
+        if motive.scope == "underlying":
+            return True
+        elapsed = self.time.total_hours - motive.set_at.total_hours
+        return motive.scene_location == self.scene.location and elapsed < SCENE_MOTIVE_HOURS
+
+    def motive_state(self, motive: Motive) -> str:
+        """The stored status, or "expired" for an active scene motive whose moment has passed."""
+        return "active" if self.motive_live(motive) else "expired" if motive.active else motive.status
+
+    def motives_of(self, owner: str, *, live_only: bool = True) -> list[Motive]:
+        """An entity's motives, lasting ones first and the strongest of each first. By default only those that count
+        now; otherwise also scene motives that have lapsed (but not resolved or superseded ones)."""
+        rank = {s: i for i, s in enumerate(reversed(MOTIVE_STRENGTHS))}
+        found = [m for m in self.motives.values() if m.owner == owner and (self.motive_live(m) or (not live_only and m.active))]
+        return sorted(found, key=lambda m: (m.scope != "underlying", rank[m.strength], m.id))
+
+    def add_motive(
+        self,
+        owner: str,
+        text: str,
+        *,
+        scope: str = "underlying",
+        kind: str = "want",
+        strength: str = "leaning",
+        moved_by: Iterable[str] = (),
+        resists: Iterable[str] = (),
+        tells: Iterable[str] = (),
+        disclosure: str = "hidden",
+        source: str = "generated",
+        turn: int = 0,
+    ) -> Motive:
+        """Record a motive. A person has at most two lasting motives and one scene motive at a time, and at most one
+        `absolute` one (fixed for the life of the game: underlying, and written ahead of play)."""
+        ent = self._entity_or_error(owner)
+        if ent.kind != "npc":
+            raise WorldError(f"only people have motives, and {ent.name} is a {ent.kind}")
+        for label, value, allowed in (
+            ("scope", scope, MOTIVE_SCOPES), ("kind", kind, MOTIVE_KINDS), ("strength", strength, MOTIVE_STRENGTHS),
+            ("disclosure", disclosure, DISCLOSURES), ("source", source, MOTIVE_SOURCES),
+        ):  # fmt: skip
+            if value not in allowed:
+                raise WorldError(f"motive {label} must be one of {', '.join(allowed)}, got {value!r}")
+        text = _clean_motive_text(text)
+        if strength == "absolute":
+            if scope != "underlying":
+                raise WorldError("an absolute motive must be underlying: a scene motive passes, an absolute one never does")
+            if source not in ABSOLUTE_SOURCES:
+                raise WorldError("an absolute motive is written ahead of play and cannot be added in play")
+            if any(m.strength == "absolute" for m in self.motives_of(owner, live_only=False)):
+                raise WorldError(f"{ent.name} already has an absolute motive; a person has at most one")
+        live = self.motives_of(owner)
+        limit = MAX_UNDERLYING_MOTIVES if scope == "underlying" else MAX_SCENE_MOTIVES
+        if sum(m.scope == scope for m in live) >= limit:
+            raise WorldError(f"{ent.name} already has {limit} {scope} motive{'s' if limit > 1 else ''}")
+        if scope == "scene" and self.scene.location is None:
+            raise WorldError("a scene motive needs a recorded scene location; set the scene first")
+        motive = Motive(
+            self._new_id("m"), owner, text, scope, kind, strength,
+            _clean_phrases(moved_by, "moved_by"), _clean_phrases(resists, "resists"), _clean_phrases(tells, "tells"),
+            disclosure, "active", None, source, turn,
+            self.scene.location if scope == "scene" else None, self.time,
+        )  # fmt: skip
+        self.motives[motive.id] = motive
+        self._touch()
+        return motive
+
+    def _changeable_motive(self, motive_id: str) -> Motive:
+        """The motive to change, or the reason it cannot be: unknown, finished, or absolute (fixed for the game)."""
+        motive = self.motives.get(motive_id)
+        if motive is None:
+            raise WorldError(f"unknown motive {motive_id!r}")
+        if motive.strength == "absolute":
+            raise WorldError(
+                f"motive {motive_id} is absolute: it is a deep property of the person and nothing the party does "
+                "changes it. Play it as it is"
+            )
+        if not motive.active:
+            raise WorldError(f"motive {motive_id} is already {motive.status}")
+        return motive
+
+    def shift_motive(
+        self,
+        motive_id: str,
+        *,
+        text: str | None = None,
+        kind: str | None = None,
+        strength: str | None = None,
+        moved_by: Iterable[str] | None = None,
+        resists: Iterable[str] | None = None,
+        tells: Iterable[str] | None = None,
+        source: str = "play",
+        turn: int = 0,
+    ) -> Motive:
+        """Change a motive because of what happened: the old one is kept as superseded and a new one takes its place
+        (same person, scope and moment, and what the player has learned of it). Absolute motives cannot change."""
+        old = self._changeable_motive(motive_id)
+        if not self.motive_live(old):
+            raise WorldError(f"motive {motive_id} was for a scene that is over")
+        if strength == "absolute":
+            raise WorldError("a motive cannot become absolute in play")
+        for label, value, allowed in (("kind", kind, MOTIVE_KINDS), ("strength", strength, MOTIVE_STRENGTHS)):
+            if value is not None and value not in allowed:
+                raise WorldError(f"motive {label} must be one of {', '.join(allowed)}, got {value!r}")
+        if source not in MOTIVE_SOURCES:
+            raise WorldError(f"motive source must be one of {', '.join(MOTIVE_SOURCES)}, got {source!r}")
+        fields = {
+            "text": old.text if text is None else _clean_motive_text(text),
+            "kind": kind or old.kind,
+            "strength": strength or old.strength,
+            "moved_by": old.moved_by if moved_by is None else _clean_phrases(moved_by, "moved_by"),
+            "resists": old.resists if resists is None else _clean_phrases(resists, "resists"),
+            "tells": old.tells if tells is None else _clean_phrases(tells, "tells"),
+        }
+        if all(getattr(old, name) == value for name, value in fields.items()):
+            raise WorldError(f"motive {motive_id} would not change: give a new text, kind, strength or levers")
+        new = Motive(
+            self._new_id("m"), old.owner, scope=old.scope, disclosure=old.disclosure, source=source, turn=turn,
+            scene_location=old.scene_location, set_at=old.set_at, **fields,
+        )  # fmt: skip
+        old.status, old.superseded_by = "superseded", new.id
+        self.motives[new.id] = new
+        self._touch()
+        return new
+
+    def resolve_motive(self, motive_id: str, outcome: str) -> Motive:
+        """The motive is over: the person got what they wanted (`satisfied`) or can no longer have it (`frustrated`)."""
+        if outcome not in ("satisfied", "frustrated"):
+            raise WorldError(f"outcome must be satisfied or frustrated, got {outcome!r}")
+        motive = self._changeable_motive(motive_id)
+        motive.status = outcome
+        self._touch()
+        return motive
+
+    def disclose_motive(self, motive_id: str, level: str = "hinted") -> bool:
+        """The player has seen a tell of this motive. Returns False if it was already hinted or known. (Turning a
+        motive into something the player knows comes with the compendium, docs/ROLEPLAY.md 8.)"""
+        if level != "hinted":
+            raise WorldError(f"disclosure can only be set to hinted for now, got {level!r}")
+        motive = self.motives.get(motive_id)
+        if motive is None:
+            raise WorldError(f"unknown motive {motive_id!r}")
+        if not motive.active:
+            raise WorldError(f"motive {motive_id} is already {motive.status}")
+        if motive.disclosure != "hidden":
+            return False
+        motive.disclosure = "hinted"
+        self._touch()
+        return True
+
     # ---- change helpers ----------------------------------------------------------------
 
     def _entity_or_error(self, entity_id: str) -> Entity:
@@ -645,6 +858,7 @@ class World:
             "learn_seq": self.learn_seq,
             "entities": [e.to_dict() for e in self.entities.values()],
             "facts": [f.to_dict() for f in self.facts.values()],
+            "motives": [m.to_dict() for m in self.motives.values()],
         }
 
     @classmethod
@@ -750,9 +964,20 @@ class World:
                 raise WorldError(f"scene refers to unknown entity {eid!r}")
         world.scene = Scene(scene["location"], list(scene["present"]))
 
+        for raw in data.get("motives", []):  # saves from before motives have none
+            motive = _load_motive(raw, world)
+            if motive.id in world.motives:
+                raise WorldError(f"repeated motive id {motive.id!r}")
+            world.motives[motive.id] = motive
+        for motive in world.motives.values():
+            if (motive.status == "superseded") != (motive.superseded_by is not None) or (
+                motive.superseded_by is not None and motive.superseded_by not in world.motives
+            ):
+                raise WorldError(f"motive {motive.id} has inconsistent superseded state")
+
         next_id = data["next_id"]
-        for prefix, ids in (("f", world.facts), ("e", world.entities)):
-            n = next_id[prefix]
+        for prefix, ids in (("f", world.facts), ("e", world.entities), ("m", world.motives)):
+            n = next_id.get(prefix, 1) if prefix == "m" else next_id[prefix]
             if isinstance(n, bool) or not isinstance(n, int) or n <= max((int(i[1:]) for i in ids), default=0):
                 raise WorldError(f"next_id.{prefix} must be above every existing id")
             world.next_id[prefix] = n
@@ -761,6 +986,70 @@ class World:
             raise WorldError("learn_seq must be at least every fact's learned_seq")
         world._reindex()
         return world
+
+
+def _load_motive(raw: Any, world: "World") -> Motive:
+    """One motive from a save: structure and references are checked, the content caps are not."""
+    if not isinstance(raw, dict):
+        raise WorldError("a motive must be an object")
+    motive = Motive(
+        raw["id"], raw["owner"], raw["text"], raw["scope"], raw["kind"], raw["strength"],
+        tuple(raw["moved_by"]), tuple(raw["resists"]), tuple(raw["tells"]), raw["disclosure"], raw["status"],
+        raw["superseded_by"], raw["source"], raw["turn"], raw["scene_location"], WorldTime.from_dict(raw["set_at"]),
+    )  # fmt: skip
+    label = f"motive {motive.id}"
+    if not _MOTIVE_ID.match(str(motive.id)):
+        raise WorldError(f"bad motive id {motive.id!r}")
+    owner = world.entities.get(motive.owner)
+    if owner is None or owner.kind != "npc":
+        raise WorldError(f"{label} belongs to an unknown entity or one that is not a person")
+    if not isinstance(motive.text, str) or not motive.text.strip():
+        raise WorldError(f"{label} has no text")
+    for value, allowed, name in (
+        (motive.scope, MOTIVE_SCOPES, "scope"), (motive.kind, MOTIVE_KINDS, "kind"),
+        (motive.strength, MOTIVE_STRENGTHS, "strength"), (motive.disclosure, DISCLOSURES, "disclosure"),
+        (motive.status, MOTIVE_STATUSES, "status"), (motive.source, MOTIVE_SOURCES, "source"),
+    ):  # fmt: skip
+        if value not in allowed:
+            raise WorldError(f"{label} has a bad {name}")
+    for phrases in (motive.moved_by, motive.resists, motive.tells):
+        if not all(isinstance(p, str) and p.strip() for p in phrases):
+            raise WorldError(f"{label} has a bad list of phrases")
+    if motive.strength == "absolute" and motive.scope != "underlying":
+        raise WorldError(f"{label} is absolute but not underlying")
+    if motive.scene_location is not None and motive.scene_location not in world.entities:
+        raise WorldError(f"{label} refers to an unknown scene location")
+    if motive.scope == "scene" and motive.scene_location is None:
+        raise WorldError(f"{label} is a scene motive with no scene location")
+    _count(motive.turn, f"{label} turn")
+    return motive
+
+
+def _clean_motive_text(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise WorldError("motive text must be a non-empty string")
+    value = " ".join(value.split())
+    n = word_count(value)
+    if n < MIN_MOTIVE_WORDS:
+        raise WorldError(f"motive text needs at least {MIN_MOTIVE_WORDS} words")
+    if n > MOTIVE_WORDS_LIMIT:
+        raise WorldError(f"motive text is {n} words; keep it to about {MAX_MOTIVE_WORDS}")
+    return value
+
+
+def _clean_phrases(values: Iterable[str], label: str) -> tuple[str, ...]:
+    out: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise WorldError(f"{label} entries must be non-empty strings")
+        value = " ".join(value.split())
+        if len(value) > MAX_PHRASE_CHARS:
+            raise WorldError(f"each {label} entry must be at most {MAX_PHRASE_CHARS} characters")
+        if value not in out:
+            out.append(value)
+    if len(out) > MAX_MOTIVE_PHRASES:
+        raise WorldError(f"at most {MAX_MOTIVE_PHRASES} {label} entries per motive")
+    return tuple(out)
 
 
 def _count(value: Any, label: str) -> int:

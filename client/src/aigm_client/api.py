@@ -80,6 +80,13 @@ class ApiClient:
         """The whole story plan (debug servers only; anything else answers 404)."""
         return await self._request("GET", "/debug/story", params=self._session())
 
+    async def debug_hidden(self, q: str = "") -> dict[str, Any]:
+        """Entities with facts the player has not been told (debug servers only; anything else answers 404)."""
+        return await self._request("GET", "/debug/hidden", params={**self._session(), **({"q": q} if q else {})})
+
+    async def debug_hidden_entity(self, entity_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/debug/hidden/{entity_id}", params=self._session())
+
     async def set_thinking(self, enabled: bool) -> bool:
         """Turn the model's thinking on or off for the server (debug servers only; anything else answers 404)."""
         return (await self._request("PUT", "/debug/thinking", json={"enabled": enabled}))["thinking"]

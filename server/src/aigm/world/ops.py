@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 from aigm.world.digest import Digest
 from aigm.world.model import World, WorldError
+from aigm.world.text import normalize_text
 
 
 @dataclass
@@ -91,9 +92,48 @@ class AddDigest:
     replace_stale: bool = False  # drop digests that overlap this turn but no longer cover its messages
 
 
+@dataclass
+class AddMotive:
+    owner: str  # name or id of a person
+    text: str
+    scope: str = "underlying"
+    kind: str = "want"
+    strength: str = "leaning"
+    moved_by: tuple[str, ...] = ()
+    resists: tuple[str, ...] = ()
+    tells: tuple[str, ...] = ()
+    source: str = "generated"
+    turn: int = 0
+
+
+@dataclass
+class ShiftMotive:
+    motive_id: str
+    text: str | None = None
+    kind: str | None = None
+    strength: str | None = None
+    moved_by: tuple[str, ...] | None = None
+    resists: tuple[str, ...] | None = None
+    tells: tuple[str, ...] | None = None
+    source: str = "play"
+    turn: int = 0
+
+
+@dataclass
+class ResolveMotive:
+    motive_id: str
+    outcome: str  # satisfied | frustrated
+
+
+@dataclass
+class DiscloseMotive:
+    motive_id: str
+    level: str = "hinted"
+
+
 Op = (
     AddEntity | AddAlias | AddFact | Supersede | Reveal | SetScene | SettleTime | StartClock | Correct | MarkProcessed
-    | AddDigest
+    | AddDigest | AddMotive | ShiftMotive | ResolveMotive | DiscloseMotive
 )
 
 
@@ -205,4 +245,27 @@ def _apply(world: World, op: Op) -> bool:
         return False
     if isinstance(op, AddDigest):
         return world.add_digest(op.digest, op.replace_stale)
+    if isinstance(op, AddMotive):
+        owner = world.resolve(op.owner)
+        if owner is None:
+            raise WorldError(f"unknown entity {op.owner!r}")
+        key = normalize_text(op.text)
+        if any(normalize_text(m.text) == key for m in world.motives_of(owner.id, live_only=False)):
+            return False  # the same motive again
+        world.add_motive(
+            owner.id, op.text, scope=op.scope, kind=op.kind, strength=op.strength, moved_by=op.moved_by,
+            resists=op.resists, tells=op.tells, source=op.source, turn=op.turn,
+        )  # fmt: skip
+        return True
+    if isinstance(op, ShiftMotive):
+        world.shift_motive(
+            op.motive_id, text=op.text, kind=op.kind, strength=op.strength, moved_by=op.moved_by, resists=op.resists,
+            tells=op.tells, source=op.source, turn=op.turn,
+        )  # fmt: skip
+        return True
+    if isinstance(op, ResolveMotive):
+        world.resolve_motive(op.motive_id, op.outcome)
+        return True
+    if isinstance(op, DiscloseMotive):
+        return world.disclose_motive(op.motive_id, op.level)
     raise WorldError(f"unknown op {op!r}")
