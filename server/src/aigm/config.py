@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # Ask the model to think (true), forbid it (false), or leave it to the model (empty). Not every model can think.
     ollama_think: bool | None = Field(default=None, validation_alias="AIGM_OLLAMA_THINK")
     anthropic_api_key: str | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
+    # Character portraits (docs/PORTRAITS.md): on only when the key and the model are both set.
+    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    image_model: str | None = Field(default=None, validation_alias="IMAGE_MODEL")
+    images: bool = Field(default=True, validation_alias="AIGM_IMAGES")
+    image_size: str = Field(default="1024x1024", validation_alias="AIGM_IMAGE_SIZE")
+    image_quality: str | None = Field(default=None, validation_alias="AIGM_IMAGE_QUALITY")
     model: str = Field(default="claude-sonnet-5-5", validation_alias="AIGM_MODEL")
     max_tokens: int = Field(default=16000, validation_alias="AIGM_MAX_TOKENS")
     max_tool_iters: int = Field(default=16, validation_alias="AIGM_MAX_TOOL_ITERS")
@@ -77,10 +83,17 @@ class Settings(BaseSettings):
         default=["http://localhost", "http://127.0.0.1"], validation_alias="AIGM_CORS_ORIGINS"
     )
 
-    @field_validator("effort", "ollama_think", "ollama_keep_alive", mode="before")
+    @field_validator(
+        "effort", "ollama_think", "ollama_keep_alive", "openai_api_key", "image_model", "image_quality", mode="before"
+    )
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
+
+    @property
+    def portraits_on(self) -> bool:
+        """Portraits need a key and a model, and can be switched off with AIGM_IMAGES=false."""
+        return bool(self.images and self.openai_api_key and self.image_model)
 
     @property
     def curator_model(self) -> str:

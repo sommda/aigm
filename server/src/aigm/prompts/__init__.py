@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from aigm import rulesets
+from aigm import art, rulesets
 from aigm.story import LENGTHS
 from aigm.session.state import Phase
 
@@ -148,6 +148,12 @@ class PromptLibrary:
         """The private GM notes for the adventure system prompt, or "" if there are none."""
         notes = str((campaign or {}).get("gm_notes") or "").strip()
         return self._fill(self._template("gm_notes"), {"gm_notes": notes}) if notes else ""
+
+    def art_section(self, ruleset: str) -> str:
+        """The Session 0 paragraph on portrait styles, filled for the chosen ruleset (docs/PORTRAITS.md 5.2)."""
+        default = art.resolve_style(None, ruleset)
+        styles = "\n".join(f"- {s.name} (`{s.id}`)" for s in art.STYLES) + "\n- No portraits (`none`)"
+        return self._fill(self._template("art_style"), {"default": default.name if default else "", "styles": styles})
 
     def session_zero_done_note(self) -> str:
         return self._template("session_zero_done")

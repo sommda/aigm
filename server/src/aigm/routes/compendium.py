@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
 from pydantic import BaseModel, Field, model_validator
 
 from aigm import compendium as comp
@@ -40,11 +40,14 @@ def overview(session: SessionDep) -> dict[str, Any]:
 
 
 @router.get("/entities/{entity_id}")
-def entity(session: SessionDep, entity_id: Annotated[str, Path(pattern=ENTITY_ID)]) -> dict[str, Any]:
+def entity(
+    request: Request, session: SessionDep, entity_id: Annotated[str, Path(pattern=ENTITY_ID)]
+) -> dict[str, Any]:
     found = comp.detail(session.state.world, session.reading_state(), entity_id)
     if found is None:  # the same answer for an id that does not exist and one the player has not discovered
         raise NotFound(f"No compendium entry {entity_id!r}")
-    return {"session_id": session.id, **found}
+    portraits = request.app.state.portraits
+    return {"session_id": session.id, **found, "portrait": portraits.view_entity(session, entity_id) if portraits else None}
 
 
 @router.get("/{category}")

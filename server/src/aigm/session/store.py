@@ -5,6 +5,7 @@ import logging
 from aigm import story as story_rules
 from aigm.compendium import Compendium
 from aigm.looks import Look
+from aigm.portraits import Portrait
 from aigm.session.state import GameState
 from aigm.world.ops import Op, apply_ops
 
@@ -29,6 +30,8 @@ class Session:
         self.plan_retry_turn = 0  # a failed chapter plan is not tried again before this turn
         self.pending_looks: list[dict[str, Look]] = []  # party members' Looks written in the background (docs/LOOKS.md)
         self.pending_revised: list[dict[str, Look]] = []  # party members' revised Looks, waiting like pending_looks
+        self.pending_portraits: list[dict[str, Portrait]] = []  # party portraits made in the background (PORTRAITS.md 8.2)
+        self.imaging = False  # a portrait sweep is running
         self.revision_checked_turn = 0  # the narration of this turn has been checked against the Looks
         self.looks_retry_turn = 0  # a sweep that wrote nothing is not tried again before this turn
         # Compendium marks sent while a turn ran: entity ids, or None for everything (docs/COMPENDIUM.md 4.3).
@@ -43,6 +46,7 @@ class Session:
         self.pending_seen.clear()
         self.pending_looks.clear()
         self.pending_revised.clear()
+        self.pending_portraits.clear()
         self.revision_checked_turn = 0
         self.plan_retry_turn = 0
         self.looks_retry_turn = 0
@@ -53,7 +57,7 @@ class Session:
         of a turn, before that copy is taken."""
         if (self.busy and not in_turn) or not (
             self.pending or self.pending_plans or self.pending_reports or self.pending_seen or self.pending_looks
-            or self.pending_revised
+            or self.pending_revised or self.pending_portraits
         ):
             return
         self.state.compendium = self.reading_state()
@@ -74,6 +78,11 @@ class Session:
                 if current is not None and current.rev == look.rev - 1:
                     self.state.looks[name] = look
         self.pending_revised.clear()
+        for portraits in self.pending_portraits:
+            for name, record in portraits.items():
+                if name in self.state.party_names:
+                    self.state.portraits[name] = record
+        self.pending_portraits.clear()
         for plan in self.pending_plans:
             self._apply_plan(plan)
         self.pending_plans.clear()

@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Json } from "../core/events";
 import { StatusPanel } from "../core/panels";
-import { Button, Heading, LookBlock, TabBar } from "./controls";
+import { Button, Heading, LookBlock, Portrait, TabBar } from "./controls";
 import { color, font, selectable, space } from "./theme";
 import { useStore } from "./useStore";
 
@@ -82,20 +82,26 @@ function Place({ page }: { page: Json }) {
   );
 }
 
-function Sheet({ page }: { page: Json }) {
+function Sheet({ page, resolve }: { page: Json; resolve: (path: string) => string }) {
+  const look = page.look as Json | null | undefined;
   return (
     <View>
-      <Text style={[styles.name, selectable]}>{String(page.name)}</Text>
-      {page.headline ? <Text style={[styles.body, selectable]}>{String(page.headline)}</Text> : null}
-      {page.hp || arr(page.conditions).length || (page.conditions as string[] | undefined)?.length ? (
-        <Text style={styles.body}>
-          {page.hp ? <Text style={{ color: color.green, fontWeight: "700" }}>{`HP ${page.hp}`}</Text> : null}
-          {(page.conditions as string[] | undefined)?.length ? (
-            <Text style={{ color: color.yellow }}>{`  ${(page.conditions as string[]).join(", ")}`}</Text>
+      <View style={styles.sheetHead}>
+        <Portrait portrait={page.portrait} name={String(page.name)} alt={look ? String(look.summary ?? "") : undefined} resolve={resolve} />
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.name, selectable]}>{String(page.name)}</Text>
+          {page.headline ? <Text style={[styles.body, selectable]}>{String(page.headline)}</Text> : null}
+          {page.hp || arr(page.conditions).length || (page.conditions as string[] | undefined)?.length ? (
+            <Text style={styles.body}>
+              {page.hp ? <Text style={{ color: color.green, fontWeight: "700" }}>{`HP ${page.hp}`}</Text> : null}
+              {(page.conditions as string[] | undefined)?.length ? (
+                <Text style={{ color: color.yellow }}>{`  ${(page.conditions as string[]).join(", ")}`}</Text>
+              ) : null}
+            </Text>
           ) : null}
-        </Text>
-      ) : null}
-      {page.progress ? <Text style={styles.dim}>{String(page.progress)}</Text> : null}
+          {page.progress ? <Text style={styles.dim}>{String(page.progress)}</Text> : null}
+        </View>
+      </View>
       <LookBlock look={page.look} />
       {arr(page.sections).map((sec, i) => (
         <View key={i}>
@@ -123,6 +129,7 @@ export function StatusView({ panel }: { panel: StatusPanel }) {
   useStore(panel);
   useEffect(() => {
     void panel.load();
+    return () => panel.stop();
   }, [panel]);
   const m = panel.model;
   const tabs = useMemo(() => m.tabs.map(([id, title]) => ({ id, title })), [m.tabs]);
@@ -141,7 +148,7 @@ export function StatusView({ panel }: { panel: StatusPanel }) {
         ) : !page ? (
           <Text style={styles.dim}>{panel.loading ? "Loading…" : ""}</Text>
         ) : m.character ? (
-          <Sheet page={page} />
+          <Sheet page={page} resolve={(p) => panel.imageUrl(p)} />
         ) : (
           <Place page={page} />
         )}
@@ -154,6 +161,7 @@ const styles = StyleSheet.create({
   wrap: { flex: 1 },
   head: { flexDirection: "row", alignItems: "center", paddingRight: space.sm, gap: space.sm },
   body_: { padding: space.lg, maxWidth: 860, width: "100%", alignSelf: "center" },
+  sheetHead: { flexDirection: "row", alignItems: "flex-start", gap: space.md, flexWrap: "wrap" },
   name: { color: color.text, fontFamily: font.story, fontSize: 22, fontWeight: "700" },
   body: { color: color.text, fontFamily: font.story, fontSize: 15, lineHeight: 22 },
   strong: { fontWeight: "700" },

@@ -45,7 +45,7 @@ async def test_saves_are_pretty_printed_not_one_line(repo):
     text = (repo.dir / "g.json").read_text(encoding="utf-8")
     assert text.count("\n") > 50 and text.endswith("}\n")
     assert '\n    "facts": [' in text or '\n  "world": {' in text
-    assert json.loads(text)["version"] == 10
+    assert json.loads(text)["version"] == 11
 
 
 async def test_listing_includes_world_counts(repo):

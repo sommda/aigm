@@ -1,6 +1,7 @@
 # AIGM Character Portraits: Design
 
-Status: **spec, no code yet**. Second step toward graphics, after the Looks ([LOOKS.md](LOOKS.md)). It turns a
+Status: **spec; build steps 1 to 5 (section 13) are done**.
+Second step toward graphics, after the Looks ([LOOKS.md](LOOKS.md)). It turns a
 character's written Look into a generated headshot, in one art style for the whole game, and shows it on the
 character's page. It builds on [LOOKS.md](LOOKS.md) (the descriptions), [RULESETS.md](RULESETS.md) (the default style
 follows the ruleset), [OPENING.md](OPENING.md) (Session 0) and [ART.md](ART.md) (the wider art plan, which this step
@@ -59,8 +60,9 @@ carry `"portrait": null`, `GET /health` reports `"images": false`, and Session 0
 
 **No new dependency.** The server already has `httpx`; the pipeline calls `POST /v1/images/generations` directly with
 `model`, `prompt`, `size` and `n: 1`, so it does not depend on an SDK version that may not know this model. The reply
-may hold `b64_json` or a `url`; both are handled. Optional parameters (`quality`, `output_format`) are sent only if
-step 1 shows the model accepts them. The key is read once and never logged, saved, or put in an error message.
+may hold `b64_json` or a `url`; both are handled. It also sends `output_format: webp` and
+`output_compression: 80` (section 15 shows the model accepts them), and `quality` only when `AIGM_IMAGE_QUALITY` is
+set. The key is read once and never logged, saved, or put in an error message.
 
 ## 5. Art styles
 
@@ -98,7 +100,8 @@ one. The catalog is data, so a style is added without touching the pipeline.
 - `GameState.art_style: str | None`. `None` means "the default for the chosen ruleset", resolved when an image is made,
   so choosing a ruleset after the style still gives a matching default. The value `"none"` means no portraits for this
   game. Anything else is a catalog id.
-- A new Session 0 tool **`set_art_style`** (`style`: an id or `"none"`), like `set_ruleset`. It is Session 0 only and
+- A new Session 0 tool **`set_art_style`** (`style`: an id, `"none"`, or `"default"` to go back to the ruleset's
+  own style), like `set_ruleset`. It is Session 0 only and
   answers an error afterwards: the style is fixed once the adventure begins, because a mixed set of styles is the
   failure this design exists to avoid. It is offered only when portraits are on.
 - The Session 0 prompt ([OPENING.md](OPENING.md)) gains one short step after the ruleset: say what the default style
@@ -113,15 +116,19 @@ one. The catalog is data, so a style is added without touching the pipeline.
 ### 6.1 The record
 
 ```json
-{ "image": "p_3fa9c1d2e8b7a640", "style": "modern", "look_rev": 1, "model": "gpt-image-2.5-sunburst",
-  "state": "ready", "attempts": 1, "made_turn": 3 }
+{ "image": "p_3fa9c1d2e8b7a640.webp", "style": "modern", "look_rev": 1, "model": "gpt-image-2.5-sunburst",
+  "turn": 3, "failure": null }
 ```
 
-- `image` is the id of the file, or absent when none exists yet. `state` is `ready` or `failed`; **pending is never
-  saved** (it lives in the running session, like the other pending work in `Session`).
-- `look_rev` is the Look revision the picture was made from ([LOOKS.md](LOOKS.md) 7). A Look that moves on makes the
-  picture stale (section 8.4).
-- A `failed` record also carries `reason` (`moderation`, `quota`, `unavailable`, `bad_reply`) and `attempts`.
+- `image` is the **file name** in the library (the id and its extension), or `null` when no picture exists yet and only
+  a failure is recorded. A client is shown `ready` when `image` is set and its file exists, `pending` while a sweep is
+  working on the character, and nothing otherwise; **pending is never saved** (it lives in the running session).
+- `look_rev` and `style` are what the picture was made from ([LOOKS.md](LOOKS.md) 7). A Look that moves on, or a
+  changed style, makes the picture stale (section 8.4); it stays shown until its replacement is ready.
+- `failure` is the last failed attempt at a target (a Look revision in a style): `reason` (`moderation`,
+  `unavailable` or `bad_reply`), `attempts` (consecutive failures), `turn`, `rev` and `style`. A failure at one target
+  does not count against the next, so a revised Look gets a fresh start. A billing or key failure is not recorded: it
+  switches the pipeline off for the rest of the server run (8.3).
 
 ### 6.2 Where it lives
 
@@ -141,7 +148,8 @@ The bytes are not in the save (a save is JSON and stays small). They go in a sha
   two games never overwrite each other.
 - Next to each image goes `<id>.json`: the full prompt, the model, the style, the Look's `search_text` and summary,
   the time. This is the index for the library and similarity search of [LOOKS.md](LOOKS.md) 6; nothing reads it yet.
-- The extension is `.png` unless step 1 shows the model returns something smaller; the server serves what it stored.
+- The extension is that of what the model returned (`webp` as requested; `png` and `jpg` are also accepted), and the
+  server serves what it stored.
 - Writes are atomic (a temporary file, then a rename), and the record is set only after the file exists. A record
   whose file is missing (a save copied without its images) is treated as no portrait and rebuilt.
 - Deleting a save does not delete images; they are the library.
@@ -151,19 +159,23 @@ The bytes are not in the save (a save is JSON and stays small). They go in a sha
 The prompt is built in `aigm/art.py` from three parts, in this order, by one function that tests can call:
 
 1. **Style direction**: the chosen style's text, the same for every character of the game.
-2. **Framing**: fixed text for every portrait: a head-and-shoulders portrait, facing the viewer at a slight angle, the
-   character centered with the head fully in frame, a plain simple background that suits the style, no text, no
-   caption, no border, no watermark, no other people.
-3. **The character**: the Look's `description` (the summary first, as a one-line anchor), followed by the controlled
-   tags that help a model most (ancestry, age, gender, build), because tags survive where prose is skimmed.
+2. **Framing**: fixed text for every portrait: a tight head-and-shoulders identity portrait, the face about half the
+   picture's height, cropped at the collarbone, nothing below the shoulders shown, a plain empty out-of-focus
+   background that ignores any place the Look mentions, no text, no border, no watermark, no other people.
+3. **The character**: the Look's summary as a one-line anchor, the controlled tags that help a model most (ancestry,
+   age, gender, build), because tags survive where prose is skimmed, and then the `description`.
+4. **A reminder**: one closing line, "render all of this strictly in the style described first". Without it the Look's
+   long, realistic description pulled every style toward a realistic painting (section 15).
 
 Rules:
 
 - **Only the Look.** No facts, no sheet, no secret and no GM note enter the prompt, so a portrait can show nothing the
   Look does not say. The Look is already written to contain only what anyone could see ([LOOKS.md](LOOKS.md) 3.1).
-- **Name stays out.** The prompt uses "the character", never the name, so a famous name cannot pull the face toward a
-  real person or a franchise.
-- **Clothing and gear** are used as the Look gives them; the framing keeps only what is above the chest in view.
+- **Name stays out.** A Look's text names its character (its rules require it), so the pipeline replaces the name, its
+  aliases and each non-title word of them with "the character" before building the prompt (`scrub_name`). Shared
+  titles such as "marshal" stay as roles. A famous name cannot then pull the face toward a real person or a franchise.
+- **Clothing and gear** are used as the Look gives them; the framing keeps only what is above the chest in view, and
+  the framing's "ignore any place" line keeps a guardroom in the description from becoming the background.
 - The prompt is stored with the image (6.3), so a surprising picture can be explained.
 - Length is kept under the model's limit by dropping the tags first, then trimming the description's tail.
 
@@ -177,9 +189,9 @@ models do not promise the same face across calls and this design does not try; i
 A character needs one when **all** hold:
 
 - portraits are on and the game's style is not `"none"`;
-- they have a Look, and it is not `provisional` for a party member (party Looks are written from Session 0 text, so
-  they are `fixed`); an NPC is considered once it is visible to the player (the compendium rule, so a portrait is never
-  paid for before the player could see the character; this is the cost control for NPCs);
+- they have a Look. A party member's Look counts whether it is `provisional` or `fixed` (the player sees their own
+  characters from the start). An NPC is considered once it is visible to the player (the compendium rule, so a
+  portrait is never paid for before the player could see the character; this is the cost control for NPCs);
 - they have no `ready` portrait made from the current Look revision, or a `failed` one that is due for a retry.
 
 Order: party members in party order, then NPCs present in the scene, then other visible NPCs, newest first.
@@ -302,15 +314,16 @@ Each step leaves the suites green and is useful alone.
    the configured model accepts, the response shape, the file format and size, and the cost. Write `art.py` (catalog,
    defaults, prompt builder) and tune the style texts from the results. Record findings in this document.
    *Done when* twelve samples (one per style) look like sets and the catalog is final.
-2. **Pipeline for the party.** `Portrait` record, `GameState.portraits`, save format 11, the image folder, the fake
-   generator, `portraits_due` and `run_portraits`, the pending-work plumbing, failures and staleness, and the hook
-   in `curate()`. *Done when* a `--test` game produces portraits for the party on disk.
-3. **Style in Session 0.** `GameState.art_style`, `set_art_style`, the prompt step, `/status` carrying the style.
-4. **API and app.** The `portrait` field on the character page, `GET /portraits/{id}`, `/health`, and the app's
-   status tab with polling and the initials fallback. Update API.md and the README. *Done when* a real game shows its
-   party's portraits.
-5. **NPCs.** `Entity.portrait`, the visibility rule, the compendium field and the app's entry, and the
-   ordering. Live pass on a real save, as for the Looks.
+2. **Pipeline for the party** (done, section 16). `Portrait` record, `GameState.portraits`, save format 11, the image
+   folder, the fake generator, the "who is due" rules and the sweep, the pending-work plumbing, failures and
+   staleness, and the hook in `curate()`. *Done when* a `--test` game produces portraits for the party on disk.
+3. **Style in Session 0** (done, section 17). `set_art_style`, the prompt step, `/status` carrying the style.
+   (`GameState.art_style` itself came with step 2.)
+4. **API and app** (done, section 18; the compendium half waits for step 5). The `portrait` field on the character
+   page, `GET /portraits/{file}`, `/health`, and the app's status tab with polling and the initials fallback. Update
+   API.md and the README. *Done when* a real game shows its party's portraits.
+5. **NPCs** (done, section 19; the live pass is still to do). `Entity.portrait`, the visibility rule, the compendium
+   field and the app's entry, and the ordering. Live pass on a real save, as for the Looks.
 6. **Later, not planned here:** the large view, regenerate on request, reference images for a more consistent face, the
    similarity library, terminal graphics.
 
@@ -340,3 +353,106 @@ Open:
    most one per character per 20 turns). A per-game cap, and for a hosted product a per-account budget
    ([TURN_COST.md](TURN_COST.md)), are left for later.
 6. **Regenerate on request** ("I do not like this one"), and how many tries a player gets.
+
+## 15. Step 1 findings
+
+Built: the settings (`openai_api_key`, `image_model`, `images`, `image_size`, `image_quality`, `portraits_on`),
+`server/src/aigm/art.py` (the catalog, ruleset defaults, `resolve_style`, `scrub_name`, `build_prompt`, `image_id`),
+and `server/src/aigm/images.py` (`OpenAIImages`, `FakeImages`, `ImageError`, `make_images`). Tests: `tests/test_art.py`
+and `tests/test_images.py`. Findings from real calls to `gpt-image-2.5-sunburst`, run on a copy of the Aurendell save:
+
+- **Request:** `POST /v1/images/generations` with `model`, `prompt`, `size`, `n` works. The reply has `data[0].b64_json`
+  (no `url`), `output_format`, `quality`, `size`, `background` and a `usage` object. `output_format: webp`,
+  `output_compression: 80` and `quality: low` are all accepted.
+- **Defaults:** with no `quality` the model uses `low`.
+- **Size and time:** a 1024 x 1024 image takes 12 to 23 seconds. As png it is 2.7 MB; as webp at 80 it is 55 to 250 KB
+  (the pen-and-ink style is the largest). So the files are webp.
+- **Cost:** the reply reports 196 image output tokens for a `low` image at 1024 x 1024 plus about 35 input tokens, the
+  same for every style. It gives no price, so the dollar cost is not recorded here; multiply by the current price list.
+- **Errors:** one call in about thirty returned a 500 ("The server had an error"), which is the transient case of 8.3
+  and is retried. No moderation refusal happened in these calls.
+- **Framing needed work.** The first framing gave waist-up scenes in the guardroom the Look mentions. The tight framing
+  of section 7 and its "ignore any place" line fixed it.
+- **Style needed work.** The model leans realistic when the Look's description is long and photographic. Two changes
+  fixed most of it: the closing reminder line, and directions that say what a style is *not* ("not photorealistic",
+  "no color", "flat 2D"). With them the twelve styles are told apart at a glance: ink is true black and white, moody and
+  gouache differ by paint, vivid has glossy rim light, illustration a golden glow, modern a light airy daylight, anime
+  and clean are flat 2D, and storybook and sketch read as watercolor and graphite.
+- **Not tested:** a reference image for a stable face (open question 3), larger sizes, and `quality` above `low`
+  (`AIGM_IMAGE_QUALITY` is there to try it).
+
+## 16. Step 2 findings
+
+Built: `server/src/aigm/portraits.py` (`Portrait`, `Failure`, `ImageStore`, `is_due`, `PortraitService`),
+`GameState.art_style` and `GameState.portraits` (save format 11), `Session.pending_portraits` and `imaging`, the
+`image_store` and `portraits` services on the app, and the hook in `curate()`. `create_app` takes an `images`
+argument for tests. Tests: `tests/test_portraits.py`. In `--test` mode the fake generator makes a tiny solid-color png
+for each party member after the first turn, so the whole path runs without a key.
+
+- A real run (one image, a throwaway library) produced `p_<hash>.webp` and its `.json` notes, used the ruleset's
+  default style (`moody` for AD&D 2e) and was not due again afterwards.
+- Two characters whose Looks give the same prompt share one file, because the id is a hash of the prompt. Looks
+  differ in practice, and the name is scrubbed before hashing, so this only happens for genuinely identical text.
+- The sweep never holds up the curator: it has its own `imaging` flag, not `curating`, and it does not wait for the
+  session to be idle before starting, only before applying its results.
+- Not built yet: the Session 0 tool and prompt (step 3), the API, `GET /portraits/{file}` and the app (step 4).
+
+## 17. Step 3 findings
+
+Built: `server/src/aigm/tools/art_style.py` (the tool), `prompts/tools/set_art_style.md`, the Session 0 paragraph in
+`prompts/templates/art_style.md`, `PromptLibrary.art_section`, `Game(art_styles=...)`, and `art_style` on `GET
+/status`. Tests: `tests/test_art_style.py`.
+
+- The tool and the paragraph are offered only when the server makes portraits (`Game.art_styles`, true when there is
+  an image generator, which includes `--test` mode). Without portraits Session 0 is exactly as before.
+- The paragraph is filled for the chosen ruleset, so it names that ruleset's default style and lists the catalog from
+  `art.py`. It asks the GM to mention portraits once, in a line, and to call the tool only when the player picks
+  something else. A style chosen before a ruleset change stays; "default" returns to the ruleset's own.
+- The style is part of the game state, survives `begin_adventure`, and governs the party's portraits afterwards.
+- `GET /status` carries `art_style`: the style in use (the default resolved), or `null` for a game with none.
+- Not done: the roster (`GET /characters`) does not carry the style; the page of each character will carry its own
+  portrait in step 4.
+
+## 18. Step 4 findings
+
+Built, server: `PortraitService.view` (what a client is told: `ready` with its address, `pending`, or nothing) and
+`shown` (which file a session may serve), `portrait` on `GET /characters/{name}`, `GET /portraits/{file}`
+(`routes/portraits.py`), and `images` on `GET /health`. Built, app: `ApiClient.imageUrl`, a `Portrait` component
+(picture, or framed initials with "Painting a portrait..." while pending, and the same initials if the picture fails
+to load), the portrait beside the name and vitals on a character's status tab, and `StatusPanel` watching a pending
+portrait (every 5 seconds for at most 5 minutes, restarted by a refresh, stopped when the tab closes). Tests:
+`tests/test_portraits.py` (the last section), `tests/panels.test.ts` and an end-to-end check that the image loads.
+
+- **Pending means a picture is on the way.** A character whose retry is waiting out its two turns, whose attempts ran
+  out, or whose picture was refused shows nothing, so a client never polls for a portrait that is not coming.
+- **Only the current portrait is served.** The route answers 404, in the same words as for a name that does not exist,
+  for any other file in the library, so one game cannot read another's pictures or a replaced one by guessing.
+- The portrait shows at 160 px, or 120 px on a narrow window. It is not yet tappable for a large view.
+- **Still to do for the compendium:** NPC portraits and the field on `GET /compendium/entities/{id}` come with step 5.
+
+## 19. Step 5 findings
+
+Built: `Entity.portrait` (saved with the world, people only), `World.set_portrait` and the `SetPortrait` op, NPCs in
+`PortraitService.due_jobs`, `view_entity`, `portrait` on `GET /compendium/entities/{id}`, the image route serving a
+met person's picture, the portrait on the app's compendium entry, and `CompendiumPanel` watching a pending portrait
+like the status panel does. Tests: the last sections of `tests/test_portraits.py` and `tests/panels.test.ts`, and the
+end-to-end test.
+
+- **Who:** a person is considered once the player can see them in the compendium: they have a known fact or are in
+  the scene, and they have a Look. Someone only the GM knows about, however many hidden facts or a Look they have, gets
+  no picture and no entry. Their file is not served either, even by name.
+- **Order and size of a sweep:** the party first, then people in the scene, then the others newest first, four in all.
+  The sweep runs after every turn, so a crowd of new people is pictured over the next few turns.
+- **Applying:** a person's result goes through the world's own op list (`SetPortrait`), like Looks do, so it is applied
+  between turns with the other curator work and is dropped if the game was replaced.
+- **Failures:** recorded on the person, with the same waits and limits as for the party.
+- **Picture follows Look:** a provisional Look that the story revises gets a new picture after 20 turns; the old one
+  stays on the entry until then.
+- **A circular import** between the config, the world and the image module was broken by importing `Settings` in
+  `images.py` for type checking only.
+- **A stale entry, found in use.** The compendium panel caches each entry's details while it is open, and the refresh
+  after a turn keeps the cache. A portrait is only started after a turn, so an entry read earlier and left open could
+  keep showing "Painting a portrait..." after the picture existed, once the five minutes of watching had run out. Fixed:
+  an entry whose portrait is `pending` is never kept in the cache, and a refresh restarts the watching. The server
+  was right throughout (it reported `ready`); closing and reopening the compendium also cleared it.
+- **Not done:** pictures in the compendium list rows, and the large view.

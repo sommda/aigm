@@ -85,6 +85,11 @@ export class ApiClient {
     return (res.body ?? {}) as Json;
   }
 
+  /** The address of a server path the server handed out (a portrait's `url`), which is relative to the server. */
+  imageUrl(path: string): string {
+    return /^https?:\/\//.test(path) ? path : this.baseUrl + path;
+  }
+
   private session(): Record<string, string> {
     return { session_id: this.sessionId };
   }

@@ -10,7 +10,9 @@ from aigm.rulesets import BY_ID, DEFAULT_RULESET
 from aigm.story import ENDLESS, STRUCTURES, Story
 from aigm.compendium import Compendium
 from aigm.combat import Combat, read_combat
+from aigm import art
 from aigm.looks import Look, LookError, read_looks, validate
+from aigm.portraits import Portrait, read_portraits
 from aigm.sheets import Sheet, read_sheets
 from aigm.world import World
 
@@ -97,6 +99,10 @@ class GameState:
     look_hints: dict[str, str] = field(default_factory=dict, compare=False)
     # Each party member's Look, by name (docs/LOOKS.md 8). NPCs' Looks are on their entities in the world.
     looks: dict[str, Look] = field(default_factory=dict)
+    # The art style of the game's portraits (docs/PORTRAITS.md 5.2): None is the ruleset's default, "none" no portraits.
+    art_style: str | None = None
+    # Each party member's portrait record, by name, like `looks` (docs/PORTRAITS.md 6.2).
+    portraits: dict[str, Portrait] = field(default_factory=dict)
 
     @property
     def party_names(self) -> list[str]:
@@ -153,6 +159,8 @@ class GameState:
             set(self.social_done),
             look_hints=dict(self.look_hints),
             looks={n: lk.copy() for n, lk in self.looks.items()},
+            art_style=self.art_style,
+            portraits={n: p.copy() for n, p in self.portraits.items()},
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -168,6 +176,8 @@ class GameState:
             "sheets": {n: s.to_dict() for n, s in self.sheets.items()},
             "combat": self.combat.to_dict() if self.combat else None,
             "looks": {n: lk.to_dict() for n, lk in self.looks.items()},
+            "art_style": self.art_style,
+            "portraits": {n: p.to_dict() for n, p in self.portraits.items()},
         }
 
     @classmethod
@@ -198,9 +208,13 @@ class GameState:
             raise CorruptSave(f"a {structure} game cannot have a {story.length} story")
         if phase is Phase.SESSION_ZERO and story is not None:
             raise CorruptSave("a session_zero save cannot have a story")
+        art_style = data.get("art_style")  # none before version 11
+        if art_style is not None and art_style != art.NO_PORTRAITS and art_style not in art.BY_ID:
+            raise CorruptSave(f"unknown art style {art_style!r}")
         heroes = _read_heroes(data.get("heroes"))  # saves before version 5 have none
         return cls(phase, campaign, world, ruleset, structure=structure, story=story, heroes=heroes,
                    compendium=Compendium.from_dict(data.get("compendium")),  # none before version 6
                    sheets=read_sheets(data.get("sheets")),  # none before version 8
                    combat=read_combat(data.get("combat")),  # none before version 9
-                   looks=read_looks(data.get("looks")))  # none before version 10
+                   looks=read_looks(data.get("looks")),  # none before version 10
+                   art_style=art_style, portraits=read_portraits(data.get("portraits")))  # none before version 11

@@ -8,9 +8,11 @@ from aigm.llm.base import LLMClient
 from aigm.llm.ollama_client import OllamaLLM
 from aigm.llm.scripted import ScriptedLLM
 from aigm.game import Game
+from aigm.images import Images, make_images
 from aigm.metrics import MetricsLog
+from aigm.portraits import ImageStore, PortraitService
 from aigm.prompts import PromptLibrary
-from aigm.routes import characters, chat, compendium, debug, health, history, status
+from aigm.routes import characters, chat, compendium, debug, health, history, portraits, status
 from aigm.session.persistence import HistoryRepository
 from aigm.session.store import SessionStore
 from aigm.world.anthropic_curator import AnthropicCurator
@@ -24,14 +26,22 @@ TEST_MODEL_NAME = "scripted-test"
 
 
 def create_app(
-    settings: Settings | None = None, llm: LLMClient | None = None, curator: CuratorService | None = None
+    settings: Settings | None = None,
+    llm: LLMClient | None = None,
+    curator: CuratorService | None = None,
+    images: Images | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     app = FastAPI(title="AIGM", version="0.1.0")
     app.state.settings = settings
     app.state.sessions = SessionStore()
     app.state.repo = HistoryRepository(settings.save_dir)
-    app.state.game = Game(PromptLibrary(settings.prompt_dir), settings.world_briefing_tokens, settings.history_policy, settings.story_nudge_turns)  # prompts are read at startup; restart to pick up edits
+    generator = images if images is not None else make_images(settings)
+    # prompts are read at startup; restart to pick up edits
+    app.state.game = Game(
+        PromptLibrary(settings.prompt_dir), settings.world_briefing_tokens, settings.history_policy,
+        settings.story_nudge_turns, art_styles=generator is not None,
+    )  # fmt: skip
     if llm is None:
         if settings.test_mode:
             llm = ScriptedLLM(delay=settings.test_delay, chunk_size=settings.test_chunk_size)
@@ -56,6 +66,10 @@ def create_app(
     app.state.metrics = MetricsLog(settings.save_dir / "metrics" if settings.metrics else None)
     app.state.dumper = WorldDumper(settings.save_dir / "worlds", settings.world_dump)
     app.state.curator = curator if curator is not None else _make_curator(settings, app.state.game.prompts)
+    app.state.image_store = ImageStore(settings.save_dir / "images")
+    app.state.portraits = (
+        PortraitService(generator, app.state.image_store, settings.image_size, settings.image_quality) if generator else None
+    )
     app.state.model_name = TEST_MODEL_NAME if settings.test_mode else settings.model
 
     install_error_handlers(app)
@@ -71,6 +85,7 @@ def create_app(
     app.include_router(compendium.router)
     app.include_router(status.router)
     app.include_router(characters.router)
+    app.include_router(portraits.router)
     if settings.debug:  # without it the path does not exist at all
         app.include_router(debug.router)
     return app

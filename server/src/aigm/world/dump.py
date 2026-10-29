@@ -84,6 +84,8 @@ def dump_world(world: World, *, known_only: bool = False, session_id: str | None
         entry["discovered"] = ent.discovered
         if ent.look and not known_only:  # a Look is not something the player was told (docs/LOOKS.md 9)
             entry["look"] = ent.look.to_dict()
+        if ent.portrait and not known_only:
+            entry["portrait"] = ent.portrait.to_dict()
         entry["facts"] = [fact_line(world, f) for f in shown]
         if replaced:
             entry["superseded"] = [fact_line(world, f) for f in replaced]

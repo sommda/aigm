@@ -3,7 +3,7 @@ import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 import { HIDDEN, TITLES } from "../core/compendiumModel";
 import { Json } from "../core/events";
 import { CompendiumPanel } from "../core/panels";
-import { Button, Heading, LookBlock, TabBar } from "./controls";
+import { Button, Heading, LookBlock, Portrait, TabBar } from "./controls";
 import { color, font, radius, selectable, space } from "./theme";
 import { useStore } from "./useStore";
 
@@ -58,6 +58,11 @@ function Detail({ panel }: { panel: CompendiumPanel }) {
         {String(d.name)}
         <Text style={styles.kind}>{`  ${d.kind ?? ""}`}</Text>
       </Text>
+      {d.portrait ? (
+        <View style={{ marginVertical: space.sm, alignSelf: "flex-start" }}>
+          <Portrait portrait={d.portrait} name={String(d.name)} alt={(d.look as Json | null)?.summary as string | undefined} resolve={(p) => panel.imageUrl(p)} />
+        </View>
+      ) : null}
       {path ? <Text style={styles.dim}>{"in " + path}</Text> : null}
       {(d.aliases as string[] | undefined)?.length ? <Text style={styles.dim}>{"also called: " + (d.aliases as string[]).join(", ")}</Text> : null}
       <LookBlock look={d.look} />

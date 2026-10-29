@@ -3,6 +3,7 @@ from typing import Any
 from aigm.prompts import PromptLibrary
 from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
+from aigm.tools.art_style import SET_ART_STYLE
 from aigm.tools.award import AWARD
 from aigm.tools.begin_adventure import BEGIN_ADVENTURE
 from aigm.tools.combat import SET_COMBAT
@@ -15,18 +16,22 @@ from aigm.tools.story import END_STORY
 from aigm.tools.structure import SET_STRUCTURE
 from aigm.tools.world import ESTABLISH, RECALL, SET_SCENE
 
-REGISTRY: dict[str, Tool] = {t.schema["name"]: t for t in (ROLL_DICE, SET_RULESET, SET_STRUCTURE, BEGIN_ADVENTURE, RECALL, ESTABLISH, SET_SCENE, UPDATE_CHARACTER, SET_COMBAT, SET_MOTIVE, SOCIAL_CHECK, AWARD, END_STORY)}
+REGISTRY: dict[str, Tool] = {t.schema["name"]: t for t in (ROLL_DICE, SET_RULESET, SET_ART_STYLE, SET_STRUCTURE, BEGIN_ADVENTURE, RECALL, ESTABLISH, SET_SCENE, UPDATE_CHARACTER, SET_COMBAT, SET_MOTIVE, SOCIAL_CHECK, AWARD, END_STORY)}
 
 
 def tool_schemas(
-    prompts: PromptLibrary | None = None, phase: Phase = Phase.ADVENTURE, structured: bool = False
+    prompts: PromptLibrary | None = None,
+    phase: Phase = Phase.ADVENTURE,
+    structured: bool = False,
+    art_styles: bool = False,
 ) -> list[dict[str, Any]]:
     """Tool definitions offered to the model in a phase, with descriptions loaded from prompt files.
-    A story game (`structured`) also gets the story tools and the story fields of the others."""
+    A story game (`structured`) also gets the story tools and the story fields of the others, and a server that makes
+    portraits (`art_styles`) the art style tool."""
     prompts = prompts or PromptLibrary()
     out = []
     for name, tool in REGISTRY.items():
-        if phase not in tool.phases or (tool.story_only and not structured):
+        if phase not in tool.phases or (tool.story_only and not structured) or (tool.needs_art and not art_styles):
             continue
         description = prompts.tool_description(name)
         input_schema = tool.schema["input_schema"]

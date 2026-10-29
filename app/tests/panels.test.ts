@@ -55,6 +55,158 @@ describe("StatusPanel", () => {
   });
 });
 
+describe("StatusPanel portraits", () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  function painting(states: (object | null)[]) {
+    let n = 0;
+    const t = server({
+      "GET /characters/Kit%20Harrow": () => ({
+        status: 200,
+        body: { name: "Kit Harrow", hp: "10/10", portrait: states[Math.min(n++, states.length - 1)] },
+      }),
+    });
+    return { t, count: () => t.calls.filter((c) => c.url.includes("/characters/Kit")).length };
+  }
+
+  test("a pending portrait is looked for again until it is ready", async () => {
+    const { t, count } = painting([{ state: "pending" }, { state: "pending" }, { state: "ready", url: "/portraits/p.webp" }]);
+    const p = new StatusPanel(apiWith(t), "kit");
+    await p.load();
+    expect(count()).toBe(1);
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(count()).toBe(2);
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(count()).toBe(3);
+    expect(p.model.page).toMatchObject({ portrait: { state: "ready" } });
+    await jest.advanceTimersByTimeAsync(60000); // ready: it stops asking
+    expect(count()).toBe(3);
+  });
+
+  test("it gives up after five minutes, and starts over when the player refreshes", async () => {
+    const { t, count } = painting([{ state: "pending" }]);
+    const p = new StatusPanel(apiWith(t), "kit");
+    await p.load();
+    await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(count()).toBe(61);
+    await p.load();
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(count()).toBe(63);
+    p.stop();
+  });
+
+  test("nothing is polled when there is no portrait coming, on the place tab, or after stop()", async () => {
+    const none = painting([null]);
+    const a = new StatusPanel(apiWith(none.t), "kit");
+    await a.load();
+    await jest.advanceTimersByTimeAsync(30000);
+    expect(none.count()).toBe(1);
+
+    const wait = painting([{ state: "pending" }]);
+    const b = new StatusPanel(apiWith(wait.t), "kit");
+    await b.load();
+    b.stop();
+    await jest.advanceTimersByTimeAsync(30000);
+    expect(wait.count()).toBe(1);
+
+    const place = new StatusPanel(apiWith(wait.t));
+    await place.load();
+    await jest.advanceTimersByTimeAsync(30000);
+    expect(wait.count()).toBe(1);
+  });
+
+  test("a failed look does not show an error and the next one still happens", async () => {
+    let n = 0;
+    const t = server({
+      "GET /characters/Kit%20Harrow": () => (n++ === 1 ? { status: 500, body: {} } : { status: 200, body: { name: "Kit Harrow", portrait: { state: "pending" } } }),
+    });
+    const p = new StatusPanel(apiWith(t), "kit");
+    await p.load();
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(p.error).toBe("");
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(n).toBe(3);
+    p.stop();
+  });
+
+  test("a portrait address is made absolute from the server's", () => {
+    const p = new StatusPanel(apiWith(server()));
+    expect(p.imageUrl("/portraits/a.webp?session_id=s")).toBe("http://x/portraits/a.webp?session_id=s");
+    expect(p.imageUrl("https://cdn.test/a.webp")).toBe("https://cdn.test/a.webp");
+  });
+});
+
+describe("CompendiumPanel portraits", () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  function painting(states: (object | null)[]) {
+    let n = 0;
+    const t = server({
+      "GET /compendium/entities/e1": () => ({
+        status: 200,
+        body: { id: "e1", name: "Ashby", kind: "npc", facts: [], portrait: states[Math.min(n++, states.length - 1)] },
+      }),
+    });
+    return { t, count: () => t.calls.filter((c) => c.url.includes("/compendium/entities/e1")).length };
+  }
+
+  test("an entry whose portrait is pending is fetched again until it is ready", async () => {
+    const { t, count } = painting([{ state: "pending" }, { state: "ready", url: "/portraits/p.webp" }]);
+    const p = new CompendiumPanel(apiWith(t));
+    await p.load();
+    expect(count()).toBe(1);
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(count()).toBe(2);
+    expect(p.model.currentDetail).toMatchObject({ portrait: { state: "ready" } });
+    await jest.advanceTimersByTimeAsync(60000);
+    expect(count()).toBe(2);
+    await p.close();
+  });
+
+  test("after it gave up, a refresh fetches the entry again and finds the picture", async () => {
+    let ready = false;
+    const t = server({
+      "GET /compendium/entities/e1": () => ({
+        status: 200,
+        body: { id: "e1", name: "Ashby", kind: "npc", facts: [], portrait: ready ? { state: "ready", url: "/portraits/p.webp" } : { state: "pending" } },
+      }),
+    });
+    const p = new CompendiumPanel(apiWith(t));
+    await p.load();
+    await jest.advanceTimersByTimeAsync(10 * 60 * 1000); // five minutes of looking, nothing yet
+    ready = true; // the next turn's sweep made it
+    expect(p.model.currentDetail).toMatchObject({ portrait: { state: "pending" } });
+    await p.load(); // the refresh after a turn
+    expect(p.model.currentDetail).toMatchObject({ portrait: { state: "ready" } });
+    await p.close();
+  });
+
+  test("it stops after five minutes, when there is no portrait, and when the panel closes", async () => {
+    const wait = painting([{ state: "pending" }]);
+    const a = new CompendiumPanel(apiWith(wait.t));
+    await a.load();
+    await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(wait.count()).toBe(61);
+    await a.close();
+
+    const none = painting([null]);
+    const b = new CompendiumPanel(apiWith(none.t));
+    await b.load();
+    await jest.advanceTimersByTimeAsync(30000);
+    expect(none.count()).toBe(1);
+    await b.close();
+
+    const closed = painting([{ state: "pending" }]);
+    const c = new CompendiumPanel(apiWith(closed.t));
+    await c.load();
+    await c.close();
+    await jest.advanceTimersByTimeAsync(30000);
+    expect(closed.count()).toBe(1);
+  });
+});
+
 describe("CompendiumPanel", () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());

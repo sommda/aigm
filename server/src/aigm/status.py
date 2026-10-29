@@ -6,6 +6,7 @@ discovered, and a fact that is not known, never appear."""
 
 from typing import Any
 
+from aigm import art
 from aigm.characters import hp_text
 from aigm.combat import ALLY
 from aigm.compendium import _path, _ref, _summary, _visible, known_facts
@@ -111,4 +112,5 @@ def build(state: GameState) -> dict[str, Any]:
         "exits": exits,
         "combat": {"foes": sum(c.count for c in state.combat.combatants if c.side != ALLY)} if state.combat else None,
         "table": {"columns": columns, "rows": rows},
+        "art_style": style.id if (style := art.resolve_style(state.art_style, state.ruleset)) else None,
     }

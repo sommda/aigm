@@ -18,7 +18,7 @@ def history(client, sid="default"):
 
 
 def test_health_reports_test_mode(client):
-    assert client.get("/health").json() == {"status": "ok", "model": "scripted-test", "debug": False, "compendium": True, "status": True}
+    assert client.get("/health").json() == {"status": "ok", "model": "scripted-test", "debug": False, "compendium": True, "status": True, "images": True}
 
 
 def test_echo_turn_event_order_and_history(client):

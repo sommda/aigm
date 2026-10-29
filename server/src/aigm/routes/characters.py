@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Request
 
 from aigm import characters
 from aigm.deps import get_session
@@ -26,9 +26,12 @@ def party(session: SessionDep) -> dict[str, Any]:
 
 
 @router.get("/{name}")
-def sheet(session: SessionDep, name: Annotated[str, Path(min_length=1, max_length=80)]) -> dict[str, Any]:
+def sheet(
+    request: Request, session: SessionDep, name: Annotated[str, Path(min_length=1, max_length=80)]
+) -> dict[str, Any]:
     _adventure(session)
     page = characters.detail(session.state, name)
     if page is None:
         raise NotFound(f"No party member named {name!r}")
-    return {"session_id": session.id, **page}
+    portraits = request.app.state.portraits
+    return {"session_id": session.id, **page, "portrait": portraits.view(session, page["name"]) if portraits else None}

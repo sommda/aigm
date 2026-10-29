@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { color, font, radius, selectable, space } from "./theme";
 
 export function Button({
@@ -86,6 +86,58 @@ export function Heading({ children }: { children: ReactNode }) {
   return <Text style={styles.heading}>{children}</Text>;
 }
 
+/** The letters in the frame shown while a portrait is on its way, or when its picture cannot be shown. */
+export function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+}
+
+/**
+ * A character's portrait (the `portrait` of a character or compendium page): the picture once it is ready, a framed
+ * set of initials while it is being painted, and nothing at all when none is coming. A picture that fails to load
+ * falls back to the initials, never an error.
+ */
+export function Portrait({
+  portrait,
+  name,
+  alt,
+  resolve,
+}: {
+  portrait: unknown;
+  name: string;
+  alt?: string;
+  resolve: (path: string) => string;
+}) {
+  const p = portrait as { state?: string; url?: string } | null | undefined;
+  const [broken, setBroken] = useState(false);
+  const { width } = useWindowDimensions();
+  const size = width < 600 ? 120 : 160;
+  useEffect(() => setBroken(false), [p?.url]);
+  if (!p || (p.state !== "ready" && p.state !== "pending")) return null;
+  const frame = { width: size, height: size };
+  if (p.state === "ready" && p.url && !broken) {
+    return (
+      <Image
+        testID="portrait"
+        source={{ uri: resolve(p.url) }}
+        style={[styles.portrait, frame]}
+        accessibilityLabel={alt || name}
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+  return (
+    <View testID="portrait-placeholder" style={[styles.portrait, styles.frame, frame]}>
+      <Text style={styles.initials}>{initials(name)}</Text>
+      {p.state === "pending" ? <Text style={styles.painting}>Painting a portrait…</Text> : null}
+    </View>
+  );
+}
+
 /** How a person looks (the `look` of a character or compendium page); nothing when there is none. */
 export function LookBlock({ look }: { look: unknown }) {
   const l = look as { summary?: string; description?: string } | null | undefined;
@@ -99,6 +151,10 @@ export function LookBlock({ look }: { look: unknown }) {
 }
 
 const styles = StyleSheet.create({
+  portrait: { borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.panelAlt },
+  frame: { alignItems: "center", justifyContent: "center" },
+  initials: { color: color.dim, fontFamily: font.story, fontSize: 40 },
+  painting: { color: color.dim, fontFamily: font.ui, fontSize: 11, marginTop: space.xs, textAlign: "center" },
   look: { color: color.text, fontFamily: font.story, fontSize: 15, lineHeight: 22 },
   button: {
     paddingHorizontal: space.md,

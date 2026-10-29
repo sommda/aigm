@@ -106,7 +106,7 @@ def test_save_after_begin_keeps_the_campaign(client, settings):
     client.post("/history/adv/restore")
     phase, campaign = state_of(client)
     assert phase == "adventure" and len(campaign["party"]) == 1 and "Rusty Flagon" in campaign["opening"]
-    assert json.loads((settings.save_dir / "adv.json").read_text())["version"] == 10
+    assert json.loads((settings.save_dir / "adv.json").read_text())["version"] == 11
 
 
 def test_old_saves_without_state_load_as_adventure(client, settings):

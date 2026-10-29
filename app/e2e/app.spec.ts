@@ -65,6 +65,17 @@ test("the tabs share the screen with the story", async ({ page }) => {
   expect(t.height).toBeLessThan(story!.height);
   await page.screenshot({ path: "e2e/shots/status-open.png" });
 
+  // the party member's tab shows the portrait the server made for them, or the placeholder while it is painted
+  await page.getByTestId("tab-c:Test Hero").click();
+  await expect(page.getByTestId("status-view")).toContainText("Test Hero");
+  const portrait = page.getByTestId("portrait");
+  await expect(portrait).toBeVisible({ timeout: 20_000 });
+  const img = portrait.locator("img");
+  expect(await img.getAttribute("src")).toContain("/portraits/p_");
+  expect(await img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+  await page.screenshot({ path: "e2e/shots/status-portrait.png" });
+  await page.getByTestId("tab-status").click();
+
   // the player can keep playing with the tab open
   await say(page, "echo still playing");
   await expect(page.getByTestId("transcript")).toContainText("still playing");
@@ -78,6 +89,15 @@ test("the tabs share the screen with the story", async ({ page }) => {
   await page.locator('[data-testid^="entry-"]').first().click();
   await expect(page.getByTestId("compendium-detail")).toBeVisible();
   await page.screenshot({ path: "e2e/shots/compendium-open.png" });
+
+  // a person's entry shows the portrait made for them
+  await page.getByTestId("tab-characters").click();
+  await page.locator('[data-testid^="entry-"]').first().click();
+  const npc = page.getByTestId("compendium-detail").getByTestId("portrait");
+  await expect(npc).toBeVisible({ timeout: 20_000 });
+  expect(await npc.locator("img").getAttribute("src")).toContain("/portraits/p_");
+  expect(await npc.locator("img").evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+  await page.screenshot({ path: "e2e/shots/compendium-portrait.png" });
 
   await page.getByTestId("dock-close").click();
   await expect(dock).toBeHidden();

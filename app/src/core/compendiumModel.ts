@@ -64,7 +64,9 @@ export class CompendiumModel {
       return;
     }
     const known = new Set(TABS.flatMap((t) => this.lists[t].map(idOf)));
-    this.details = Object.fromEntries(Object.entries(this.details).filter(([k]) => known.has(k)));
+    // an entry whose portrait is still being painted is always fetched again: the picture may be there by now
+    const waiting = (d: Json) => (d.portrait as { state?: string } | null | undefined)?.state === "pending";
+    this.details = Object.fromEntries(Object.entries(this.details).filter(([k, d]) => known.has(k) && !waiting(d)));
   }
 
   indexOf(category: string, id: string | null): number {

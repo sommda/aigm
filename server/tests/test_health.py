@@ -5,7 +5,7 @@ from aigm.config import Settings
 
 
 def test_health():
-    client = TestClient(create_app(Settings(model="test-model")))
+    client = TestClient(create_app(Settings(model="test-model", _env_file=None)))
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok", "model": "test-model", "debug": False, "compendium": True, "status": True}
+    assert resp.json() == {"status": "ok", "model": "test-model", "debug": False, "compendium": True, "status": True, "images": False}

@@ -56,6 +56,7 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | GET    | `/compendium/{category}`      | The known locations, characters or other things      | JSON       |
 | GET    | `/compendium/entities/{id}`   | What the player knows about one entity               | JSON       |
 | POST   | `/compendium/seen`            | Mark compendium entries as read                      | JSON       |
+| GET    | `/portraits/{file}`           | A character's portrait image (docs/PORTRAITS.md)     | image      |
 | GET    | `/debug/context`              | The next request's context (**debug mode only**)     | JSON       |
 | GET    | `/debug/story`                | The whole story plan (**debug mode only**)           | JSON       |
 | GET    | `/debug/hidden`               | Entities with hidden facts (**debug mode only**)     | JSON       |
@@ -588,10 +589,12 @@ Errors: `400` invalid name; `404` no such history. There is no endpoint that del
 
 ## GET `/health`
 
-Response `200`: `{ "status": "ok", "model": "claude-sonnet-5-5", "debug": false, "compendium": true, "status": true }`
+Response `200`: `{ "status": "ok", "model": "claude-sonnet-5-5", "debug": false, "compendium": true, "status": true,
+"images": true }`
 
 `compendium` is `true` when the server has the compendium endpoints below, and `status` when it has `GET /status`;
-older servers leave them out.
+older servers leave them out. `images` is `true` when the server makes character portraits (docs/PORTRAITS.md: an
+image key and model are set, or it is in test mode); clients that care treat a missing value as `false`.
 
 `debug` is `true` when the server was started with `--debug` (or `AIGM_DEBUG=true`). Clients use it to decide whether
 to offer the context viewer and the thinking switch; it does not grant access by itself. In debug mode the response
@@ -629,10 +632,13 @@ asks for it when the screen opens or is refreshed; it is never pushed.
       ["Toby", "11/15", "prone", "Party, level 3"],
       ["Elian", "-", "-", "A merchant who needs a crate moved."]
     ]
-  }
+  },
+  "art_style": "modern"
 }
 ```
 
+- `art_style` is the id of the art style of the game's character portraits (docs/PORTRAITS.md), or `null` when the
+  player chose no portraits.
 - `location` is `null` when no place is recorded; then `here`, `items`, `inside` and `exits` are empty.
   `overview` is `null` until a description of the place has been written.
 - `path` is the places that contain it, outermost first, up to the first one the player does not know.
@@ -672,12 +678,28 @@ One character (the name is matched without regard to case; `404` for anyone who 
     { "title": "Equipment", "lines": ["Shortsword", "Thieves' tools", "12 gp, 4 sp"] }
   ],
   "text": null,
-  "look": { "summary": "A lean man with a broken nose.", "description": "Toby is a lean man of about thirty ..." }
+  "look": { "summary": "A lean man with a broken nose.", "description": "Toby is a lean man of about thirty ..." },
+  "portrait": { "state": "ready", "url": "/portraits/p_3fa9c1d2e8b7a640.webp?session_id=default", "style": "modern" }
 }
 ```
 
 `look` is how the character appears (docs/LOOKS.md), written from what the player chose; it is `null` until one has
 been written.
+
+`portrait` is the character's generated headshot (docs/PORTRAITS.md), made in the background after the Look is
+written: `null` when the game has none and none is coming (portraits are off, the player chose none, or the attempt
+failed and is not being retried); `{ "state": "pending", "style": "modern" }` while one is on the way; and
+`"state": "ready"` with a `url` when it exists. `url` is a path on this server, ready to fetch, and a client that
+shows a pending portrait asks for the page again every few seconds for a few minutes. A new `url` replaces the old one
+when a revised Look gets a new picture.
+
+### GET `/portraits/{file}`
+
+The image behind a `portrait.url`: the bytes, with `Content-Type` `image/webp`, `image/png` or `image/jpeg` and
+`Cache-Control: private, max-age=31536000, immutable` (the file name is a hash of what made the picture, so a name
+never changes meaning). It takes the usual `session_id` query parameter. `404 not_found` (the same answer for a name
+that does not exist) for any picture the game does not show its player: only a party member's current portrait is
+served.
 
 `sections` are written by the model for the game's ruleset and the character's class, so their titles and lines
 differ between rulesets; clients print them in order and never interpret them. When no tidy sheet exists (the step
@@ -772,6 +794,7 @@ otherwise. `status` is `"new"`, `"updated"` or `null`.
   ],
   "related": [{ "id": "e020", "name": "Thorn Guild", "kind": "faction", "category": "other" }],
   "look": null,
+  "portrait": null,
   "learned_turn": 31,
   "updated_turn": 48
 }
@@ -781,6 +804,9 @@ otherwise. `status` is `"new"`, `"updated"` or `null`.
 when none is written yet. A person the player has met but knows nothing about has an entry with no `facts` and only
 a `look` (its list `summary` is the Look's summary, `fact_count` is `0`, `status` is `null`).
 
+`portrait` is the person's generated headshot, in the same form as on the character page above: `null` for anything
+that is not a person and for a person with none coming, `pending` while one is on the way, and `ready` with a `url`
+for `GET /portraits/{file}`. That route serves a person's picture only once they have an entry here.
 `facts` read subject facts first, then mentions, each in the order of the kind's checklist. `404` for an id that does
 not exist and, with the same message, for one the player has not discovered. A malformed id is `422`. A fact's `via`
 lists the party members whose starting knowledge it is (usually empty; never anything but party member names).

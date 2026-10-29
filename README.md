@@ -29,6 +29,7 @@ cp server/.env.example server/.env   # then edit it
 | `AIGM_THINKING_SUMMARIES` | `true` | Ask the model for adaptive thinking with readable summaries. Set `false` for models without adaptive thinking (e.g. Haiku 4.5) |
 | `AIGM_EFFORT` | (model default) | Thinking depth: `low`, `medium`, `high`, `xhigh`, `max` |
 | `AIGM_STREAM_THINKING` | `true` | Forward reasoning text to the client |
+| `OPENAI_API_KEY` / `IMAGE_MODEL` | (none) | Turn on character portraits: an OpenAI image model draws a headshot of each party member from their written description, in an art style chosen in Session 0 (see [docs/PORTRAITS.md](docs/PORTRAITS.md)). Both must be set; the description (never the name) is sent to OpenAI. `AIGM_IMAGES=false` switches them off; the graphical client shows them, the terminal client does not |
 | `AIGM_DEBUG` | `false` | Same as `aigm --debug`: let a client inspect the full model context (shows spoilers; see [docs/CONTEXT.md](docs/CONTEXT.md)) |
 | `AIGM_HISTORY_TRIM` / `AIGM_HISTORY_DIGEST` | `true` / `true` | Old turns are trimmed (thinking dropped) or replaced by short digests in what the model is sent; saves keep everything (see [docs/HISTORY.md](docs/HISTORY.md)) |
 | `AIGM_HISTORY_TRIM_KEEP` / `_STEP`, `AIGM_HISTORY_DIGEST_KEEP` / `_STEP` | `4` / `6`, `12` / `12` | How many recent turns stay untouched, and how many turns the cut moves at a time (keeps the prompt cache warm) |

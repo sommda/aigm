@@ -8,6 +8,7 @@ merged) skips it instead of failing, so replaying them is safe."""
 from dataclasses import dataclass, field
 
 from aigm.looks import Look
+from aigm.portraits import Portrait
 from aigm.world.digest import Digest
 from aigm.world.model import World, WorldError
 from aigm.world.text import normalize_text
@@ -141,6 +142,14 @@ class SetLook:
 
 
 @dataclass
+class SetPortrait:
+    """Record a person's new portrait, or the failure to make one (docs/PORTRAITS.md 8). It replaces the old record."""
+
+    entity: str  # name or id
+    portrait: Portrait
+
+
+@dataclass
 class ReviseLook:
     """Replace a person's Look with its next revision. Skipped if the Look has changed since it was read."""
 
@@ -150,7 +159,7 @@ class ReviseLook:
 
 Op = (
     AddEntity | AddAlias | AddFact | Supersede | Reveal | SetScene | SettleTime | StartClock | Correct | MarkProcessed
-    | AddDigest | AddMotive | ShiftMotive | ResolveMotive | DiscloseMotive | SetLook | ReviseLook
+    | AddDigest | AddMotive | ShiftMotive | ResolveMotive | DiscloseMotive | SetLook | ReviseLook | SetPortrait
 )
 
 
@@ -300,5 +309,11 @@ def _apply(world: World, op: Op) -> bool:
         if ent.look.rev != op.look.rev - 1:
             return False  # someone else changed it first
         world.set_look(ent.id, op.look)
+        return True
+    if isinstance(op, SetPortrait):
+        ent = world.resolve(op.entity)
+        if ent is None:
+            raise WorldError(f"unknown entity {op.entity!r}")
+        world.set_portrait(ent.id, op.portrait)
         return True
     raise WorldError(f"unknown op {op!r}")

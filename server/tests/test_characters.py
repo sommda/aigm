@@ -85,7 +85,7 @@ def test_an_old_save_has_no_sheets_and_a_bad_one_is_refused():
 
 
 def test_the_format_is_eight():
-    assert FORMAT_VERSION == 10
+    assert FORMAT_VERSION == 11
 
 
 # ---- the sheet step -------------------------------------------------------------------------

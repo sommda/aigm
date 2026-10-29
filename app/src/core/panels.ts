@@ -33,11 +33,16 @@ function unavailable(e: unknown, what: string): string {
   return `Could not load the ${what}: ${String(e)}`;
 }
 
+const PORTRAIT_POLL_MS = 5000;
+const PORTRAIT_POLLS = 60; // five minutes
+
 export class StatusPanel extends Notifier {
   model = new StatusModel();
   error = "";
   loading = false;
   private startCharacter: string | undefined;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private polls = 0;
 
   constructor(
     private api: ApiClient,
@@ -47,9 +52,47 @@ export class StatusPanel extends Notifier {
     this.startCharacter = character;
   }
 
+  /** Where a portrait's server path can be fetched from. */
+  imageUrl(path: string): string {
+    return this.api.imageUrl(path);
+  }
+
+  /** Stop waiting for a portrait (the tab is closing). */
+  stop(): void {
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+    this.pollTimer = null;
+  }
+
+  /** While the open character's portrait is still being painted, look again every few seconds, for a few minutes. */
+  private watch(): void {
+    this.stop();
+    const page = this.model.page as { portrait?: { state?: string } } | undefined;
+    if (this.model.character && page?.portrait?.state === "pending" && this.polls < PORTRAIT_POLLS) {
+      this.pollTimer = setTimeout(() => void this.poll(), PORTRAIT_POLL_MS);
+    }
+  }
+
+  private async poll(): Promise<void> {
+    this.polls++;
+    const m = this.model;
+    const tab = m.tab;
+    const name = m.character;
+    try {
+      if (name) {
+        const page = await this.api.character(name);
+        if (m.tab === tab) m.load(tab, page);
+      }
+    } catch {
+      // the next look will tell; a failed poll is not shown
+    }
+    this.changed();
+    this.watch();
+  }
+
   /** Ask for the party (the tabs) and for the page that is showing. */
   async load(): Promise<void> {
     const m = this.model;
+    this.polls = 0;
     this.loading = true;
     this.changed();
     try {
@@ -69,6 +112,7 @@ export class StatusPanel extends Notifier {
     }
     this.loading = false;
     this.changed();
+    this.watch();
   }
 
   async switchTo(tab: string): Promise<void> {
@@ -91,6 +135,9 @@ export class CompendiumPanel extends Notifier {
   onCounts: ((counts: Json) => void) | null = null;
   /** Said when something the player asked for is not there. */
   notice = "";
+  private portraitTimer: ReturnType<typeof setTimeout> | null = null;
+  private portraitPolls = 0;
+  private portraitFor: string | null = null;
 
   constructor(
     private api: ApiClient,
@@ -109,11 +156,17 @@ export class CompendiumPanel extends Notifier {
     void this.load();
   }
 
+  /** Where a portrait's server path can be fetched from. */
+  imageUrl(path: string): string {
+    return this.api.imageUrl(path);
+  }
+
   /** Stop the timers and send what has been read. */
   async close(): Promise<void> {
     if (this.dwell) clearTimeout(this.dwell);
     if (this.flushTimer) clearInterval(this.flushTimer);
-    this.dwell = this.flushTimer = null;
+    if (this.portraitTimer) clearTimeout(this.portraitTimer);
+    this.dwell = this.flushTimer = this.portraitTimer = null;
     await this.flush();
   }
 
@@ -125,6 +178,7 @@ export class CompendiumPanel extends Notifier {
   async load(): Promise<void> {
     await this.flush();
     const m = this.model;
+    this.portraitPolls = 0; // a refresh starts the wait for a portrait over
     this.loading = true;
     this.changed();
     try {
@@ -183,6 +237,7 @@ export class CompendiumPanel extends Notifier {
     if (id === null || m.hasDetail(id)) {
       this.changed();
       this.rest();
+      this.watchPortrait();
       return;
     }
     const hidden = m.onHidden;
@@ -193,6 +248,36 @@ export class CompendiumPanel extends Notifier {
     }
     this.changed();
     this.rest();
+    this.watchPortrait();
+  }
+
+  /** While the open person's portrait is still being painted, fetch the entry again every few seconds, for a few
+   * minutes, so the picture appears without the player doing anything. */
+  private watchPortrait(): void {
+    if (this.portraitTimer) clearTimeout(this.portraitTimer);
+    this.portraitTimer = null;
+    const m = this.model;
+    const id = m.currentId;
+    const portrait = (m.onHidden ? null : m.currentDetail)?.portrait as { state?: string } | null | undefined;
+    if (id !== this.portraitFor) {
+      this.portraitFor = id;
+      this.portraitPolls = 0;
+    }
+    if (id && portrait?.state === "pending" && this.portraitPolls < PORTRAIT_POLLS) {
+      this.portraitTimer = setTimeout(() => void this.pollPortrait(id), PORTRAIT_POLL_MS);
+    }
+  }
+
+  private async pollPortrait(id: string): Promise<void> {
+    this.portraitPolls++;
+    const m = this.model;
+    try {
+      if (!m.onHidden && m.currentId === id) m.loadDetail(await this.api.compendiumEntity(id));
+    } catch {
+      // the next look will tell; a failed poll is not shown
+    }
+    this.changed();
+    this.watchPortrait();
   }
 
   // ---- actions the panel offers --------------------------------------------------------------

@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 from aigm.errors import CorruptSave
 from aigm.looks import Look, LookError, validate
+from aigm.portraits import Portrait
 from aigm.world.digest import Digest
 from aigm.world.text import normalize_name, normalize_text, tokens, word_count
 
@@ -116,6 +117,7 @@ class Entity:
     parent: str | None = None
     discovered: bool = False  # has the player been told anything about it (cached from its facts)
     look: Look | None = None  # how a person appears (docs/LOOKS.md); only `npc` entities have one
+    portrait: Portrait | None = None  # their generated headshot (docs/PORTRAITS.md), likewise
 
     def names(self) -> list[str]:
         return [self.name, *self.aliases]
@@ -125,6 +127,7 @@ class Entity:
             "id": self.id, "name": self.name, "kind": self.kind, "aliases": list(self.aliases),
             "parent": self.parent, "discovered": self.discovered,
             "look": self.look.to_dict() if self.look else None,
+            "portrait": self.portrait.to_dict() if self.portrait else None,
         }  # fmt: skip
 
 
@@ -453,6 +456,15 @@ class World:
         ent.look = look.copy()
         self._touch()
         return ent.look
+
+    def set_portrait(self, entity_id: str, portrait: Portrait) -> Portrait:
+        """Give a person their portrait record, or replace it (docs/PORTRAITS.md 6.2)."""
+        ent = self._entity_or_error(entity_id)
+        if ent.kind != "npc":
+            raise WorldError(f"{ent.name} is not a person; only people have a portrait")
+        ent.portrait = portrait.copy()
+        self._touch()
+        return ent.portrait
 
     def add_fact(
         self,
@@ -932,12 +944,19 @@ class World:
                     ent.look = Look.from_dict(raw["look"])
                 except ValueError as exc:
                     raise WorldError(f"entity {ent.id} has a bad look: {exc}") from None
+            if raw.get("portrait") is not None:  # saves from before portraits have none
+                try:
+                    ent.portrait = Portrait.from_dict(raw["portrait"])
+                except CorruptSave as exc:
+                    raise WorldError(f"entity {ent.id} has a bad portrait: {exc}") from None
             if not _ENTITY_ID.match(str(ent.id)) or ent.id in world.entities:
                 raise WorldError(f"bad or repeated entity id {ent.id!r}")
             if ent.kind not in KINDS or not isinstance(ent.name, str) or not ent.name.strip():
                 raise WorldError(f"entity {ent.id} has a bad name or kind")
             if ent.look is not None and ent.kind != "npc":
                 raise WorldError(f"entity {ent.id} is not a person but has a look")
+            if ent.portrait is not None and ent.kind != "npc":
+                raise WorldError(f"entity {ent.id} is not a person but has a portrait")
             world.entities[ent.id] = ent
         for ent in world.entities.values():
             if ent.parent is not None and ent.parent not in world.entities:

@@ -69,21 +69,25 @@ class Game:
         briefing_tokens: int = 2000,
         history_policy: HistoryPolicy | None = None,
         story_nudge_turns: int = NUDGE_TURNS,
+        art_styles: bool = False,
     ) -> None:
         self.prompts = prompts or PromptLibrary()
         self.briefing_tokens = briefing_tokens
         self.history_policy = history_policy or HistoryPolicy()
         self.story_nudge_turns = story_nudge_turns
+        self.art_styles = art_styles  # the server makes portraits, so Session 0 offers a style
         self._system = {
             (phase, rs.id, structured): tuple(self.prompts.system_parts(phase, rs.id, structured))
             for phase in Phase
             for rs in RULESETS
             for structured in (False, True)
         }
-        self._tools = {(phase, s): tool_schemas(self.prompts, phase, s) for phase in Phase for s in (False, True)}
+        self._tools = {(phase, s): tool_schemas(self.prompts, phase, s, art_styles) for phase in Phase for s in (False, True)}
 
     def system_parts(self, state: GameState) -> tuple[PromptPart, ...]:
         parts = self._system[state.phase, state.ruleset, state.story is not None]
+        if state.phase is Phase.SESSION_ZERO and self.art_styles:
+            parts = (*parts, PromptPart("templates/art_style.md", self.prompts.art_section(state.ruleset)))
         if state.phase is Phase.ADVENTURE and state.world.is_empty:
             # Normally the private notes live in the world as hidden facts. Without a world (curator
             # off, or an older save) the GM still needs them.

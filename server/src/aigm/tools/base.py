@@ -25,3 +25,4 @@ class Tool:
     # extra input properties (with the prompt file `<name>_story.md` appended to the description) they add to this one.
     story_only: bool = False
     story_properties: dict[str, Any] = field(default_factory=dict)
+    needs_art: bool = False  # offered only when the server makes portraits (docs/PORTRAITS.md 5.2)

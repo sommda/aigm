@@ -86,9 +86,9 @@ Run in `app/`; all three must pass.
 
 | Command | Covers |
 |---|---|
-| `npm test` | Jest: the SSE decoder and event parser, the markdown parser, the session, the API client against a fake transport (odd chunking, rejected and dropped streams, abort), the controller flows with a fake player, the compendium and status models and panels |
+| `npm test` | Jest: the SSE decoder and event parser, the markdown parser, the session, the API client against a fake transport (odd chunking, rejected and dropped streams, abort), the controller flows with a fake player, the compendium and status models and panels, and the status panel's watching of a portrait that is still being painted |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run e2e` | exports the web bundle, starts a scripted server (`aigm --test --debug`, in a throwaway save folder) and drives the page in Chrome with Playwright: streaming and formatting, Enter and Shift+Enter, the tabs sharing the screen (it measures that the dock and the story are about equal in height), save, load and new game against the real routes, slash commands, Esc cancelling, and the story following new text. Screenshots go to `e2e/shots/` |
+| `npm run e2e` | exports the web bundle, starts a scripted server (`aigm --test --debug`, in a throwaway save folder) and drives the page in Chrome with Playwright: streaming and formatting, Enter and Shift+Enter, the tabs sharing the screen (it measures that the dock and the story are about equal in height), save, load and new game against the real routes, slash commands, Esc cancelling, the story following new text, and a character's portrait appearing on their status tab (a real image that loads). Screenshots go to `e2e/shots/` |
 
 ## 5. Known gaps and risks
 
