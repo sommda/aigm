@@ -1,7 +1,8 @@
 # AIGM: notes for Claude
 
-One git repo, two independent uv Python projects: `server/` (FastAPI + SSE + Anthropic SDK) and `client/` (Textual
-terminal client). They share nothing but the HTTP API. See `README.md` for setup and `docs/` for the designs.
+One git repo, three independent projects: `server/` (FastAPI + SSE + Anthropic SDK, uv), `client/` (Textual terminal
+client, uv) and `app/` (React Native / Expo graphical client, npm). They share nothing but the HTTP API. See `README.md`
+for setup and `docs/` for the designs.
 
 ## Documentation standard
 
@@ -18,4 +19,5 @@ terminal client). They share nothing but the HTTP API. See `README.md` for setup
 
 ## Tests
 
-`cd server && uv run pytest` and `cd client && uv run pytest` must both pass before work is called done.
+`cd server && uv run pytest` and `cd client && uv run pytest` must both pass before work is called done. When `app/`
+changed, so must `cd app && npm test && npm run typecheck && npm run e2e`.
