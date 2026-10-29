@@ -398,3 +398,17 @@ def test_a_curator_can_be_injected(tmp_path):
 
 def test_world_dataclass_is_untouched_by_imports():
     assert World().is_empty
+
+
+async def test_the_steps_that_only_write_to_a_format_run_with_thinking_off_and_the_others_do_not():
+    from aigm.world.anthropic_curator import NO_THINKING
+    from aigm.world.curator import LookRequest, PlaceLookRequest
+
+    assert NO_THINKING == {"describe", "describe_place"}
+    reasoning = {"entities": [], "facts": [], "reveals": [], "location": None, "present": None, "elapsed_hours": 0}
+    cur, calls = curator({"looks": []}, {"looks": []}, reasoning)
+    await cur.look(LookRequest([], "s", "r"))
+    await cur.place_look(PlaceLookRequest([], "s", "r"))
+    assert calls.calls[0]["thinking"] == {"type": "disabled"} and calls.calls[1]["thinking"] == {"type": "disabled"}
+    await cur.extract(extract_request())  # a step that reasons about the world keeps its thinking
+    assert "thinking" not in calls.calls[2]

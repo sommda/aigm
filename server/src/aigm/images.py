@@ -42,7 +42,7 @@ class Image:
 class Images(Protocol):
     model: str
 
-    async def generate(self, prompt: str) -> Image: ...
+    async def generate(self, prompt: str, size: str | None = None) -> Image: ...
 
 
 def sniff(data: bytes) -> str | None:
@@ -77,26 +77,26 @@ class OpenAIImages:
         self._quality = settings.image_quality
         self._client = client
 
-    def body(self, prompt: str) -> dict[str, Any]:
+    def body(self, prompt: str, size: str | None = None) -> dict[str, Any]:
         body: dict[str, Any] = {
-            "model": self.model, "prompt": prompt, "size": self._size, "n": 1,
+            "model": self.model, "prompt": prompt, "size": size or self._size, "n": 1,
             "output_format": OUTPUT_FORMAT, "output_compression": OUTPUT_COMPRESSION,
         }  # fmt: skip
         if self._quality:
             body["quality"] = self._quality
         return body
 
-    async def generate(self, prompt: str) -> Image:
+    async def generate(self, prompt: str, size: str | None = None) -> Image:
         client = self._client or httpx.AsyncClient(timeout=TIMEOUT)
         try:
-            return await self._generate(client, prompt)
+            return await self._generate(client, prompt, size)
         finally:
             if self._client is None:
                 await client.aclose()
 
-    async def _generate(self, client: httpx.AsyncClient, prompt: str) -> Image:
+    async def _generate(self, client: httpx.AsyncClient, prompt: str, size: str | None) -> Image:
         try:
-            resp = await client.post(API_URL, json=self.body(prompt), headers={"Authorization": f"Bearer {self._key}"})
+            resp = await client.post(API_URL, json=self.body(prompt, size), headers={"Authorization": f"Bearer {self._key}"})
         except httpx.HTTPError as exc:  # no message: some carry the request, and with it the key
             raise ImageError(UNAVAILABLE, f"could not reach the image API ({type(exc).__name__})") from None
         try:
@@ -144,10 +144,12 @@ class FakeImages:
 
     def __init__(self, fail: list[ImageError] | None = None) -> None:
         self.prompts: list[str] = []
+        self.sizes: list[str | None] = []
         self.fail = list(fail or [])
 
-    async def generate(self, prompt: str) -> Image:
+    async def generate(self, prompt: str, size: str | None = None) -> Image:
         self.prompts.append(prompt)
+        self.sizes.append(size)
         if self.fail:
             raise self.fail.pop(0)
         digest = hashlib.sha256(prompt.encode()).digest()

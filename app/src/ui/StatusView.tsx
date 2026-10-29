@@ -41,7 +41,7 @@ function Table({ columns, rows }: { columns: string[]; rows: string[][] }) {
   );
 }
 
-function Place({ page }: { page: Json }) {
+function Place({ page, resolve }: { page: Json; resolve: (path: string) => string }) {
   const loc = page.location as Json | undefined;
   const table = (page.table as Json | undefined) ?? {};
   if (!loc) return <Text style={styles.dim}>The party's location has not been recorded yet.</Text>;
@@ -49,11 +49,18 @@ function Place({ page }: { page: Json }) {
   const where = path.length ? "in " + [...path].reverse().join(", ") : "";
   const when = loc.time ? `${loc.time} · ${loc.period}` : "";
   const sub = [where, when].filter(Boolean).join("  ·  ");
+  const look = loc.look as Json | null | undefined;
   return (
     <View>
+      {loc.portrait ? (
+        <View style={{ marginBottom: space.md }}>
+          <Portrait portrait={loc.portrait} name={String(loc.name)} alt={look ? String(look.summary ?? "") : undefined} resolve={resolve} maxWidth={720} fitHeight />
+        </View>
+      ) : null}
       <Text style={[styles.name, selectable]}>{String(loc.name)}</Text>
       {sub ? <Text style={styles.dim}>{sub}</Text> : null}
       {loc.overview ? <Text style={[styles.body, { marginTop: space.sm }, selectable]}>{String(loc.overview)}</Text> : null}
+      <LookBlock look={loc.look} title="View" />
       {arr(page.here).length ? <Heading>Here</Heading> : null}
       {arr(page.here).map((e, i) => (
         <Named key={i} name={String(e.name)} text={e.summary as string | undefined} />
@@ -150,7 +157,7 @@ export function StatusView({ panel }: { panel: StatusPanel }) {
         ) : m.character ? (
           <Sheet page={page} resolve={(p) => panel.imageUrl(p)} />
         ) : (
-          <Place page={page} />
+          <Place page={page} resolve={(p) => panel.imageUrl(p)} />
         )}
       </ScrollView>
     </View>

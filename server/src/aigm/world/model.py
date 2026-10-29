@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from aigm.errors import CorruptSave
-from aigm.looks import Look, LookError, validate
+from aigm.looks import Look, LookError, look_kind, validate
 from aigm.portraits import Portrait
 from aigm.world.digest import Digest
 from aigm.world.text import normalize_name, normalize_text, tokens, word_count
@@ -66,6 +66,7 @@ HOURS_PER_DAY = 24
 _FACT_ID = re.compile(r"^f\d+$")
 _MOTIVE_ID = re.compile(r"^m\d+$")
 _ENTITY_ID = re.compile(r"^e\d+$")
+LOOK_KINDS = ("npc", "location")  # the kinds of entity that have a Look
 
 
 class WorldError(ValueError):
@@ -116,7 +117,7 @@ class Entity:
     aliases: list[str] = field(default_factory=list)
     parent: str | None = None
     discovered: bool = False  # has the player been told anything about it (cached from its facts)
-    look: Look | None = None  # how a person appears (docs/LOOKS.md); only `npc` entities have one
+    look: Look | None = None  # how a person or place appears (docs/LOOKS.md, docs/PLACES.md); npcs and locations
     portrait: Portrait | None = None  # their generated headshot (docs/PORTRAITS.md), likewise
 
     def names(self) -> list[str]:
@@ -447,10 +448,10 @@ class World:
     def set_look(self, entity_id: str, look: Look) -> Look:
         """Give a person their Look, or replace it (docs/LOOKS.md). The Look must pass the content rules."""
         ent = self._entity_or_error(entity_id)
-        if ent.kind != "npc":
-            raise WorldError(f"{ent.name} is not a person; only people have a look")
+        if ent.kind not in LOOK_KINDS:
+            raise WorldError(f"{ent.name} is a {ent.kind}; only people and places have a look")
         try:
-            validate(look, ent.name)
+            validate(look, ent.name, look_kind(ent.kind))
         except LookError as exc:
             raise WorldError(str(exc)) from None
         ent.look = look.copy()
@@ -460,8 +461,8 @@ class World:
     def set_portrait(self, entity_id: str, portrait: Portrait) -> Portrait:
         """Give a person their portrait record, or replace it (docs/PORTRAITS.md 6.2)."""
         ent = self._entity_or_error(entity_id)
-        if ent.kind != "npc":
-            raise WorldError(f"{ent.name} is not a person; only people have a portrait")
+        if ent.kind not in LOOK_KINDS:
+            raise WorldError(f"{ent.name} is a {ent.kind}; only people and places have a portrait")
         ent.portrait = portrait.copy()
         self._touch()
         return ent.portrait
@@ -953,10 +954,10 @@ class World:
                 raise WorldError(f"bad or repeated entity id {ent.id!r}")
             if ent.kind not in KINDS or not isinstance(ent.name, str) or not ent.name.strip():
                 raise WorldError(f"entity {ent.id} has a bad name or kind")
-            if ent.look is not None and ent.kind != "npc":
-                raise WorldError(f"entity {ent.id} is not a person but has a look")
-            if ent.portrait is not None and ent.kind != "npc":
-                raise WorldError(f"entity {ent.id} is not a person but has a portrait")
+            if ent.look is not None and ent.kind not in LOOK_KINDS:
+                raise WorldError(f"entity {ent.id} is a {ent.kind} but has a look")
+            if ent.portrait is not None and ent.kind not in LOOK_KINDS:
+                raise WorldError(f"entity {ent.id} is a {ent.kind} but has a portrait")
             world.entities[ent.id] = ent
         for ent in world.entities.values():
             if ent.parent is not None and ent.parent not in world.entities:

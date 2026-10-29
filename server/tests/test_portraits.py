@@ -230,7 +230,7 @@ async def test_a_billing_failure_switches_portraits_off_without_a_record(tmp_pat
 
 async def test_a_surprise_error_is_swallowed_and_leaves_no_record(tmp_path):
     class Broken(FakeImages):
-        async def generate(self, prompt):
+        async def generate(self, prompt, size=None):
             raise RuntimeError("bug")
 
     svc, _ = service(tmp_path, Broken())
@@ -255,12 +255,12 @@ async def test_only_a_few_run_at_once(tmp_path):
     class Counting(FakeImages):
         active = peak = 0
 
-        async def generate(self, prompt):
+        async def generate(self, prompt, size=None):
             Counting.active += 1
             Counting.peak = max(Counting.peak, Counting.active)
             await asyncio.sleep(0.02)
             Counting.active -= 1
-            return await super().generate(prompt)
+            return await super().generate(prompt, size)
 
     svc, _ = service(tmp_path, Counting())
     made = (await make(svc, party_session(NAMES)))[1]
@@ -291,9 +291,9 @@ async def test_results_for_a_game_that_was_replaced_are_dropped(tmp_path):
     session = party_session()
 
     class Replacing(FakeImages):
-        async def generate(self, prompt):
+        async def generate(self, prompt, size=None):
             session.reset_world_work()
-            return await super().generate(prompt)
+            return await super().generate(prompt, size)
 
     svc, _ = service(tmp_path, Replacing())
     assert not await svc.run_if_due(session)
@@ -355,11 +355,13 @@ def test_the_character_page_carries_the_portrait_in_each_state(tmp_path):
     page = client.get("/characters/Test Hero").json()
     rec = session.state.portraits.get("Test Hero")
     if rec is None:  # the sweep after the first turn has not made it yet: it is on its way
-        assert page["portrait"] == {"state": "pending", "style": "modern"}
+        assert page["portrait"] == {"state": "pending", "style": "modern", "shape": "square"}
         chat(client, "look around")
         page = client.get("/characters/Test Hero").json()
         rec = session.state.portraits["Test Hero"]
-    assert page["portrait"] == {"state": "ready", "style": "modern", "url": f"/portraits/{rec.image}?session_id=default"}
+    assert page["portrait"] == {
+        "state": "ready", "style": "modern", "shape": "square", "url": f"/portraits/{rec.image}?session_id=default"
+    }
     session.state.art_style = art.NO_PORTRAITS
     assert client.get("/characters/Test Hero").json()["portrait"] is None
     session.state.art_style = None
@@ -500,10 +502,12 @@ def test_a_persons_portrait_is_saved_with_the_world_and_only_people_have_one(tmp
     copy.entities[npc.id].portrait.turn = 77
     assert world.entities[npc.id].portrait.turn == 1
     place = world.add_entity("Ashby", "location")
+    world.set_portrait(place.id, record())  # a place has one too (docs/PLACES.md)
+    guild = world.add_entity("Thorn Guild", "faction")
     with pytest.raises(WorldError):
-        world.set_portrait(place.id, record())
+        world.set_portrait(guild.id, record())
     bad = world.to_dict()
-    bad["entities"][1]["portrait"] = record().to_dict()  # the place
+    bad["entities"][2]["portrait"] = record().to_dict()  # the faction
     with pytest.raises(CorruptSave):
         World.from_dict(bad)
     broken = world.to_dict()
@@ -523,7 +527,7 @@ def test_the_compendium_entry_carries_the_portrait_and_the_image_is_served_to_th
     met = next(e for e in world.entities.values() if e.kind == "npc" and e.portrait and e.discovered)
     page = client.get(f"/compendium/entities/{met.id}").json()
     assert page["portrait"] == {
-        "state": "ready", "style": "modern", "url": f"/portraits/{met.portrait.image}?session_id=default",
+        "state": "ready", "style": "modern", "shape": "square", "url": f"/portraits/{met.portrait.image}?session_id=default",
     }
     assert client.get(page["portrait"]["url"]).status_code == 200
     # a person who has not been met has no entry, and so no picture is served for them
@@ -543,9 +547,12 @@ def test_places_and_unpictured_people_say_null_or_pending(tmp_path):
     chat(client, "establish Wren")
     session = client.app.state.sessions.get("default")
     world = session.state.world
-    place = next(e for e in world.entities.values() if e.kind == "location" and e.discovered)
-    assert client.get(f"/compendium/entities/{place.id}").json()["portrait"] is None
+    faction = world.add_entity("Thorn Guild", "faction")
+    world.add_fact("The Thorn Guild keeps the roads.", [faction.id], aspect="goals", disclosure="known")
+    assert client.get(f"/compendium/entities/{faction.id}").json()["portrait"] is None  # only people and places
     npc = next(e for e in world.entities.values() if e.kind == "npc" and e.discovered)
     npc.portrait = None
     session.state.turn += 50
-    assert client.get(f"/compendium/entities/{npc.id}").json()["portrait"] == {"state": "pending", "style": "modern"}
+    assert client.get(f"/compendium/entities/{npc.id}").json()["portrait"] == {
+        "state": "pending", "style": "modern", "shape": "square"
+    }

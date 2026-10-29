@@ -23,6 +23,28 @@ CONTROLLED_TAGS: dict[str, tuple[str, ...]] = {
 }  # fmt: skip
 TEXT_TAGS = ("skin", "hair", "eyes", "clothing", "archetype", "expression")  # short free text
 LIST_TAGS = ("marks", "carries")  # short lists of short free text
+
+# The tags of a place's Look (docs/PLACES.md 4.1). A Look is either a person's or a place's, by the kind of entity.
+PLACE_CONTROLLED_TAGS: dict[str, tuple[str, ...]] = {
+    "scale": ("room", "building", "site", "district", "settlement", "region"),
+    "setting": ("urban", "rural", "wilderness", "underground", "waterside", "sea", "interior", "other"),
+    "climate": ("temperate", "cold", "hot", "arid", "wet", "magical", "unknown"),
+}
+PLACE_TEXT_TAGS = ("architecture", "terrain", "flora", "light", "mood")
+PLACE_LIST_TAGS = ("features",)
+PERSON, PLACE = "person", "place"
+
+
+def look_kind(entity_kind: str) -> str:
+    """Which kind of Look an entity has: a person's (a party member or an npc) or a place's (a location)."""
+    return PLACE if entity_kind == "location" else PERSON
+
+
+def tag_sets(kind: str) -> tuple[dict[str, tuple[str, ...]], tuple[str, ...], tuple[str, ...]]:
+    """The controlled, free-text and list tags of a kind of Look."""
+    if kind == PLACE:
+        return PLACE_CONTROLLED_TAGS, PLACE_TEXT_TAGS, PLACE_LIST_TAGS
+    return CONTROLLED_TAGS, TEXT_TAGS, LIST_TAGS
 STATES = ("provisional", "fixed")
 SOURCES = ("generated", "session_zero", "narration")
 
@@ -104,9 +126,21 @@ class Look:
             raise ValueError("a look has an unknown state or source")
         return cls(summary, description, clean, rev, state, source)
 
-    def search_text(self) -> str:
-        """The canonical text a similarity search is run on (docs/LOOKS.md 6): a fixed order, so it is stable. It is
-        derived, never stored. The format has a version, `SEARCH_TEXT_VERSION`."""
+    def search_text(self, kind: str = PERSON) -> str:
+        """The canonical text a similarity search is run on (docs/LOOKS.md 6 and docs/PLACES.md 4.3): a fixed order, so
+        it is stable. It is derived, never stored. The format has a version, `SEARCH_TEXT_VERSION`."""
+        if kind == PLACE:
+            head = " ".join(str(self.tags.get(k, "")).strip() for k in PLACE_CONTROLLED_TAGS).split()
+            details = []
+            for key in PLACE_TEXT_TAGS:
+                value = str(self.tags.get(key) or "").strip()
+                if value:
+                    details.append(value)
+            features = self.tags.get("features")
+            return " | ".join(
+                p for p in (" ".join(head), self.summary.strip(), "; ".join(details),
+                            ", ".join(features) if isinstance(features, list) else "") if p
+            )  # fmt: skip
         parts = [str(self.tags.get(k, "")).strip() for k in CONTROLLED_TAGS]
         for key in ("hair", "eyes", "marks", "archetype"):
             value = self.tags.get(key)
@@ -117,15 +151,27 @@ class Look:
         return " | ".join(p for p in parts if p)
 
 
-def _uses_name(description: str, name: str) -> bool:
+_NAME_FILLER = frozenset("the of a an and in on at to above below beyond".split())
+
+
+def _uses_name(description: str, name: str, kind: str = PERSON) -> bool:
     """Does the description name the character? A title the model drops ("Aggie Fenn" for "Saltwife Aggie Fenn")
-    is fine, so the name without its first word counts when it has three or more."""
+    is fine, so the name without its first word counts when it has three or more. A place may be named loosely ("the
+    pass above the old quarry" for "Pass above the old quarry"): all of the name's own words are enough."""
     text, words = description.lower(), name.strip().lower().split()
-    return " ".join(words) in text or (len(words) >= 3 and " ".join(words[1:]) in text)
+    if " ".join(words) in text or (kind == PERSON and len(words) >= 3 and " ".join(words[1:]) in text):
+        return True
+    if kind == PLACE:
+        own = [w.strip(".,'\"") for w in words if w.strip(".,'\"") not in _NAME_FILLER]
+        return bool(own) and all(w in text for w in own)
+    return False
 
 
-def problems(look: Look, name: str) -> list[str]:
-    """Everything wrong with a Look under the content rules (docs/LOOKS.md 3 and 5.3), or an empty list."""
+def problems(look: Look, name: str, kind: str = PERSON) -> list[str]:
+    """Everything wrong with a Look under the content rules (docs/LOOKS.md 3 and 5.3, docs/PLACES.md 4), or an empty
+    list. `kind` is `PERSON` or `PLACE`: the tags and a few of the messages differ."""
+    controlled, text_tags, list_tags = tag_sets(kind)
+    noun = "place" if kind == PLACE else "character"
     out: list[str] = []
     summary_words = _words(look.summary)
     if not look.summary.strip():
@@ -137,20 +183,20 @@ def problems(look: Look, name: str) -> list[str]:
         out.append(
             f"'description' has {words} words; it must have {MIN_DESCRIPTION_WORDS} to {MAX_DESCRIPTION_WORDS}"
         )
-    if name.strip() and not _uses_name(look.description, name):
-        out.append(f"'description' must use the character's name, {name!r}")
-    unknown = sorted(set(look.tags) - set(CONTROLLED_TAGS) - set(TEXT_TAGS) - set(LIST_TAGS))
+    if name.strip() and not _uses_name(look.description, name, kind):
+        out.append(f"'description' must use the {noun}'s name, {name!r}")
+    unknown = sorted(set(look.tags) - set(controlled) - set(text_tags) - set(list_tags))
     if unknown:
         out.append(f"unknown tags: {', '.join(unknown)}")
-    for tag, allowed in CONTROLLED_TAGS.items():
+    for tag, allowed in controlled.items():
         value = look.tags.get(tag)
         if value not in allowed:
             out.append(f"tag '{tag}' must be one of {', '.join(allowed)}; got {value!r}")
-    for tag in TEXT_TAGS:
+    for tag in text_tags:
         value = look.tags.get(tag)
         if value is not None and (not isinstance(value, str) or _words(value) > MAX_TAG_WORDS):
             out.append(f"tag '{tag}' must be text of at most {MAX_TAG_WORDS} words")
-    for tag in LIST_TAGS:
+    for tag in list_tags:
         value = look.tags.get(tag)
         if value is None:
             continue
@@ -160,7 +206,7 @@ def problems(look: Look, name: str) -> list[str]:
             out.append(f"tag '{tag}' must be a list of at most {MAX_LIST_ITEMS} short items")
     text = " ".join([look.summary, look.description, *(str(v) for v in look.tags.values())])
     if (m := _SECOND_PERSON.search(text)) is not None:
-        out.append(f"do not write {m.group(0)!r}: describe the character, not the player or the party")
+        out.append(f"do not write {m.group(0)!r}: describe the {noun}, not the player or the party")
     if (m := _GAME_TERMS.search(text)) is not None:
         out.append(f"do not use game terms such as {m.group(0)!r}: describe only what can be seen")
     lower = text.lower()
@@ -170,9 +216,9 @@ def problems(look: Look, name: str) -> list[str]:
     return out
 
 
-def validate(look: Look, name: str) -> None:
+def validate(look: Look, name: str, kind: str = PERSON) -> None:
     """Raise LookError listing every problem, if there are any."""
-    found = problems(look, name)
+    found = problems(look, name, kind)
     if found:
         raise LookError("Invalid look:\n- " + "\n- ".join(found))
 

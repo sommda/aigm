@@ -130,6 +130,37 @@ describe("StatusPanel portraits", () => {
     p.stop();
   });
 
+  test("the view of the party's place is watched on the place tab until it is ready", async () => {
+    let n = 0;
+    const t = server({
+      "GET /status": () => ({
+        status: 200,
+        body: {
+          location: { name: "The Rusty Flagon", portrait: n++ < 2 ? { state: "pending", shape: "landscape" } : { state: "ready", shape: "landscape", url: "/portraits/v.webp" } },
+        },
+      }),
+    });
+    const count = () => t.calls.filter((c) => c.url.includes("/status")).length;
+    const p = new StatusPanel(apiWith(t));
+    await p.load();
+    expect(count()).toBe(1);
+    await jest.advanceTimersByTimeAsync(5000);
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(count()).toBe(3);
+    expect(p.model.page).toMatchObject({ location: { portrait: { state: "ready" } } });
+    await jest.advanceTimersByTimeAsync(60000);
+    expect(count()).toBe(3); // ready: it stops asking
+    p.stop();
+  });
+
+  test("a place with no picture coming is not polled", async () => {
+    const t = server({ "GET /status": () => ({ status: 200, body: { location: { name: "The Rusty Flagon", portrait: null } } }) });
+    const p = new StatusPanel(apiWith(t));
+    await p.load();
+    await jest.advanceTimersByTimeAsync(60000);
+    expect(t.calls.filter((c) => c.url.includes("/status")).length).toBe(1);
+  });
+
   test("a portrait address is made absolute from the server's", () => {
     const p = new StatusPanel(apiWith(server()));
     expect(p.imageUrl("/portraits/a.webp?session_id=s")).toBe("http://x/portraits/a.webp?session_id=s");

@@ -172,6 +172,24 @@ def _visible_people(world: Any, *, any_look: bool = False) -> list[Any]:
     return sorted(people, key=lambda e: (e.id not in present, present.get(e.id, 0), -int(e.id[1:])))
 
 
+def place_wanted(entity: Any) -> bool:
+    """Is this visible place pictured? Every place is, for now; a later limit to the major ones reads the place's Look
+    (its `scale`) and how much the story uses it (docs/PLACES.md 8.3)."""
+    return True
+
+
+def _visible_places(world: Any, *, any_look: bool = False) -> list[Any]:
+    """The locations the player can see in the compendium that have a Look and are wanted, in the order they are given
+    pictures: the party's current location first, then the rest newest first."""
+    from aigm.compendium import _visible
+
+    places = [
+        e for e in world.entities.values()
+        if e.kind == "location" and (e.look or (any_look and e.portrait)) and place_wanted(e) and _visible(world, e.id)
+    ]  # fmt: skip
+    return sorted(places, key=lambda e: (e.id != world.scene.location, -int(e.id[1:])))
+
+
 # ---- who needs a picture -----------------------------------------------------------------------
 
 
@@ -196,7 +214,8 @@ class Job:
     look: Look
     old: Portrait | None
     names: list[str]  # the name and aliases to take out of the text
-    entity: str | None = None  # the NPC's entity id; None for a party member
+    entity: str | None = None  # the entity id of an NPC or a place; None for a party member
+    place: bool = False  # a view of a place, not a portrait of a person
 
     @property
     def key(self) -> str:
@@ -205,16 +224,23 @@ class Job:
 
 
 class PortraitService:
-    def __init__(self, images: Images, store: ImageStore, size: str, quality: str | None) -> None:
+    def __init__(
+        self, images: Images, store: ImageStore, size: str, quality: str | None, place_size: str = "1536x1024"
+    ) -> None:
         self.images = images
         self.store = store
-        self.size = size
+        self.size = size  # portraits
+        self.place_size = place_size  # views of places: landscape
         self.quality = quality
+        # Does the curator write Looks for these kinds? Then a person or place without one is about to get it, and
+        # shows as pending rather than as nothing (set by the app from the curator's abilities).
+        self.describes = {"npc": False, "location": False}
         self.disabled = False  # set after a billing or key failure: stop trying until the server restarts
 
     def due_jobs(self, state: Any) -> list[Job]:
-        """Who needs a picture, at most one sweep's worth: the party in order, then the people the player can see who
-        are in the scene, then the others they can see, newest first (docs/PORTRAITS.md 8.1)."""
+        """Who needs a picture, at most one sweep's worth, in this order: the party, the place the party is in (the
+        status tab shows it first), the people the player can see who are in the scene, the other people they can see
+        and then the other places, newest first (docs/PORTRAITS.md 8.1, docs/PLACES.md 8.4)."""
         style = art.resolve_style(state.art_style, state.ruleset)
         if style is None or self.disabled:
             return []
@@ -223,9 +249,13 @@ class PortraitService:
             look = state.looks.get(name)
             if look is not None and is_due(look, state.portraits.get(name), style, state.turn, self.store):
                 jobs.append(Job(name, look, state.portraits.get(name), [name]))
+        places = [p for p in _visible_places(state.world) if is_due(p.look, p.portrait, style, state.turn, self.store)]
+        here = [p for p in places if p.id == state.world.scene.location]
+        jobs += [Job(p.name, p.look, p.portrait, p.names(), p.id, place=True) for p in here]
         for ent in _visible_people(state.world):
             if is_due(ent.look, ent.portrait, style, state.turn, self.store):
                 jobs.append(Job(ent.name, ent.look, ent.portrait, ent.names(), ent.id))
+        jobs += [Job(p.name, p.look, p.portrait, p.names(), p.id, place=True) for p in places if p not in here]
         return jobs[:MAX_PER_SWEEP]
 
     def view(self, session: Any, name: str) -> dict[str, Any] | None:
@@ -238,29 +268,49 @@ class PortraitService:
         return self._view(session, state.looks.get(found), state.portraits.get(found))
 
     def view_entity(self, session: Any, entity_id: str) -> dict[str, Any] | None:
-        """The same for an NPC, who must already be visible to the player (the caller has checked)."""
+        """The same for an NPC or a place, which must already be visible to the player (the caller has checked)."""
         ent = session.state.world.entities.get(entity_id)
-        if ent is None or ent.kind != "npc":
+        if ent is None or ent.kind not in ("npc", "location"):
             return None
-        return self._view(session, ent.look, ent.portrait)
+        shape = "landscape" if ent.kind == "location" else "square"
+        if ent.look is None:
+            return self._awaiting_look(session, ent, shape)
+        return self._view(session, ent.look, ent.portrait, shape)
 
-    def _view(self, session: Any, look: Look | None, record: Portrait | None) -> dict[str, Any] | None:
+    def _awaiting_look(self, session: Any, ent: Any, shape: str) -> dict[str, Any] | None:
+        """No Look yet: if one is about to be written the picture is on its way, so say so. A place is only described
+        once it is known well enough (docs/PLACES.md 5.1), and a sweep that failed waits a few turns."""
+        from aigm.world.describe_places import describable
+
+        state = session.state
+        style = art.resolve_style(state.art_style, state.ruleset)
+        if style is None or self.disabled or not self.describes.get(ent.kind):
+            return None
+        retry = session.place_looks_retry_turn if ent.kind == "location" else session.looks_retry_turn
+        if state.turn < retry or (ent.kind == "location" and not describable(state.world, ent)):
+            return None
+        return {"state": "pending", "style": style.id, "shape": shape}
+
+    def _view(
+        self, session: Any, look: Look | None, record: Portrait | None, shape: str = "square"
+    ) -> dict[str, Any] | None:
         state = session.state
         style = art.resolve_style(state.art_style, state.ruleset)
         if style is None:
             return None
         if record is not None and self.store.has(record.image):
             url = f"/portraits/{record.image}?session_id={quote(session.id, safe='')}"
-            return {"state": "ready", "url": url, "style": record.style}
+            return {"state": "ready", "url": url, "style": record.style, "shape": shape}
         if look is not None and not self.disabled and is_due(look, record, style, state.turn, self.store):
-            return {"state": "pending", "style": style.id}
+            return {"state": "pending", "style": style.id, "shape": shape}
         return None
 
     def shown(self, session: Any, file: str) -> Path | None:
-        """The file of an image this session may show its player: a party member's current portrait, or that of a
-        person the player has met (the compendium's rule), or None."""
+        """The file of an image this session may show its player: a party member's current portrait, or the picture of a
+        person or place the player has discovered (the compendium's rule), or None."""
         state = session.state
-        records = [*state.portraits.values(), *(e.portrait for e in _visible_people(state.world, any_look=True) if e.portrait)]
+        seen = [*_visible_people(state.world, any_look=True), *_visible_places(state.world, any_look=True)]
+        records = [*state.portraits.values(), *(e.portrait for e in seen if e.portrait)]
         if not any(record.image == file for record in records):
             return None
         return self.store.path(file)
@@ -314,14 +364,15 @@ class PortraitService:
         return {name: rec for name, rec in await asyncio.gather(*(one(j) for j in jobs)) if rec is not None}
 
     async def _make(self, job: Job, style: Style, turn: int) -> Portrait | None:
-        prompt = art.build_prompt(job.look, style, job.names)
+        prompt = (art.build_place_prompt if job.place else art.build_prompt)(job.look, style, job.names)
         model = self.images.model
-        image_id = art.image_id(model, self.size, style, prompt, self.quality)
+        size = self.place_size if job.place else self.size
+        image_id = art.image_id(model, size, style, prompt, self.quality)
         stored = self.store.find(image_id)
         if stored:  # the same picture was made before (a restored game, a repeated Look)
             return Portrait(stored, style.id, job.look.rev, model, turn)
         try:
-            image = await self._generate(prompt, job, style)
+            image = await self._generate(prompt, job, style, size)
         except ImageError as exc:
             if exc.kind == QUOTA:
                 self.disabled = True
@@ -330,8 +381,9 @@ class PortraitService:
             log.warning("portrait of %s: %s (%s)", job.name, exc, exc.kind)
             return self._failed(job, style, turn, exc.kind)
         meta = {
-            "prompt": prompt, "model": image.model, "style": style.id, "size": self.size, "quality": self.quality,
-            "look_summary": job.look.summary, "look_search_text": job.look.search_text(), "look_rev": job.look.rev,
+            "prompt": prompt, "model": image.model, "style": style.id, "size": size, "quality": self.quality,
+            "kind": "place" if job.place else "person", "look_summary": job.look.summary,
+            "look_search_text": job.look.search_text("place" if job.place else "person"), "look_rev": job.look.rev,
             "usage": image.usage, "turn": turn,
         }  # fmt: skip
         try:
@@ -341,14 +393,16 @@ class PortraitService:
             return self._failed(job, style, turn, "unavailable")
         return Portrait(name, style.id, job.look.rev, image.model, turn)
 
-    async def _generate(self, prompt: str, job: Job, style: Style) -> Image:
+    async def _generate(self, prompt: str, job: Job, style: Style, size: str) -> Image:
+        # Portraits are made at the server's default size; only a view of a place asks for its own.
+        asked = size if job.place else None
         try:
-            return await self.images.generate(prompt)
+            return await self.images.generate(prompt, asked)
         except ImageError as exc:
-            if exc.kind != MODERATION:
-                raise
+            if exc.kind != MODERATION or job.place:
+                raise  # a view has nothing softer to try: a refusal is recorded and not repeated
         # Refused: one more try with only the tags and the Look's first sentence (docs/PORTRAITS.md 8.3).
-        return await self.images.generate(art.build_prompt(job.look, style, job.names, softened=True))
+        return await self.images.generate(art.build_prompt(job.look, style, job.names, softened=True), asked)
 
     @staticmethod
     def _failed(job: Job, style: Style, turn: int, reason: str) -> Portrait:

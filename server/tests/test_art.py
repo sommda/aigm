@@ -109,3 +109,54 @@ def test_image_ids_follow_the_inputs():
 @pytest.mark.parametrize("style", art.STYLES, ids=lambda s: s.id)
 def test_every_style_builds_a_prompt(style):
     assert style.direction in art.build_prompt(LOOK, style, NAMES)
+
+
+# ---- views of places (docs/PLACES.md 8.2) ------------------------------------------------------
+
+PLACE = Look(
+    "A trampled gravel yard ringed by low turf-roofed halls, with a steaming stone well at its center.",
+    "Icehold Square is a broad yard of grey gravel ringed by long timber halls. At the center stands a squat stone "
+    "well. Beyond Icehold Square the mountains climb. The square is empty. " * 2,
+    {"scale": "site", "setting": "urban", "climate": "cold", "hair": "ignored"},
+)
+
+
+def test_a_place_prompt_has_the_style_the_framing_of_a_view_the_place_and_a_reminder():
+    style = art.BY_ID["moody"]
+    prompt = art.build_place_prompt(PLACE, style, ["Icehold Square"])
+    assert prompt.startswith(style.direction) and prompt.index(art.PLACE_FRAMING) > prompt.index(style.direction)
+    assert prompt.index("The place:") > prompt.index(art.PLACE_FRAMING)
+    assert "(site, urban, cold)" in prompt and "hair" not in prompt.split("The place:")[1]
+    assert prompt.rstrip().endswith("moody painting.")
+    assert "no people" in art.PLACE_FRAMING and "No text" in art.PLACE_FRAMING and "landscape" in art.PLACE_FRAMING
+
+
+def test_styles_written_for_faces_use_their_place_variant_for_views_and_the_rest_do_not():
+    for style in art.STYLES:
+        prompt = art.build_place_prompt(PLACE, style, ["Icehold Square"])
+        assert style.direction_for("place") in prompt
+        assert style.direction_for("person") == style.direction
+        if style.place:
+            assert style.place != style.direction and style.direction not in prompt
+    assert {s.id for s in art.STYLES if s.place} >= {"anime", "sketch", "illustration", "vivid", "clean"}
+    assert not any(w in art.BY_ID["anime"].place.lower() for w in ("character", "eyes", "face"))
+    assert "portrait" not in art.BY_ID["sketch"].place and "portrait" not in art.BY_ID["illustration"].place
+
+
+def test_a_places_name_is_replaced_whole_but_its_ordinary_words_stay():
+    prompt = art.build_place_prompt(PLACE, art.BY_ID["ink"], ["Icehold Square"])
+    assert "Icehold" not in prompt and "the place" in prompt.lower()
+    assert "A broad yard" not in prompt  # sanity: the description is still there in its own words
+    assert "a broad yard of grey gravel" in prompt
+    quarry = Look("An abandoned quarry.", "The Old Quarry is stepped grey stone. The quarry walls are cut in terraces.", {})
+    text = art.build_place_prompt(quarry, art.BY_ID["ink"], ["Old Quarry"])
+    assert "Old Quarry" not in text and "The the place" not in text  # the article goes with the name
+    assert "The place is stepped grey stone. The quarry walls are cut" in text  # "quarry" alone is a plain word
+    assert art.scrub_name("Gate Hold and the gate.", ["Gate Hold"], "the place") == "The place and the gate."
+
+
+def test_a_long_place_is_cut_to_the_limit_and_the_view_is_not_the_portrait_prompt():
+    long = Look("A hall.", "It is wide. " * 1000, {"scale": "room"})
+    prompt = art.build_place_prompt(long, art.BY_ID["ink"], ["Hall"])
+    assert len(prompt) <= art.MAX_PROMPT_CHARS + 120
+    assert art.PLACE_FRAMING in prompt and art.FRAMING not in prompt

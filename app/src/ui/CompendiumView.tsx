@@ -59,13 +59,13 @@ function Detail({ panel }: { panel: CompendiumPanel }) {
         <Text style={styles.kind}>{`  ${d.kind ?? ""}`}</Text>
       </Text>
       {d.portrait ? (
-        <View style={{ marginVertical: space.sm, alignSelf: "flex-start" }}>
+        <View style={{ marginVertical: space.sm, alignSelf: (d.portrait as Json).shape === "landscape" ? "stretch" : "flex-start" }}>
           <Portrait portrait={d.portrait} name={String(d.name)} alt={(d.look as Json | null)?.summary as string | undefined} resolve={(p) => panel.imageUrl(p)} />
         </View>
       ) : null}
       {path ? <Text style={styles.dim}>{"in " + path}</Text> : null}
       {(d.aliases as string[] | undefined)?.length ? <Text style={styles.dim}>{"also called: " + (d.aliases as string[]).join(", ")}</Text> : null}
-      <LookBlock look={d.look} />
+      <LookBlock look={d.look} title={d.kind === "location" ? "View" : "Appearance"} />
       {plain.length ? <View style={{ marginTop: space.sm }}>{plain.map((f, i) => <FactLines key={i} fact={f} newMark={!!f.new && !read} indent={false} />)}</View> : null}
       {labelled.map((f, i) => {
         const show = f.label !== heading;

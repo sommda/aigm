@@ -7,6 +7,7 @@ from aigm.world.curator import (
     ExtractRequest,
     FamiliarityRequest,
     LookRequest,
+    PlaceLookRequest,
     PlotRequest,
     ReconcileRequest,
     ReviseRequest,
@@ -215,6 +216,33 @@ def render_looks(req: LookRequest) -> str:
             lines.append("Your previous answer for this character was rejected. Fix these:\n" + "\n".join(f"- {x}" for x in req.feedback[i]))
         blocks.append("\n".join(lines))
     parts.append("## Characters to describe\n" + "\n\n".join(blocks))
+    return "\n\n".join(parts)
+
+
+def render_place_looks(req: PlaceLookRequest) -> str:
+    parts = [f"## Setting\n{req.setting.strip() or '(none given)'}", f"## Ruleset\n{req.ruleset}"]
+    parts.append(
+        "## Places already described in this game (make the new ones clearly different)\n"
+        + ("\n".join(f"- {x}" for x in req.existing) or "(none)")
+    )
+    blocks = []
+    for i, sub in enumerate(req.subjects):
+        lines = [f"### {i}: {sub.name}"]
+        if sub.aliases:
+            lines.append(f"Also called: {', '.join(sub.aliases)}")
+        if sub.context:
+            lines.append("Where it is (the places that contain it):\n" + "\n".join(f"- {c}" for c in sub.context))
+        if sub.facts:
+            lines.append("What is known about it:\n" + "\n".join(f"- {f}" for f in sub.facts))
+        if sub.narration:
+            lines.append(
+                "The story has already said this about it (any visible detail here is decided; keep it):\n"
+                + "\n".join(f"- {n}" for n in sub.narration)
+            )
+        if i in req.feedback:
+            lines.append("Your previous answer for this place was rejected. Fix these:\n" + "\n".join(f"- {x}" for x in req.feedback[i]))
+        blocks.append("\n".join(lines))
+    parts.append("## Places to describe\n" + "\n\n".join(blocks))
     return "\n\n".join(parts)
 
 

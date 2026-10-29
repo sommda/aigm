@@ -63,6 +63,14 @@ test("the tabs share the screen with the story", async ({ page }) => {
   expect(Math.abs(d.height - t.height)).toBeLessThan(40);
   expect(d.y).toBeLessThan(t.y);
   expect(t.height).toBeLessThan(story!.height);
+  // the place tab opens with the picture of where the party is, large, above its name
+  const view = page.getByTestId("status-view").getByTestId("view");
+  await expect(view).toBeVisible({ timeout: 20_000 });
+  const viewImg = view.locator("img");
+  expect(await viewImg.getAttribute("src")).toContain("/portraits/p_");
+  expect(await viewImg.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+  const box = (await view.boundingBox())!;
+  expect(box.width / box.height).toBeCloseTo(1.5, 1); // landscape, 3:2
   await page.screenshot({ path: "e2e/shots/status-open.png" });
 
   // the party member's tab shows the portrait the server made for them, or the placeholder while it is painted
@@ -89,6 +97,15 @@ test("the tabs share the screen with the story", async ({ page }) => {
   await page.locator('[data-testid^="entry-"]').first().click();
   await expect(page.getByTestId("compendium-detail")).toBeVisible();
   await page.screenshot({ path: "e2e/shots/compendium-open.png" });
+
+  // a place's entry shows its view, wide, with the View text under it
+  await page.getByTestId("tab-locations").click();
+  await page.locator('[data-testid^="entry-"]', { hasText: "Rusty Flagon" }).first().click(); // The Test Marches has no look
+  const placeView = page.getByTestId("compendium-detail").getByTestId("view");
+  await expect(placeView).toBeVisible({ timeout: 20_000 });
+  expect(await placeView.locator("img").evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+  await expect(page.getByTestId("compendium-detail")).toContainText("View");
+  await page.screenshot({ path: "e2e/shots/compendium-view.png" });
 
   // a person's entry shows the portrait made for them
   await page.getByTestId("tab-characters").click();

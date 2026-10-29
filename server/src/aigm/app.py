@@ -68,8 +68,17 @@ def create_app(
     app.state.curator = curator if curator is not None else _make_curator(settings, app.state.game.prompts)
     app.state.image_store = ImageStore(settings.save_dir / "images")
     app.state.portraits = (
-        PortraitService(generator, app.state.image_store, settings.image_size, settings.image_quality) if generator else None
+        PortraitService(
+            generator, app.state.image_store, settings.image_size, settings.image_quality, settings.place_image_size
+        )
+        if generator
+        else None
     )
+    if app.state.portraits is not None and app.state.curator is not None:
+        wrote = app.state.curator.curator
+        app.state.portraits.describes = {
+            "npc": getattr(wrote, "look", None) is not None, "location": getattr(wrote, "place_look", None) is not None
+        }
     app.state.model_name = TEST_MODEL_NAME if settings.test_mode else settings.model
 
     install_error_handlers(app)

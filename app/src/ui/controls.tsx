@@ -106,45 +106,55 @@ export function Portrait({
   name,
   alt,
   resolve,
+  maxWidth = 360,
+  fitHeight = false,
 }: {
   portrait: unknown;
   name: string;
   alt?: string;
   resolve: (path: string) => string;
+  /** The widest a landscape picture of a place may be; it is narrower where the column is. */
+  maxWidth?: number;
+  /** Also keep a landscape picture to about a third of the window's height, so what is under it stays in view. */
+  fitHeight?: boolean;
 }) {
-  const p = portrait as { state?: string; url?: string } | null | undefined;
+  const p = portrait as { state?: string; url?: string; shape?: string } | null | undefined;
   const [broken, setBroken] = useState(false);
-  const { width } = useWindowDimensions();
-  const size = width < 600 ? 120 : 160;
+  const { width, height } = useWindowDimensions();
   useEffect(() => setBroken(false), [p?.url]);
   if (!p || (p.state !== "ready" && p.state !== "pending")) return null;
-  const frame = { width: size, height: size };
+  const landscape = p.shape === "landscape";
+  // a person's portrait is a small square; a place's view is wide (3:2) and as large as the column allows
+  const frame = landscape
+    ? { width: "100%" as const, maxWidth: fitHeight ? Math.min(maxWidth, Math.round(height * 0.3 * 1.5)) : maxWidth, aspectRatio: 3 / 2 }
+    : { width: width < 600 ? 120 : 160, height: width < 600 ? 120 : 160 };
   if (p.state === "ready" && p.url && !broken) {
     return (
       <Image
-        testID="portrait"
+        testID={landscape ? "view" : "portrait"}
         source={{ uri: resolve(p.url) }}
         style={[styles.portrait, frame]}
+        resizeMode="cover"
         accessibilityLabel={alt || name}
         onError={() => setBroken(true)}
       />
     );
   }
   return (
-    <View testID="portrait-placeholder" style={[styles.portrait, styles.frame, frame]}>
-      <Text style={styles.initials}>{initials(name)}</Text>
-      {p.state === "pending" ? <Text style={styles.painting}>Painting a portrait…</Text> : null}
+    <View testID={landscape ? "view-placeholder" : "portrait-placeholder"} style={[styles.portrait, styles.frame, frame]}>
+      <Text style={landscape ? styles.placeName : styles.initials}>{landscape ? name : initials(name)}</Text>
+      {p.state === "pending" ? <Text style={styles.painting}>{landscape ? "Painting a view…" : "Painting a portrait…"}</Text> : null}
     </View>
   );
 }
 
 /** How a person looks (the `look` of a character or compendium page); nothing when there is none. */
-export function LookBlock({ look }: { look: unknown }) {
+export function LookBlock({ look, title = "Appearance" }: { look: unknown; title?: string }) {
   const l = look as { summary?: string; description?: string } | null | undefined;
   if (!l || !l.description) return null;
   return (
     <View testID="look">
-      <Heading>Appearance</Heading>
+      <Heading>{title}</Heading>
       <Text style={[styles.look, selectable]}>{l.description}</Text>
     </View>
   );
@@ -154,6 +164,7 @@ const styles = StyleSheet.create({
   portrait: { borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.panelAlt },
   frame: { alignItems: "center", justifyContent: "center" },
   initials: { color: color.dim, fontFamily: font.story, fontSize: 40 },
+  placeName: { color: color.dim, fontFamily: font.story, fontSize: 22, textAlign: "center", paddingHorizontal: space.md },
   painting: { color: color.dim, fontFamily: font.ui, fontSize: 11, marginTop: space.xs, textAlign: "center" },
   look: { color: color.text, fontFamily: font.story, fontSize: 15, lineHeight: 22 },
   button: {

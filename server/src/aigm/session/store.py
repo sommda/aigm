@@ -34,6 +34,7 @@ class Session:
         self.imaging = False  # a portrait sweep is running
         self.revision_checked_turn = 0  # the narration of this turn has been checked against the Looks
         self.looks_retry_turn = 0  # a sweep that wrote nothing is not tried again before this turn
+        self.place_looks_retry_turn = 0  # the same for the places' Looks (docs/PLACES.md 6)
         # Compendium marks sent while a turn ran: entity ids, or None for everything (docs/COMPENDIUM.md 4.3).
         self.pending_seen: list[list[str] | None] = []
 
@@ -50,6 +51,7 @@ class Session:
         self.revision_checked_turn = 0
         self.plan_retry_turn = 0
         self.looks_retry_turn = 0
+        self.place_looks_retry_turn = 0
 
     def drain_pending(self, *, in_turn: bool = False) -> None:
         """Apply finished curator passes to the live world. Done only between turns (a turn works on

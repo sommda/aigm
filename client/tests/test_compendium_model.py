@@ -358,3 +358,17 @@ def test_a_person_with_only_an_appearance_shows_it_and_no_facts():
                          look={"summary": "A stout woman.", "description": "Wren is a stout woman with red hands."}))
     lines = plain(m.detail_lines(60)[0])
     assert "Appearance" in lines and "  Wren is a stout woman with red hands." in lines
+
+
+def test_a_place_shows_its_description_under_the_heading_view_and_a_person_under_appearance():
+    m = loaded()
+    look = {"summary": "A yard.", "description": "A broad yard of grey gravel ringed by timber halls."}
+    m.load_detail(detail(look=look))  # Harrow Mine, a location
+    m.move(2)
+    text = plain(m.detail_lines(60)[0])
+    assert "View" in text and "Appearance" not in text and "  A broad yard of grey gravel ringed by timber halls." in text
+    m2 = loaded()
+    m2.switch_tab("characters")
+    m2.load_detail(detail(id="e010", name="Wren", kind="npc", facts=[], look=look))
+    text2 = plain(m2.detail_lines(60)[0])
+    assert "Appearance" in text2 and "View" not in text2

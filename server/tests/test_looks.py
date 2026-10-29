@@ -157,12 +157,15 @@ def test_a_person_can_be_given_a_look_and_it_is_a_copy():
     assert world.version > before
 
 
-def test_only_people_have_looks_and_bad_looks_change_nothing():
+def test_only_people_and_places_have_looks_and_bad_looks_change_nothing():
     world = World()
-    inn = world.add_entity("The Flagon", "location")
+    guild = world.add_entity("The Thorn Guild", "faction")
     marta = world.add_entity("Marta Venn", "npc")
-    with pytest.raises(WorldError, match="not a person"):
-        world.set_look(inn.id, make_look())
+    with pytest.raises(WorldError, match="only people and places"):
+        world.set_look(guild.id, make_look())
+    inn = world.add_entity("The Flagon", "location")
+    with pytest.raises(WorldError, match="Invalid look"):  # a person's tags on a place
+        world.set_look(inn.id, make_look("The Flagon"))
     with pytest.raises(WorldError, match="Invalid look"):
         world.set_look(marta.id, make_look(summary=""))
     assert world.entity(marta.id).look is None
@@ -179,17 +182,17 @@ def test_a_looks_survives_world_copy_and_round_trip_and_rolls_back():
     assert again == staged and again.entity(marta.id).look == make_look()
 
 
-def test_a_save_with_a_look_on_a_place_is_corrupt():
+def test_a_save_with_a_look_on_a_faction_is_corrupt():
     world = World()
-    inn = world.add_entity("The Flagon", "location")
+    guild = world.add_entity("The Thorn Guild", "faction")
     data = world.to_dict()
     data["entities"][0]["look"] = make_look().to_dict()
-    with pytest.raises(CorruptSave, match="not a person"):
+    with pytest.raises(CorruptSave, match="but has a look"):
         World.from_dict(data)
     data["entities"][0]["look"] = {"summary": 1}
     with pytest.raises(CorruptSave, match="bad look"):
         World.from_dict(data)
-    assert inn.look is None
+    assert guild.look is None
 
 
 def test_worlds_from_before_looks_load_without_them():

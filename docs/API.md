@@ -620,7 +620,10 @@ asks for it when the screen opens or is refreshed; it is never pushed.
     "id": "e002", "name": "The Docks",
     "path": [{ "id": "e001", "name": "Port Veyra" }],
     "overview": "Gulls wheel over wet planks and tarred rope.",
-    "time": "Day 1, 18:00", "period": "evening"
+    "time": "Day 1, 18:00", "period": "evening",
+    "look": { "summary": "A stone quay under grey cloud.", "description": "The Docks run along a quay of ..." },
+    "portrait": { "state": "ready", "style": "modern", "shape": "landscape",
+                  "url": "/portraits/p_91c0e3a2f7b45d18.webp?session_id=default" }
   },
   "here": [{ "id": "e004", "name": "Elian", "kind": "npc", "summary": "A merchant who needs a crate moved." }],
   "items": ["A barred cargo hatch."],
@@ -639,6 +642,10 @@ asks for it when the screen opens or is refreshed; it is never pushed.
 
 - `art_style` is the id of the art style of the game's character portraits (docs/PORTRAITS.md), or `null` when the
   player chose no portraits.
+- `location.look` and `location.portrait` are how the party's place looks and its picture (docs/PLACES.md), in the
+  forms the compendium gives below: `look` is `null` and `portrait` is `null` until the place is known well enough to
+  be described (and always `null` for the picture when portraits are off). A client that shows a `pending` view asks
+  again every few seconds for a few minutes. The picture changes when the party moves.
 - `location` is `null` when no place is recorded; then `here`, `items`, `inside` and `exits` are empty.
   `overview` is `null` until a description of the place has been written.
 - `path` is the places that contain it, outermost first, up to the first one the player does not know.
@@ -689,7 +696,9 @@ been written.
 `portrait` is the character's generated headshot (docs/PORTRAITS.md), made in the background after the Look is
 written: `null` when the game has none and none is coming (portraits are off, the player chose none, or the attempt
 failed and is not being retried); `{ "state": "pending", "style": "modern" }` while one is on the way; and
-`"state": "ready"` with a `url` when it exists. `url` is a path on this server, ready to fetch, and a client that
+`"state": "ready"` with a `url` when it exists. Every portrait carries a `shape`: `"square"` for a person's headshot
+and `"landscape"` (3:2, larger) for the view of a place, so a client can size the frame before the picture arrives.
+`url` is a path on this server, ready to fetch, and a client that
 shows a pending portrait asks for the page again every few seconds for a few minutes. A new `url` replaces the old one
 when a revised Look gets a new picture.
 
@@ -804,9 +813,14 @@ otherwise. `status` is `"new"`, `"updated"` or `null`.
 when none is written yet. A person the player has met but knows nothing about has an entry with no `facts` and only
 a `look` (its list `summary` is the Look's summary, `fact_count` is `0`, `status` is `null`).
 
-`portrait` is the person's generated headshot, in the same form as on the character page above: `null` for anything
-that is not a person and for a person with none coming, `pending` while one is on the way, and `ready` with a `url`
-for `GET /portraits/{file}`. That route serves a person's picture only once they have an entry here.
+`look` is how a person or a place appears (docs/LOOKS.md, docs/PLACES.md): `{ "summary": "...", "description": "..." }`,
+or `null` for anything else and for a place not yet known well enough to describe (a place the player has only heard
+rumors of has an entry but no `look`).
+
+`portrait` is the person's headshot or the place's view, in the same form as on the character page above (`shape`
+`square` or `landscape`): `null` for anything else and for an entity with none coming, `pending` while one is on the
+way, and `ready` with a `url` for `GET /portraits/{file}`. That route serves a picture only once its person or place
+has an entry here.
 `facts` read subject facts first, then mentions, each in the order of the kind's checklist. `404` for an id that does
 not exist and, with the same message, for one the player has not discovered. A malformed id is `422`. A fact's `via`
 lists the party members whose starting knowledge it is (usually empty; never anything but party member names).

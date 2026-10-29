@@ -140,6 +140,28 @@ class LookRequest:
 
 
 @dataclass
+class PlaceSubject:
+    """One place to describe (docs/PLACES.md 5). Everything here is known to the player: nothing hidden is ever put in."""
+
+    name: str
+    aliases: list[str] = field(default_factory=list)
+    facts: list[str] = field(default_factory=list)  # known facts about the place, as "[aspect] text"
+    context: list[str] = field(default_factory=list)  # the places that contain it, outermost first, with what is known
+    narration: list[str] = field(default_factory=list)  # sentences of the story that name it
+
+
+@dataclass
+class PlaceLookRequest:
+    """A batch of places to describe. The answer is a Look for each, by the subject's index."""
+
+    subjects: list[PlaceSubject]
+    setting: str
+    ruleset: str  # the ruleset's name, for the feel of its era
+    existing: list[str] = field(default_factory=list)  # "Name: summary" of the places already described
+    feedback: dict[int, list[str]] = field(default_factory=dict)  # a retry: subject index -> why it was rejected
+
+
+@dataclass
 class ReviseSubject:
     """A character who already has a Look and whom the last narration described (docs/LOOKS.md 7)."""
 
@@ -316,6 +338,9 @@ class Curator(Protocol):
 
     # Optional: `async def look(self, request: LookRequest) -> dict[int, Look]` describes characters
     # (docs/LOOKS.md 5); the keys are indexes into `request.subjects`, and a missing one means "no answer".
+
+    # Optional: `async def place_look(self, request: PlaceLookRequest) -> dict[int, Look]` describes places
+    # (docs/PLACES.md); the keys are indexes into `request.subjects`, and a missing one means "no answer".
 
     # Optional: `async def revise_looks(self, request: ReviseRequest) -> dict[int, LookRevision]` checks the narration
     # against existing Looks (docs/LOOKS.md 7); the keys are indexes into `request.subjects`.

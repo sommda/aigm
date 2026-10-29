@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     images: bool = Field(default=True, validation_alias="AIGM_IMAGES")
     image_size: str = Field(default="1024x1024", validation_alias="AIGM_IMAGE_SIZE")
     image_quality: str | None = Field(default=None, validation_alias="AIGM_IMAGE_QUALITY")
+    # Pictures of places are landscape and a little larger than a portrait (docs/PLACES.md 8.1).
+    place_image_size: str = Field(default="1536x1024", validation_alias="AIGM_PLACE_IMAGE_SIZE")
     model: str = Field(default="claude-sonnet-5-5", validation_alias="AIGM_MODEL")
     max_tokens: int = Field(default=16000, validation_alias="AIGM_MAX_TOKENS")
     max_tool_iters: int = Field(default=16, validation_alias="AIGM_MAX_TOOL_ITERS")

@@ -118,3 +118,24 @@ async def test_the_fake_makes_a_valid_png_that_depends_on_the_prompt_and_can_fai
     one, two = await fake.generate("a"), await fake.generate("b")
     assert sniff(one.data) == "png" and one.data != two.data
     assert fake.prompts == ["a", "a", "b"]
+
+
+async def test_a_size_can_be_asked_for_per_call_and_the_setting_is_the_default():
+    sizes = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sizes.append(json.loads(request.content)["size"])
+        return reply(PNG)
+
+    gen = OpenAIImages(settings(image_size="1024x1024"), client(handler))
+    await gen.generate("x")
+    await gen.generate("x", "1536x1024")
+    assert sizes == ["1024x1024", "1536x1024"]
+    fake = FakeImages()
+    await fake.generate("a", "1536x1024")
+    assert fake.sizes == ["1536x1024"]
+
+
+def test_the_place_size_setting_defaults_to_landscape():
+    assert settings().place_image_size == "1536x1024"
+    assert settings(place_image_size="1792x1024").place_image_size == "1792x1024"

@@ -31,6 +31,7 @@ from aigm.world.curator import (
     FamiliarityRequest,
     Label,
     LookRequest,
+    PlaceLookRequest,
     LookRevision,
     MotiveProposal,
     PlotProposal,
@@ -43,7 +44,7 @@ from aigm.world.curator import (
     ReviseRequest,
     SheetRequest,
 )
-from aigm.looks import CONTROLLED_TAGS, Look
+from aigm.looks import CONTROLLED_TAGS, PLACE_CONTROLLED_TAGS, Look
 from aigm.sheets import Section, Sheet
 
 _DIRECTIVE = re.compile(r"\[\[(\w+):\s*(.*?)\]\]", re.DOTALL)
@@ -210,6 +211,43 @@ class ScriptedCurator:
                 f"capable. A faint smile rests on their lips as they study whoever stands in front of them. {decided}"
             ).strip()
             summary = f"A {build} {ancestry} in {tags['clothing']}, with {tags['hair']} hair and {tags['marks'][0]}."
+            out[i] = Look(summary, body, tags)
+        return out
+
+    async def place_look(self, request: PlaceLookRequest) -> dict[int, Look]:
+        """A deterministic Look for each place: materials, ground and light chosen from short lists by the name and the
+        place in the batch (so a batch is varied), and every fact the player was told repeated word for word."""
+        self.calls.append("place_look")
+        scale = PLACE_CONTROLLED_TAGS["scale"]
+        setting = PLACE_CONTROLLED_TAGS["setting"][:-1]
+        climate = PLACE_CONTROLLED_TAGS["climate"][:-1]
+        built = ("grey stone", "weathered timber", "whitewashed plaster", "red brick", "dark slate", "pale limestone",
+                 "tarred planks", "rough granite", "sun-bleached clay", "mossy flagstones", "black basalt", "woven reed")  # fmt: skip
+        ground = ("trampled gravel", "wet cobbles", "packed earth", "worn flagstones", "dry grass", "shingle and sand",
+                  "bare rock", "scattered straw", "mud and puddles", "swept brick", "deep moss", "frosted turf")  # fmt: skip
+        light = ("flat silver light", "warm amber light", "cool blue shade", "pale morning gold", "dim lamplight",
+                 "hard white sun", "soft green dapple", "rosy dusk glow", "smoky grey haze", "clear high sunlight",
+                 "faint torchlight", "cold winter brightness")  # fmt: skip
+        out: dict[int, Look] = {}
+        for i, sub in enumerate(request.subjects):
+            step = i + len(request.existing)  # varied within a batch and across sweeps
+            seed = zlib.crc32(sub.name.encode())
+            tags = {
+                "scale": scale[(seed + step) % 6], "setting": setting[(seed + 3 * step) % 7],
+                "climate": climate[(seed + 5 * step) % 6], "architecture": f"{built[(seed + 7 * step) % 12]} walls and roofs",
+                "terrain": ground[(seed + 5 * step) % 12], "flora": "a few hardy plants", "light": light[(seed + 11 * step) % 12],
+                "mood": "quiet and empty", "features": [f"{built[(seed + 2 * step) % 12]} steps", "a worn doorway"],
+            }  # fmt: skip
+            known = " ".join(f"Also: {f.split('] ', 1)[-1].strip()}" for f in sub.facts[:3])[:360]
+            body = (
+                f"{sub.name} is a place of {tags['architecture']}, seen from where a visitor first stands. The ground is "
+                f"{tags['terrain']}, and a few hardy plants grow in the corners and cracks. A worn doorway and a short "
+                f"run of {built[(seed + 2 * step) % 12]} steps lead further in, their edges softened by long use. The "
+                f"light is {tags['light']}, falling evenly across every surface and leaving long, soft shadows. Nothing "
+                f"stirs in the view. The air looks still, and the whole scene is calm, plain and quiet, with the empty "
+                f"look of a place between visitors. {known}"
+            ).strip()
+            summary = f"A {tags['scale']} of {tags['architecture']}, with {tags['terrain']} underfoot."
             out[i] = Look(summary, body, tags)
         return out
 

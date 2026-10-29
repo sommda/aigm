@@ -22,6 +22,7 @@ from aigm.world.passes import (
 from aigm import rulesets
 from aigm.looks import Look
 from aigm.world.describe import Given, LooksResult, needing, revision_candidates, run_looks, run_revisions
+from aigm.world.describe_places import needing_places, run_place_looks
 from aigm.world.model import World
 from aigm.world.text import normalize_name
 from aigm import story as story_rules
@@ -228,6 +229,48 @@ class CuratorService:
             state.look_hints.pop(normalize_name(op.entity), None)  # used
         session.pending.append(result.ops)
         session.pending_looks.append(result.party)
+        session.drain_pending()
+        return True
+
+    def place_looks_due(self, session: Session) -> bool:
+        """Is any place the player knows well enough to picture without a Look, and is this a quiet moment?"""
+        state = session.state
+        return (
+            state.phase is Phase.ADVENTURE
+            and not session.curating
+            and not session.busy
+            and state.turn >= session.place_looks_retry_turn
+            and getattr(self.curator, "place_look", None) is not None
+            and bool(needing_places(state.world))
+        )
+
+    async def run_place_looks_if_due(self, session: Session) -> bool:
+        """Describe the places that need it, in the background, after the turn (docs/PLACES.md 6). The results wait for
+        the session to be idle, like a curator pass; a sweep that wrote nothing backs off for a few turns."""
+        if not self.place_looks_due(session):
+            return False
+        generation = session.generation
+        state = session.state
+        session.curating = True
+        try:
+            result = await run_place_looks(
+                state.world.copy(), state.campaign or {}, rulesets.get(state.ruleset).name, self.curator,
+                recent_text=_last_narration(session.messages),
+            )  # fmt: skip
+        except Exception:
+            log.exception("describing places failed; will retry")
+            session.place_looks_retry_turn = state.turn + LOOK_RETRY_TURNS
+            return False
+        finally:
+            session.curating = False
+        for note in result.notes:
+            log.info("place looks: %s", note)
+        if session.generation != generation:
+            return False
+        if not result.ops:
+            session.place_looks_retry_turn = state.turn + LOOK_RETRY_TURNS
+            return False
+        session.pending.append(result.ops)
         session.drain_pending()
         return True
 

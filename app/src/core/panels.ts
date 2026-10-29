@@ -63,11 +63,13 @@ export class StatusPanel extends Notifier {
     this.pollTimer = null;
   }
 
-  /** While the open character's portrait is still being painted, look again every few seconds, for a few minutes. */
+  /** While the open page's picture (a character's portrait, or the view of the party's place) is still being painted,
+   * look again every few seconds, for a few minutes. */
   private watch(): void {
     this.stop();
-    const page = this.model.page as { portrait?: { state?: string } } | undefined;
-    if (this.model.character && page?.portrait?.state === "pending" && this.polls < PORTRAIT_POLLS) {
+    const page = this.model.page as { portrait?: { state?: string }; location?: { portrait?: { state?: string } } } | undefined;
+    const portrait = this.model.character ? page?.portrait : page?.location?.portrait;
+    if (portrait?.state === "pending" && this.polls < PORTRAIT_POLLS) {
       this.pollTimer = setTimeout(() => void this.poll(), PORTRAIT_POLL_MS);
     }
   }
@@ -78,10 +80,8 @@ export class StatusPanel extends Notifier {
     const tab = m.tab;
     const name = m.character;
     try {
-      if (name) {
-        const page = await this.api.character(name);
-        if (m.tab === tab) m.load(tab, page);
-      }
+      const page = name ? await this.api.character(name) : await this.api.status();
+      if (m.tab === tab) m.load(tab, page);
     } catch {
       // the next look will tell; a failed poll is not shown
     }

@@ -26,6 +26,7 @@ from aigm.world.curator import (
     FamiliarityRequest,
     Label,
     LookRequest,
+    PlaceLookRequest,
     MotiveProposal,
     MotiveReport,
     PlotProposal,
@@ -37,7 +38,9 @@ from aigm.world.curator import (
     ReconcileResult,
     SheetRequest,
 )
-from aigm.looks import CONTROLLED_TAGS, LIST_TAGS, TEXT_TAGS, Look
+from aigm.looks import (
+    CONTROLLED_TAGS, LIST_TAGS, PLACE_CONTROLLED_TAGS, PLACE_LIST_TAGS, PLACE_TEXT_TAGS, TEXT_TAGS, Look,
+)  # fmt: skip
 from aigm.sheets import Sheet, clean
 from aigm.world.model import ASPECTS, DISCLOSURES, KINDS, MOTIVE_KINDS
 from aigm.world.render import (
@@ -47,6 +50,7 @@ from aigm.world.render import (
     render_extract,
     render_familiarity,
     render_looks,
+    render_place_looks,
     render_revise,
     render_sheet,
     render_plot,
@@ -134,6 +138,14 @@ _LOOK_TAGS = _obj(
 )
 LOOK_SCHEMA = _obj(
     looks={"type": "array", "items": _obj(index={"type": "integer"}, summary=_STR, description=_STR, tags=_LOOK_TAGS)},
+)
+_PLACE_TAGS = _obj(
+    **{k: {"type": "string", "enum": list(v)} for k, v in PLACE_CONTROLLED_TAGS.items()},
+    **{k: _STR for k in PLACE_TEXT_TAGS},
+    **{k: _STRS for k in PLACE_LIST_TAGS},
+)
+PLACE_LOOK_SCHEMA = _obj(
+    looks={"type": "array", "items": _obj(index={"type": "integer"}, summary=_STR, description=_STR, tags=_PLACE_TAGS)},
 )
 VERDICTS = ("same", "adds", "lasting", "contradicts")
 REVISE_SCHEMA = _obj(
@@ -284,6 +296,11 @@ def parse_looks(data: dict[str, Any], count: int) -> dict[int, Look]:
     return out
 
 
+# Steps that only write to a fixed format from facts they are given. They need no thinking, and with it on the model
+# sometimes thought for the whole output budget and answered nothing ("stopped with max_tokens").
+NO_THINKING = frozenset({"describe", "describe_place"})
+
+
 class AnthropicCurator:
     def __init__(
         self,
@@ -302,7 +319,7 @@ class AnthropicCurator:
         self.effort, self.expand_effort = effort, expand_effort
         self.max_tokens = max_tokens
         self._client = client
-        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "familiarity", "sheet", "digest", "plot", "describe", "revise")}
+        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "familiarity", "sheet", "digest", "plot", "describe", "describe_place", "revise")}
         self.guides = prompts.aspect_guides()
 
     def _get_client(self) -> Any:
@@ -318,6 +335,8 @@ class AnthropicCurator:
             "messages": [{"role": "user", "content": user}],
             "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
         }
+        if step in NO_THINKING:
+            params["thinking"] = {"type": "disabled"}
         response = await self._get_client().messages.create(**params)
         usage = getattr(response, "usage", None)
         log.info("curator %s (%s): in=%s out=%s", step, model, getattr(usage, "input_tokens", "?"), getattr(usage, "output_tokens", "?"))
@@ -385,6 +404,10 @@ class AnthropicCurator:
     async def look(self, request: LookRequest) -> dict[int, Look]:
         # Writing to a fixed format from material already given: the cheap model is enough.
         data = await self._ask("describe", self.model, self.effort, render_looks(request), LOOK_SCHEMA)
+        return parse_looks(data, len(request.subjects))
+
+    async def place_look(self, request: PlaceLookRequest) -> dict[int, Look]:
+        data = await self._ask("describe_place", self.model, self.effort, render_place_looks(request), PLACE_LOOK_SCHEMA)
         return parse_looks(data, len(request.subjects))
 
     async def revise_looks(self, request: ReviseRequest) -> dict[int, LookRevision]:

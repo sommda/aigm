@@ -81,6 +81,8 @@ def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budg
         shown.add(loc.id)
         chain = " in ".join(p.name for p in world.parent_chain(loc.id))
         out.add(f"Location: {loc.name}" + (f" (in {chain})" if chain else ""), force=True)
+        if loc.look:  # how the place appears: the narration must not contradict it (docs/PLACES.md 7)
+            out.add(f"  Looks: {loc.look.summary}", force=True)
         for fact in _by_disclosure(_without_overview(world.facts_about(loc.id)))[:LOCATION_FACTS]:
             out.add(fact_line(fact), fact)
     else:
