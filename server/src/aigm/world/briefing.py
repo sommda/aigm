@@ -3,6 +3,7 @@
 Built from the world state by fixed rules, in priority order, within a size budget (docs/WORLD.md
 6.1). It includes hidden facts, labeled so the GM can tell what the player has not been told."""
 
+from aigm.looks import Look
 from aigm.world.model import SCENE_MOTIVE_HOURS, Entity, Fact, Motive, World
 
 CHARS_PER_TOKEN = 4  # rough; the budget is a guide, not a hard limit
@@ -91,6 +92,8 @@ def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budg
     for npc in present:
         shown.add(npc.id)
         out.add(f"{npc.name} ({npc.kind}, {_aliases(npc)})".replace(", )", ")"))
+        if npc.look:
+            out.add(f"  Looks: {look_line(npc.look)}")
         for fact in _by_disclosure(world.facts_about(npc.id))[:PRESENT_FACTS]:
             out.add(fact_line(fact), fact)
 
@@ -123,6 +126,12 @@ def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budg
             out.add(f"- {note['text']}", force=True)
 
     return "\n".join(out.lines)
+
+
+def look_line(look: Look) -> str:
+    """How a person appears, for the GM: the summary and the marks (docs/LOOKS.md 9)."""
+    marks = look.tags.get("marks")
+    return look.summary + (f" Marks: {'; '.join(marks)}." if isinstance(marks, list) and marks else "")
 
 
 def motive_line(owner: Entity, motive: Motive) -> str:

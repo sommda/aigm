@@ -6,7 +6,7 @@ and a Textual terminal client plays it like a text adventure.
 | Directory | What | Docs |
 |---|---|---|
 | `server/` | FastAPI backend (own uv project) | [docs/API.md](docs/API.md), [docs/BACKEND.md](docs/BACKEND.md), [docs/WORLD.md](docs/WORLD.md) (the persistent world: design and how it works), [docs/RULESETS.md](docs/RULESETS.md) (choosing the game's ruleset), [docs/ROLEPLAY.md](docs/ROLEPLAY.md) (spec: spoken role play, rewards and hidden motives), [docs/CONTEXT.md](docs/CONTEXT.md) (the debug context viewer), [docs/HISTORY.md](docs/HISTORY.md) (shrinking the history), [docs/COMPENDIUM.md](docs/COMPENDIUM.md) (what the player has learned), [docs/OPENING.md](docs/OPENING.md) (spec: character backgrounds and the opening), [docs/STATUS.md](docs/STATUS.md) (spec: status page and character sheets), [docs/NEXT_TALE.md](docs/NEXT_TALE.md) (spec: rolling a finished game into a new one), [docs/NARRATION_STREAMING.md](docs/NARRATION_STREAMING.md) (spec: streaming roll narration) |
-| `client/` | Textual terminal client (own uv project) | [docs/CLIENT.md](docs/CLIENT.md); design for a graphical app (brainstorm): [docs/APP.md](docs/APP.md), [docs/ART.md](docs/ART.md), [docs/CHOICES.md](docs/CHOICES.md), [docs/TURN_COST.md](docs/TURN_COST.md), [docs/LAUNCH_RULESETS.md](docs/LAUNCH_RULESETS.md), [docs/CAMPAIGNS.md](docs/CAMPAIGNS.md) |
+| `client/` | Textual terminal client (own uv project) | [docs/CLIENT.md](docs/CLIENT.md); design for a graphical app (brainstorm): [docs/APP.md](docs/APP.md), [docs/ART.md](docs/ART.md), [docs/CHOICES.md](docs/CHOICES.md), [docs/TURN_COST.md](docs/TURN_COST.md), [docs/LAUNCH_RULESETS.md](docs/LAUNCH_RULESETS.md), [docs/CAMPAIGNS.md](docs/CAMPAIGNS.md), [docs/LOOKS.md](docs/LOOKS.md) (spec: character descriptions for images) |
 | `app/` | React Native (Expo) graphical client, in the browser first (own npm project) | [docs/REACT_APP.md](docs/REACT_APP.md), [docs/APP.md](docs/APP.md) |
 
 The three projects have separate dependencies and lockfiles; they communicate only over HTTP.
@@ -101,9 +101,43 @@ cd server && uv run aigm --debug    # also allow clients to inspect the model's 
 cd client && uv sync && uv run aigm-client
 ```
 
+### Graphical client (Expo)
+
+The graphical client in `app/` is a React Native app built with [Expo](https://expo.dev). For now it runs in the
+browser; there are no iOS, Android or desktop builds yet. It needs Node.js (a current LTS release) and a running
+server, and it shares the server's `default` session with the terminal client, so use only one of them at a time (or
+give each its own session, below).
+
+```sh
+# 1. start the server (see above); add --test for scripted replies with no API key
+cd server && uv run aigm --debug
+
+# 2. in another terminal: install once, then start Expo's web dev server
+cd app && npm install
+npm run web                         # serves http://localhost:8081 and opens it in your browser
+```
+
+The app talks to `http://127.0.0.1:8000` by default (the server already accepts pages from localhost). To point it
+elsewhere or play a different session, either add them to the page address, which the app remembers:
+
+```
+http://localhost:8081/?server=http://host:8000&session=NAME
+```
+
+or set them when starting Expo:
+
+```sh
+EXPO_PUBLIC_AIGM_URL=http://host:8000 EXPO_PUBLIC_AIGM_SESSION=NAME npm run web
+```
+
+Enter sends a message, Shift+Enter adds a line and Esc cancels a running turn. Saves are the server's, so a game saved
+here loads in the terminal client and the other way round. Use `npx expo install PACKAGE` rather than `npm install`
+to add a library. See [docs/REACT_APP.md](docs/REACT_APP.md) for what is built and what is not.
+
 ## Tests
 
 ```sh
 cd server && uv run pytest
 cd client && uv run pytest
+cd app && npm test && npm run typecheck && npm run e2e   # e2e needs Chrome installed
 ```

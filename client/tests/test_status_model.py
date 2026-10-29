@@ -130,3 +130,14 @@ def test_a_fight_retitles_the_table_and_shows_its_columns():
     assert lines[at + 1].split() == ["Name", "Side", "Health", "Conditions"]
     assert lines[at + 2].split() == ["Toby", "Party", "11/15", "prone"]
     assert lines[at + 3].split() == ["Wolf", "x3", "Foe", "bloodied", "-"]
+
+
+def test_a_character_page_shows_the_appearance_when_there_is_one():
+    model = with_party()
+    model.switch("c:Toby")
+    page = {**sample_characters()["Toby"], "look": {"summary": "A lean man.", "description": "Toby is lean and tall."}}
+    model.load("c:Toby", page)
+    lines = text_of(model).splitlines()
+    assert lines[lines.index("Appearance") + 1] == "  Toby is lean and tall."
+    model.load("c:Toby", {**page, "look": None})
+    assert "Appearance" not in text_of(model)

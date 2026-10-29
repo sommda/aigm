@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { color, font, radius, space } from "./theme";
+import { color, font, radius, selectable, space } from "./theme";
 
 export function Button({
   label,
@@ -86,7 +86,20 @@ export function Heading({ children }: { children: ReactNode }) {
   return <Text style={styles.heading}>{children}</Text>;
 }
 
+/** How a person looks (the `look` of a character or compendium page); nothing when there is none. */
+export function LookBlock({ look }: { look: unknown }) {
+  const l = look as { summary?: string; description?: string } | null | undefined;
+  if (!l || !l.description) return null;
+  return (
+    <View testID="look">
+      <Heading>Appearance</Heading>
+      <Text style={[styles.look, selectable]}>{l.description}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  look: { color: color.text, fontFamily: font.story, fontSize: 15, lineHeight: 22 },
   button: {
     paddingHorizontal: space.md,
     paddingVertical: 6,

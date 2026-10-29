@@ -18,6 +18,7 @@ Expansion writes a plain fact for up to two missing aspects, gives a bare locati
 motive."""
 
 import re
+import zlib
 
 from aigm.world.curator import (
     BootstrapRequest,
@@ -29,6 +30,8 @@ from aigm.world.curator import (
     FactProposal,
     FamiliarityRequest,
     Label,
+    LookRequest,
+    LookRevision,
     MotiveProposal,
     PlotProposal,
     PlotRequest,
@@ -37,8 +40,10 @@ from aigm.world.curator import (
     EndingProposal,
     ReconcileRequest,
     ReconcileResult,
+    ReviseRequest,
     SheetRequest,
 )
+from aigm.looks import CONTROLLED_TAGS, Look
 from aigm.sheets import Section, Sheet
 
 _DIRECTIVE = re.compile(r"\[\[(\w+):\s*(.*?)\]\]", re.DOTALL)
@@ -160,6 +165,74 @@ class ScriptedCurator:
             hp = int(found.group(1))
             max_hp = int(found.group(2) or found.group(1))
         return Sheet(f"{request.name}, level {request.level}", hp, max_hp, [], [Section("Sheet", lines)])
+
+    async def look(self, request: LookRequest) -> dict[int, Look]:
+        """A deterministic Look for each character: coloring and features chosen from short lists by the name and the
+        place in the batch (so a batch is varied), the ancestry and gender read from the text, and every decided
+        detail repeated word for word."""
+        self.calls.append("look")
+        hair = ("white", "black", "chestnut", "copper", "ash blond", "dark brown", "grey", "auburn", "sandy", "red",
+                "silver", "straw yellow")  # fmt: skip
+        eyes = ("grey", "brown", "green", "hazel", "pale blue", "amber", "black", "dark blue", "light brown", "violet")
+        marks = ("a notched left ear", "a pale scar across the chin", "a crooked nose", "freckles across both cheeks",
+                 "a missing front tooth", "a burn scar on the left hand", "a heavy brow", "a tattoo of a swallow",
+                 "a split lip", "deep dimples", "a bald crown", "a gold hoop earring")  # fmt: skip
+        cloth = ("a patched green cloak", "a leather apron", "a long grey coat", "a faded red tunic",
+                 "a dark wool jerkin", "a travel-stained blue robe", "a yellow silk sash", "a fur-collared vest",
+                 "a canvas smock", "a plain brown habit", "a studded leather coat", "a black velvet doublet")  # fmt: skip
+        out: dict[int, Look] = {}
+        for i, sub in enumerate(request.subjects):
+            step = i + len(request.existing)  # varied within a batch and across sweeps
+            seed = zlib.crc32(sub.name.encode())
+            text = " ".join([sub.sheet, sub.background, *sub.facts, *sub.given]).lower()
+            ancestry = next((a for a in CONTROLLED_TAGS["ancestry"][:-1] if re.search(rf"\b{a}s?\b", text)), "human")
+            if re.search(r"\b(she|her|woman|female)\b", text):
+                gender = "feminine"
+            elif re.search(r"\b(he|his|man|male)\b", text):
+                gender = "masculine"
+            else:
+                gender = CONTROLLED_TAGS["gender"][(seed + step) % 3]
+            build = CONTROLLED_TAGS["build"][(seed + 5 * step) % 6]
+            tags = {
+                "ancestry": ancestry, "age": "adult", "gender": gender, "build": build,
+                "height": CONTROLLED_TAGS["height"][(seed + step) % 3], "hair": hair[(seed + 5 * step) % 12],
+                "eyes": eyes[(seed + 3 * step) % 10],
+                "clothing": cloth[(seed + 7 * step) % 12], "archetype": "traveller", "expression": "calm",
+                "marks": [marks[(seed + 5 * step) % 12]], "carries": ["a worn leather satchel"],
+            }  # fmt: skip
+            decided = " ".join(f"Also: {g.strip()}" for g in sub.given)[:360]
+            body = (
+                f"{sub.name} is an adult {ancestry} of {build} build and {tags['height']} stature, standing with an "
+                f"easy, upright bearing. {sub.name} has {tags['hair']} hair, {tags['eyes']} eyes and a weathered, "
+                f"open face marked by {tags['marks'][0]}. Their clothes are practical and well worn: "
+                f"{tags['clothing']} over sturdy boots, with {tags['carries'][0]} slung at one hip. "
+                f"The expression is calm and attentive, the posture relaxed but ready, the hands steady and "
+                f"capable. A faint smile rests on their lips as they study whoever stands in front of them. {decided}"
+            ).strip()
+            summary = f"A {build} {ancestry} in {tags['clothing']}, with {tags['hair']} hair and {tags['marks'][0]}."
+            out[i] = Look(summary, body, tags)
+        return out
+
+    async def revise_looks(self, request: ReviseRequest) -> dict[int, LookRevision]:
+        """Reads `[[look: adds|lasting|contradicts | text]]` from the sentences that name a character: `adds` and
+        `lasting` work the text into the description and the marks, `contradicts` reports it as the note."""
+        self.calls.append("revise")
+        out: dict[int, LookRevision] = {}
+        for i, sub in enumerate(request.subjects):
+            for sentence in sub.narration:
+                found = re.search(r"\[\[look:\s*(adds|lasting|contradicts)\s*\|\s*(.*?)\]\]", sentence, re.DOTALL)
+                if not found:
+                    continue
+                verdict, text = found.group(1), found.group(2).strip()
+                if verdict == "contradicts":
+                    out[i] = LookRevision(verdict, None, text)
+                else:
+                    look = sub.current.copy()
+                    look.description = f"{look.description} {text}"
+                    look.tags["marks"] = [*look.tags.get("marks", []), text][:5]
+                    out[i] = LookRevision(verdict, look)
+                break
+        return out
 
     async def plot(self, request: PlotRequest) -> PlotProposal:
         """A plain plan of the size the length asks for: a chain of quests per chapter, each giving something, ending

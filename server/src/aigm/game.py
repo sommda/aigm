@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from aigm.characters import sheet_notes
+from aigm.characters import look_notes, sheet_notes
 from aigm.combat import notes as combat_notes
 from aigm.history import HistoryPolicy, Reduction, reduce_history
 from aigm.prompts import PromptLibrary, PromptPart
@@ -127,6 +127,10 @@ class Game:
         fight = combat_notes(state.combat)
         if fight:
             notes = f"{notes}\n\n{fight}" if notes else fight
+        looks = look_notes(state)
+        if looks:  # how the characters appear: narration must not contradict it (docs/LOOKS.md 9)
+            block = f"How the party looks (stay within this; add detail freely, contradict nothing):\n{looks}"
+            notes = f"{notes}\n\n{block}" if notes else block
         sheets = sheet_notes(state)
         if sheets:  # kept apart from the world notes: it is the GM's copy of what the player sees (docs/STATUS.md 3.3)
             notes = f"{notes}\n\nCharacter sheets (change them with update_character):\n{sheets}" if notes else (

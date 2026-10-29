@@ -28,7 +28,7 @@ adds only a few plates of its own (4 to 6), so most art is made once per world, 
 2. **Art never carries information the text lacks.** The game is fully playable with images off, missing or slow.
 3. **Art attaches to people, places and moments, never to plot roles,** so variation in a pack never invalidates it.
 4. **Appearance is data.** What a portrait shows is written as a known fact on the entity, so the narrator does not
-   contradict it.
+   contradict it. The record for it is the Look ([LOOKS.md](LOOKS.md)).
 5. **Nothing is generated while a turn waits.** Everything in the first release is pre-made.
 6. **One written style bible,** versioned, so assets made months apart match.
 
@@ -37,8 +37,9 @@ adds only a few plates of its own (4 to 6), so most art is made once per world, 
 ### 3.1 The library
 
 A set of portraits tagged by ancestry, age, build, gender presentation, role (guard, merchant, noble, thief, priest,
-innkeeper...) and mood. The server picks the closest match for a new person from their `known` appearance facts and
-never gives two people in the same game the same face. Aim for roughly 200 to 400 for launch; fewer is acceptable if
+innkeeper...) and mood. The server picks the closest match for a new person from their Look
+([LOOKS.md](LOOKS.md): a written description plus tags, with a canonical search text) and never gives two people in
+the same game the same face. Aim for roughly 200 to 400 for launch; fewer is acceptable if
 tags are broad and the matcher avoids repeats.
 
 How to make it cheaply:

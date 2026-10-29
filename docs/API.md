@@ -671,9 +671,13 @@ One character (the name is matched without regard to case; `404` for anyone who 
     { "title": "Abilities", "lines": ["STR 10 (+0)   DEX 16 (+3)"] },
     { "title": "Equipment", "lines": ["Shortsword", "Thieves' tools", "12 gp, 4 sp"] }
   ],
-  "text": null
+  "text": null,
+  "look": { "summary": "A lean man with a broken nose.", "description": "Toby is a lean man of about thirty ..." }
 }
 ```
+
+`look` is how the character appears (docs/LOOKS.md), written from what the player chose; it is `null` until one has
+been written.
 
 `sections` are written by the model for the game's ruleset and the character's class, so their titles and lines
 differ between rulesets; clients print them in order and never interpret them. When no tidy sheet exists (the step
@@ -767,10 +771,15 @@ otherwise. `status` is `"new"`, `"updated"` or `null`.
     }
   ],
   "related": [{ "id": "e020", "name": "Thorn Guild", "kind": "faction", "category": "other" }],
+  "look": null,
   "learned_turn": 31,
   "updated_turn": 48
 }
 ```
+
+`look` is `{ "summary": "...", "description": "..." }` for a person (docs/LOOKS.md) and `null` for anything else or
+when none is written yet. A person the player has met but knows nothing about has an entry with no `facts` and only
+a `look` (its list `summary` is the Look's summary, `fact_count` is `0`, `status` is `null`).
 
 `facts` read subject facts first, then mentions, each in the order of the kind's checklist. `404` for an id that does
 not exist and, with the same message, for one the player has not discovered. A malformed id is `422`. A fact's `via`

@@ -25,15 +25,19 @@ from aigm.world.curator import (
     FactProposal,
     FamiliarityRequest,
     Label,
+    LookRequest,
     MotiveProposal,
     MotiveReport,
     PlotProposal,
     PlotRequest,
     ReconcileRequest,
+    ReviseRequest,
+    LookRevision,
     QuestProposal,
     ReconcileResult,
     SheetRequest,
 )
+from aigm.looks import CONTROLLED_TAGS, LIST_TAGS, TEXT_TAGS, Look
 from aigm.sheets import Sheet, clean
 from aigm.world.model import ASPECTS, DISCLOSURES, KINDS, MOTIVE_KINDS
 from aigm.world.render import (
@@ -42,6 +46,8 @@ from aigm.world.render import (
     render_expand,
     render_extract,
     render_familiarity,
+    render_looks,
+    render_revise,
     render_sheet,
     render_plot,
     render_reconcile,
@@ -120,6 +126,26 @@ SHEET_SCHEMA = _obj(
     max_hp=_nullable({"type": "integer"}),
     conditions=_STRS,
     sections={"type": "array", "items": _obj(title=_STR, lines=_STRS)},
+)
+_LOOK_TAGS = _obj(
+    **{k: {"type": "string", "enum": list(v)} for k, v in CONTROLLED_TAGS.items()},
+    **{k: _STR for k in TEXT_TAGS},
+    **{k: _STRS for k in LIST_TAGS},
+)
+LOOK_SCHEMA = _obj(
+    looks={"type": "array", "items": _obj(index={"type": "integer"}, summary=_STR, description=_STR, tags=_LOOK_TAGS)},
+)
+VERDICTS = ("same", "adds", "lasting", "contradicts")
+REVISE_SCHEMA = _obj(
+    revisions={
+        "type": "array",
+        "items": _obj(
+            index={"type": "integer"},
+            verdict={"type": "string", "enum": list(VERDICTS)},
+            note=_STR,
+            look=_nullable(_obj(summary=_STR, description=_STR, tags=_LOOK_TAGS)),
+        ),
+    },
 )
 RECONCILE_SCHEMA = _obj(
     labels={
@@ -234,6 +260,30 @@ def _motive_reports(value: Any) -> list[MotiveReport]:
     return out
 
 
+def parse_looks(data: dict[str, Any], count: int) -> dict[int, Look]:
+    """The Looks in a describer's answer, by subject index. Entries that are not usable are left out (the caller
+    treats a missing index as no answer), and empty tags are dropped."""
+    out: dict[int, Look] = {}
+    for item in data.get("looks") if isinstance(data.get("looks"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        index, tags = item.get("index"), item.get("tags")
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < count or index in out:
+            continue
+        if not isinstance(item.get("summary"), str) or not isinstance(item.get("description"), str):
+            continue
+        if not isinstance(tags, dict):
+            continue
+        clean_tags = {
+            k: ([x.strip() for x in v if isinstance(x, str) and x.strip()] if isinstance(v, list) else v.strip())
+            for k, v in tags.items()
+            if isinstance(v, (str, list))
+        }
+        clean_tags = {k: v for k, v in clean_tags.items() if v}
+        out[index] = Look(item["summary"].strip(), item["description"].strip(), clean_tags)
+    return out
+
+
 class AnthropicCurator:
     def __init__(
         self,
@@ -252,7 +302,7 @@ class AnthropicCurator:
         self.effort, self.expand_effort = effort, expand_effort
         self.max_tokens = max_tokens
         self._client = client
-        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "familiarity", "sheet", "digest", "plot")}
+        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "familiarity", "sheet", "digest", "plot", "describe", "revise")}
         self.guides = prompts.aspect_guides()
 
     def _get_client(self) -> Any:
@@ -331,6 +381,25 @@ class AnthropicCurator:
             return clean(data)
         except ValueError as exc:
             raise CuratorError(f"sheet: {exc}") from None
+
+    async def look(self, request: LookRequest) -> dict[int, Look]:
+        # Writing to a fixed format from material already given: the cheap model is enough.
+        data = await self._ask("describe", self.model, self.effort, render_looks(request), LOOK_SCHEMA)
+        return parse_looks(data, len(request.subjects))
+
+    async def revise_looks(self, request: ReviseRequest) -> dict[int, LookRevision]:
+        data = await self._ask("revise", self.model, self.effort, render_revise(request), REVISE_SCHEMA)
+        out: dict[int, LookRevision] = {}
+        for item in data.get("revisions") if isinstance(data.get("revisions"), list) else []:
+            index = item.get("index") if isinstance(item, dict) else None
+            if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(request.subjects):
+                continue
+            if item.get("verdict") not in VERDICTS or index in out:
+                continue
+            parsed = parse_looks({"looks": [{**item["look"], "index": 0}]}, 1) if isinstance(item.get("look"), dict) else {}
+            note = item.get("note")
+            out[index] = LookRevision(item["verdict"], parsed.get(0), note.strip() if isinstance(note, str) else "")
+        return out
 
     async def reconcile(self, request: ReconcileRequest) -> ReconcileResult:
         data = await self._ask("reconcile", self.model, self.effort, render_reconcile(request), RECONCILE_SCHEMA)

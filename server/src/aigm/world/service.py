@@ -19,13 +19,19 @@ from aigm.world.passes import (
     run_pass,
     run_sheets,
 )
+from aigm import rulesets
+from aigm.looks import Look
+from aigm.world.describe import Given, LooksResult, needing, revision_candidates, run_looks, run_revisions
 from aigm.world.model import World
+from aigm.world.text import normalize_name
 from aigm import story as story_rules
 from aigm.world.plot import PlotResult, run_chapter_plot, run_plot
 
 log = logging.getLogger(__name__)
 PLAN_RETRY_TURNS = 3  # a chapter plan that failed is tried again after this many more turns
 SEED_MESSAGES = 3  # what the world was built from when the adventure began (the note, the record and the cue)
+LOOK_RETRY_TURNS = 2  # a sweep that wrote no Look is not tried again until this many more turns have passed
+BOOTSTRAP_LOOKS = 24  # characters described while a new game's world is prepared (the player is waiting anyway)
 FIRST_PASS_PAGES = 1.0  # the opening scene introduces the cast, so the first pass does not wait for the usual pages
 REQUESTED_MIN_PAGES = 1.0  # a lookup miss asks for a pass, but only once there is something to digest
 
@@ -158,6 +164,117 @@ class CuratorService:
             log.info("sheets: %s", note)
         return sheets
 
+    async def looks(
+        self,
+        campaign: dict[str, Any],
+        ruleset: str,
+        world: World,
+        party_looks: dict[str, Look],
+        *,
+        recent_text: str = "",
+        given: dict[str, Given] | None = None,
+        limit: int | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> LooksResult:
+        """Looks for the characters that have none (docs/LOOKS.md 5). Never raises for a model failure."""
+        kwargs: dict[str, Any] = {"recent_text": recent_text, "given": given, "progress": progress}
+        if limit is not None:
+            kwargs["limit"] = limit
+        result = await run_looks(world, campaign, ruleset, party_looks, self.curator, **kwargs)
+        for note in result.notes:
+            log.info("looks: %s", note)
+        return result
+
+    def looks_due(self, session: Session) -> bool:
+        """Is any character without a Look, and is this a quiet moment to write them?"""
+        state = session.state
+        return (
+            state.phase is Phase.ADVENTURE
+            and not session.curating
+            and not session.busy
+            and state.turn >= session.looks_retry_turn
+            and bool(needing(state.world, state.party_names, state.looks))
+        )
+
+    async def run_looks_if_due(self, session: Session) -> bool:
+        """Write the missing Looks in the background, after the turn. The results wait for the session to be idle,
+        like a curator pass. A sweep that wrote nothing backs off for a few turns, so a failing model costs little."""
+        if not self.looks_due(session):
+            return False
+        generation = session.generation
+        state = session.state
+        session.curating = True
+        try:
+            result = await self.looks(
+                state.campaign or {}, rulesets.get(state.ruleset).name, state.world.copy(), dict(state.looks),
+                recent_text=_last_narration(session.messages),
+                given={
+                    name: Given([note], "narration", "the GM, who was about to narrate it")
+                    for name, note in state.look_hints.items()
+                },
+            )  # fmt: skip
+        except Exception:
+            log.exception("writing looks failed; will retry")
+            session.looks_retry_turn = state.turn + LOOK_RETRY_TURNS
+            return False
+        finally:
+            session.curating = False
+        if session.generation != generation:
+            return False
+        if not result.ops and not result.party:
+            session.looks_retry_turn = state.turn + LOOK_RETRY_TURNS
+            return False
+        for op in result.ops:
+            state.look_hints.pop(normalize_name(op.entity), None)  # used
+        session.pending.append(result.ops)
+        session.pending_looks.append(result.party)
+        session.drain_pending()
+        return True
+
+    def revisions_due(self, session: Session) -> bool:
+        """Has the last turn's narration described someone who already has a Look?"""
+        state = session.state
+        if (
+            state.phase is not Phase.ADVENTURE
+            or session.curating
+            or session.busy
+            or state.turn <= session.revision_checked_turn
+            or getattr(self.curator, "revise_looks", None) is None
+        ):
+            return False
+        narration = _last_narration(session.messages)
+        return bool(narration) and bool(
+            revision_candidates(state.world, state.party_names, state.looks, narration)
+        )
+
+    async def run_revisions_if_due(self, session: Session) -> bool:
+        """Check the narration of the turn just played against the Looks of the people it describes (docs/LOOKS.md 7).
+        Once per turn, in the background; a failure is not retried, since the next turn brings new narration."""
+        if not self.revisions_due(session):
+            return False
+        generation = session.generation
+        state = session.state
+        session.revision_checked_turn = state.turn
+        session.curating = True
+        try:
+            result = await run_revisions(
+                state.world.copy(), state.campaign or {}, dict(state.looks), self.curator,
+                _last_narration(session.messages), turn=state.turn,
+            )  # fmt: skip
+        except Exception:
+            log.exception("revising looks failed")
+            return False
+        finally:
+            session.curating = False
+        for note in result.notes:
+            log.info("looks: %s", note)
+        if session.generation != generation or not (result.ops or result.party):
+            return False
+        session.pending.append(result.ops)
+        session.pending_revised.append(result.party)
+        session.drain_pending()
+        return True
+
     async def plan(
         self, campaign: dict[str, Any], world: World, length: str, progress: Callable[[str], None] | None = None
     ) -> PlotResult:
@@ -166,3 +283,14 @@ class CuratorService:
         for note in result.notes:
             log.info("plot: %s", note)
         return result
+
+
+def _last_narration(messages: list[dict[str, Any]]) -> str:
+    """The GM's text since the player's last message: what the last turn narrated."""
+    texts: list[str] = []
+    for msg in reversed(messages):
+        if msg["role"] == "user" and any(b.get("type") == "text" for b in msg["content"]):
+            break
+        if msg["role"] == "assistant":
+            texts += [b.get("text", "") for b in msg["content"] if b.get("type") == "text"]
+    return "\n".join(reversed(texts))

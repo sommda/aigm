@@ -4,6 +4,7 @@ import logging
 
 from aigm import story as story_rules
 from aigm.compendium import Compendium
+from aigm.looks import Look
 from aigm.session.state import GameState
 from aigm.world.ops import Op, apply_ops
 
@@ -26,6 +27,10 @@ class Session:
         self.pending_plans: list[Any] = []  # finished chapter plans (aigm.world.plot.PlotResult), same wait
         self.pending_reports: list[dict[str, Any]] = []  # quests the curator saw finished, same wait
         self.plan_retry_turn = 0  # a failed chapter plan is not tried again before this turn
+        self.pending_looks: list[dict[str, Look]] = []  # party members' Looks written in the background (docs/LOOKS.md)
+        self.pending_revised: list[dict[str, Look]] = []  # party members' revised Looks, waiting like pending_looks
+        self.revision_checked_turn = 0  # the narration of this turn has been checked against the Looks
+        self.looks_retry_turn = 0  # a sweep that wrote nothing is not tried again before this turn
         # Compendium marks sent while a turn ran: entity ids, or None for everything (docs/COMPENDIUM.md 4.3).
         self.pending_seen: list[list[str] | None] = []
 
@@ -36,14 +41,19 @@ class Session:
         self.pending_plans.clear()
         self.pending_reports.clear()
         self.pending_seen.clear()
+        self.pending_looks.clear()
+        self.pending_revised.clear()
+        self.revision_checked_turn = 0
         self.plan_retry_turn = 0
+        self.looks_retry_turn = 0
 
     def drain_pending(self, *, in_turn: bool = False) -> None:
         """Apply finished curator passes to the live world. Done only between turns (a turn works on
         a copy of the state and would overwrite changes made while it runs), or at the very start
         of a turn, before that copy is taken."""
         if (self.busy and not in_turn) or not (
-            self.pending or self.pending_plans or self.pending_reports or self.pending_seen
+            self.pending or self.pending_plans or self.pending_reports or self.pending_seen or self.pending_looks
+            or self.pending_revised
         ):
             return
         self.state.compendium = self.reading_state()
@@ -53,6 +63,17 @@ class Session:
             for why in applied.skipped:
                 log.info("curator op skipped: %s", why)
         self.pending.clear()
+        for looks in self.pending_looks:
+            for name, look in looks.items():
+                if name in self.state.party_names:
+                    self.state.looks.setdefault(name, look)
+        self.pending_looks.clear()
+        for looks in self.pending_revised:
+            for name, look in looks.items():
+                current = self.state.looks.get(name)
+                if current is not None and current.rev == look.rev - 1:
+                    self.state.looks[name] = look
+        self.pending_revised.clear()
         for plan in self.pending_plans:
             self._apply_plan(plan)
         self.pending_plans.clear()

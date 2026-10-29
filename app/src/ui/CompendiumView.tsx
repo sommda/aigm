@@ -3,7 +3,7 @@ import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 import { HIDDEN, TITLES } from "../core/compendiumModel";
 import { Json } from "../core/events";
 import { CompendiumPanel } from "../core/panels";
-import { Button, Heading, TabBar } from "./controls";
+import { Button, Heading, LookBlock, TabBar } from "./controls";
 import { color, font, radius, selectable, space } from "./theme";
 import { useStore } from "./useStore";
 
@@ -60,6 +60,7 @@ function Detail({ panel }: { panel: CompendiumPanel }) {
       </Text>
       {path ? <Text style={styles.dim}>{"in " + path}</Text> : null}
       {(d.aliases as string[] | undefined)?.length ? <Text style={styles.dim}>{"also called: " + (d.aliases as string[]).join(", ")}</Text> : null}
+      <LookBlock look={d.look} />
       {plain.length ? <View style={{ marginTop: space.sm }}>{plain.map((f, i) => <FactLines key={i} fact={f} newMark={!!f.new && !read} indent={false} />)}</View> : null}
       {labelled.map((f, i) => {
         const show = f.label !== heading;

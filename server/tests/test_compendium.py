@@ -359,3 +359,31 @@ def test_entering_the_adventure_in_test_mode_builds_a_compendium(client):
     chat(client, "begin")
     body = client.get("/compendium").json()
     assert sum(c["count"] for c in body["categories"]) > 0
+
+
+def test_a_person_who_has_been_met_is_listed_with_only_their_look():
+    from aigm.looks import Look
+
+    w = build()
+    tam = w.add_entity("Tam Orrin", "npc")
+    tam.look = Look("A freckled boy.", "Tam is a freckled boy of ten with a gap in his teeth. " * 3, {})
+    comp = Compendium()
+    assert "Tam Orrin" not in [e["name"] for e in entries(w, comp, "characters")]  # not met: no entry
+    assert detail(w, comp, tam.id) is None
+    w.set_scene(None, [tam.id])  # now the player can see him
+    row = next(e for e in entries(w, comp, "characters") if e["name"] == "Tam Orrin")
+    assert row["summary"] == "A freckled boy." and row["fact_count"] == 0 and row["status"] is None
+    page = detail(w, comp, tam.id)
+    assert page["facts"] == [] and page["look"] == {"summary": tam.look.summary, "description": tam.look.description}
+    assert sorted(page["look"]) == ["description", "summary"]  # nothing internal
+    assert summary(w, comp)["categories"][1]["count"] == 2  # Wren and Tam
+    assert entries(w, comp, "characters", sort="recent")
+
+
+def test_a_met_person_without_a_look_yet_stays_out_and_other_kinds_never_show_a_look_alone():
+    w = build()
+    tam = w.add_entity("Tam Orrin", "npc")
+    w.set_scene(None, [tam.id])
+    assert detail(w, Compendium(), tam.id) is None  # discovered, but nothing to show yet
+    hidden = w.add_entity("Unmet", "npc")
+    assert not hidden.discovered  # a hidden person in no scene is not shown, whatever their look

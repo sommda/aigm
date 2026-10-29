@@ -42,6 +42,11 @@ def roster(state: GameState) -> list[dict[str, Any]]:
     return out
 
 
+def _look_page(look: Any) -> dict[str, str] | None:
+    """The player's own character's Look, which they wrote (docs/LOOKS.md 9)."""
+    return {"summary": look.summary, "description": look.description} if look is not None else None
+
+
 def detail(state: GameState, name: str) -> dict[str, Any] | None:
     """One character's whole page, or None if there is no such party member."""
     found = state.find_hero(name)
@@ -59,6 +64,7 @@ def detail(state: GameState, name: str) -> dict[str, Any] | None:
         "conditions": list(sheet.conditions) if sheet else [],
         "sections": [{"title": s.title, "lines": list(s.lines)} for s in sheet.sections] if sheet else [],
         "text": None if sheet else _sheet_text(state, found),
+        "look": _look_page(state.looks.get(found)),
     }
     return page
 
@@ -83,3 +89,10 @@ def sheet_notes(state: GameState) -> str:
         text = "\n".join(lines)
         out.append(text if len(text) <= SHEET_CHARS else text[: SHEET_CHARS - 1] + "…")
     return "\n".join(out)
+
+
+def look_notes(state: GameState) -> str:
+    """How the party's members look, one line each, for the GM's notes (docs/LOOKS.md 9)."""
+    return "\n".join(
+        f"- {name}: {look.summary}" for name in state.party_names if (look := state.looks.get(name)) is not None
+    )

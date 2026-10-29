@@ -113,6 +113,7 @@ class PromptLibrary:
                 {
                     "name": str(m.get("name", "")),
                     "sheet": str(m.get("sheet", "")).strip(),
+                    "appearance": self._appearance(m.get("appearance")),
                     "background": self._background(m.get("background")),
                 },
             )
@@ -129,6 +130,7 @@ class PromptLibrary:
                 "structure": self._structure_section(structure),
                 "party_size": str(len(rendered)),
                 "party": "\n\n".join(rendered),
+                "characters": self._characters_section(campaign.get("characters")),
             },
         )
 
@@ -158,6 +160,24 @@ class PromptLibrary:
         """The background block of a party member, or nothing for a game that has none (an older save)."""
         text = value.strip() if isinstance(value, str) else ""
         return f"**Background.** {text}" if text else ""
+
+    @staticmethod
+    def _appearance(value: Any) -> str:
+        text = value.strip() if isinstance(value, str) else ""
+        return f"**Appearance.** {text}" if text else ""
+
+    @staticmethod
+    def _characters_section(value: Any) -> str:
+        """The key people made in Session 0, or nothing (docs/LOOKS.md 4.1)."""
+        people = [c for c in value if isinstance(c, dict) and c.get("name")] if isinstance(value, list) else []
+        if not people:
+            return ""
+        lines = []
+        for c in people:
+            who = "the player has been told of them" if c.get("known") else "a secret: the player has not been told"
+            look = f" Appearance: {str(c['appearance']).strip()}" if str(c.get("appearance") or "").strip() else ""
+            lines.append(f"- **{c['name']}** ({who}). {str(c.get('role', '')).strip()}{look}")
+        return "### Key people\n\nPeople of the setting made in Session 0 (not party members).\n\n" + "\n".join(lines) + "\n\n"
 
     @staticmethod
     def _fill(template: str, values: dict[str, str]) -> str:

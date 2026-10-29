@@ -288,6 +288,11 @@ class CompendiumModel:
             extra.append("also called: " + ", ".join(d["aliases"]))
         for note in extra:
             lines += [Text(part, style="dim") for part in textwrap.wrap(note, wrap) or [""]]
+        look = d.get("look")
+        if look and look.get("description"):
+            lines.append(Text(""))
+            lines.append(Text("Appearance", style="bold cyan"))
+            lines += [Text("  " + part) for part in textwrap.wrap(look["description"], max(wrap - 2, 8)) or [""]]
         facts = d.get("facts") or []
         plain = [f for f in facts if not f.get("label")]  # the description: no heading, no indent
         if plain:

@@ -2,8 +2,9 @@
 
 A filtered, read-only view of the world knowledge base, plus the player's reading state. This is the only code that
 turns world data into something a client may see, so the rule lives here and nowhere else: a fact is shown only if it
-is `known` and `active`, an entity only if it has such a fact. Hidden and hinted facts, undiscovered entities, aliases
-the player has not met and every internal field never leave this module."""
+is `known` and `active`, an entity only if it has such a fact (or, for a person the player has met, a Look). Hidden
+and hinted facts, undiscovered entities, aliases the player has not met and every internal field never leave this
+module."""
 
 import re
 from dataclasses import dataclass, field
@@ -78,7 +79,17 @@ def known_facts(world: World, entity_id: str) -> list[Fact]:
 
 def _visible(world: World, entity_id: str) -> bool:
     ent = world.entities.get(entity_id)
-    return ent is not None and ent.discovered and bool(known_facts(world, entity_id))
+    return ent is not None and ent.discovered and (bool(known_facts(world, entity_id)) or _look_only(ent))
+
+
+def _look_only(entity: Entity) -> bool:
+    """A person who has been met but about whom nothing is known yet still has an entry: their description."""
+    return entity.kind == "npc" and entity.look is not None
+
+
+def _look(entity: Entity) -> dict[str, str] | None:
+    look = entity.look
+    return {"summary": look.summary, "description": look.description} if look else None
 
 
 def category_of(entity: Entity) -> str | None:
@@ -125,6 +136,8 @@ def _aspect_label(aspect: str | None) -> str | None:
 
 
 def _summary(entity: Entity, facts: list[Fact]) -> str:
+    if not facts and entity.look:
+        return entity.look.summary
     own = [f for f in facts if f.subject == entity.id] or facts
     pick = next((f for a in SUMMARY_ASPECTS for f in own if f.aspect == a), own[0])
     text = pick.text
@@ -155,7 +168,7 @@ def _row(world: World, comp: Compendium, entity: Entity) -> dict[str, Any]:
         "fact_count": len(facts),
         "status": status,
         "unseen_count": unseen,
-        "learned_turn": min(_learned_turn(f) for f in facts),
+        "learned_turn": min((_learned_turn(f) for f in facts), default=0),
     }
 
 
@@ -207,7 +220,7 @@ def entries(
                 continue
         rows.append(row)
     if sort == "recent":
-        newest = {e["id"]: max(f.learned_seq for f in known_facts(world, e["id"])) for e in rows}
+        newest = {e["id"]: max((f.learned_seq for f in known_facts(world, e["id"])), default=0) for e in rows}
         rows.sort(key=lambda r: (-newest[r["id"]], r["name"].casefold()))
     elif sort == "tree":
         return _tree(rows)
@@ -275,8 +288,9 @@ def detail(world: World, comp: Compendium, entity_id: str) -> dict[str, Any] | N
             for f in sorted(facts, key=reading_order)
         ],
         "related": related,
-        "learned_turn": min(_learned_turn(f) for f in facts),
-        "updated_turn": max(_learned_turn(f) for f in facts),
+        "look": _look(entity),
+        "learned_turn": min((_learned_turn(f) for f in facts), default=0),
+        "updated_turn": max((_learned_turn(f) for f in facts), default=0),
     }
 
 

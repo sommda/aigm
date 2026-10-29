@@ -96,6 +96,10 @@ class StatusModel:
             out.append(vitals)
         if page.get("progress"):
             out.append(Text(page["progress"], style="dim"))
+        look = page.get("look")
+        if look and look.get("description"):
+            self._heading(out, "Appearance")
+            out.extend(Text(t) for t in wrap(look["description"], width, "  "))
         for section in page.get("sections") or []:
             self._heading(out, section["title"])
             for line in section["lines"]:

@@ -42,7 +42,7 @@ from aigm.session.state import GameState
 from aigm.story import ENDLESS, LENGTHS, chapter_label, public_summary
 from aigm.session.store import Session
 from aigm.world.ops import apply_ops
-from aigm.world.service import CuratorService
+from aigm.world.service import BOOTSTRAP_LOOKS, CuratorService
 
 log = logging.getLogger(__name__)
 
@@ -123,6 +123,17 @@ async def _seed_world(state: GameState, history: list[dict[str, Any]], curator: 
             log.info("plot op skipped: %s", why)
         state.story = plan.story
         state.story.party_level = state.average_level
+    if state.campaign:
+        yield Status(stage="world", message="Picturing the characters...")
+        try:
+            looked = await curator.looks(
+                state.campaign, rulesets.get(state.ruleset).name, state.world, state.looks, limit=BOOTSTRAP_LOOKS
+            )
+            state.looks.update(looked.party)
+            for why in apply_ops(state.world, looked.ops).skipped:
+                log.info("look op skipped: %s", why)
+        except Exception:
+            log.exception("could not describe the characters")  # the next sweep after a turn tries again
     yield Status(stage="world", message="The world is ready.", done=True)
 
 

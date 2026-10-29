@@ -19,6 +19,7 @@ RECALL_HITS = 8  # facts listed for a text query
 MAX_NEW_FACTS = 12
 MAX_NEW_ENTITIES = 6
 MAX_ELAPSED_HOURS = 24 * 30
+MAX_LOOK_NOTE_WORDS = 40
 
 
 def _fact_line(fact: Fact) -> str:
@@ -58,6 +59,8 @@ def _describe(world: World, ent: Entity) -> list[str]:
     kids = world.children(ent.id)
     if kids:
         lines.append(f"Contains: {_names(kids)}")
+    if ent.look:
+        lines.append(f"Look (what anyone can see; stay within it): {ent.look.summary} {ent.look.description}")
     facts = sorted(world.facts_about(ent.id), key=lambda f: (f.disclosure != "known", int(f.id[1:])))
     for fact in facts[:RECALL_FACTS]:
         lines.append(_fact_line(fact))
@@ -125,6 +128,10 @@ ESTABLISH_SCHEMA: dict[str, Any] = {
                             "type": "string",
                             "description": "For a place: the recorded place that contains it (a town for a tavern).",
                         },
+                        "look_notes": {
+                            "type": "string",
+                            "description": f"For a person: the visible traits you are about to narrate, at most {MAX_LOOK_NOTE_WORDS} words ('tall, one-eyed, in a guard's tabard'). They become part of the person's recorded description.",
+                        },
                     },
                     "required": ["name", "kind"],
                 },
@@ -167,6 +174,19 @@ def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _look_note(raw: dict[str, Any], name: str, hints: dict[str, str], ignored: list[str]) -> None:
+    """Keep a person's `look_notes` for the describer (docs/LOOKS.md 4.4). Raises WorldError if it is too long."""
+    note = raw.get("look_notes")
+    if note is None or (isinstance(note, str) and not note.strip()):
+        return
+    if not isinstance(note, str):
+        ignored.append(f"`look_notes` of {name!r} (not text)")
+    elif len(note.split()) > MAX_LOOK_NOTE_WORDS:
+        raise WorldError(f"look_notes is {len(note.split())} words; at most {MAX_LOOK_NOTE_WORDS}")
+    else:
+        hints[normalize_name(name)] = " ".join(note.split())
+
+
 def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
     entities, facts, reveals = (_as_list(tool_input.get(k)) for k in ("entities", "facts", "reveal"))
     if not (entities or facts or reveals):
@@ -180,6 +200,7 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     done: list[str] = []
     reused: list[str] = []
     ignored: list[str] = []
+    hints: dict[str, str] = {}  # person's name -> look_notes, kept only if the whole call is accepted
     for raw in entities:
         label = f"entity {raw.get('name')!r}" if isinstance(raw, dict) else "entity"
         try:
@@ -202,6 +223,8 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
                         world.add_alias(existing.id, other)  # a new name for something recorded, not a second entity
                 if normalize_name(str(name)) != normalize_name(existing.name):
                     reused.append(f"{name!r} is the already recorded {existing.name!r}")
+                if existing.kind == "npc" and existing.look is None:
+                    _look_note(raw, existing.name, hints, ignored)
                 continue
             parent = None
             if raw.get("parent") and kind != "location":
@@ -216,6 +239,10 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
                 raise WorldError(f"{why}. This is the road to the goal: use what is already recorded")
             ent = world.add_entity(name, kind, aliases=aliases, parent=parent)
             done.append(f"{ent.name} ({ent.id})")
+            if kind == "npc":
+                _look_note(raw, ent.name, hints, ignored)
+            elif raw.get("look_notes"):
+                ignored.append(f"`look_notes` of {name!r} (only people have a look)")
         except WorldError as exc:
             problems.append(f"{label}: {exc}")
     recorded: list[str] = []
@@ -261,6 +288,7 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
             is_error=True,
         )
     state.world = world
+    state.look_hints.update(hints)
     parts = []
     if done:
         parts.append("new: " + ", ".join(done))

@@ -2,12 +2,17 @@ from typing import Any
 
 from aigm.session.state import GameState, Hero, Phase
 from aigm.tools.base import Tool, ToolOutcome
+from aigm.world.independence import independence_problem
 
 MAX_PARTY_SIZE = 6
 MIN_SETTING = 300  # characters; a few sentences of real detail
 MIN_OPENING = 100
 MIN_SHEET = 150  # per character
 MIN_BACKGROUND = 80  # per character; origin, reputation, ties
+MIN_APPEARANCE = 60  # per character; how they look (docs/LOOKS.md 4.1)
+MAX_KEY_CHARACTERS = 8
+MAX_ROLE_WORDS = 40
+MIN_ROLE_WORDS = 3
 MAX_TOTAL = 30_000
 MAX_XP = 100_000_000
 
@@ -49,8 +54,35 @@ SCHEMA: dict[str, Any] = {
                             "type": "string",
                             "description": f"The character's life before the adventure (at least {MIN_BACKGROUND} characters): where they come from and what they did, their reputation or nickname, the people and places that know them, and which parts of the setting they know well, know only by hearsay, or do not know at all.",
                         },
+                        "appearance": {
+                            "type": "string",
+                            "description": f"How the character looks (at least {MIN_APPEARANCE} characters): apparent age, build, coloring, hair, face, notable features and usual clothing, exactly as the player chose or approved. Only what anyone could see.",
+                        },
                     },
-                    "required": ["name", "sheet", "background"],
+                    "required": ["name", "sheet", "background", "appearance"],
+                },
+            },
+            "characters": {
+                "type": "array",
+                "description": f"Optional: the key people of the setting that you and the player created in Session 0 (a patron, a rival, a companion, the villain), at most {MAX_KEY_CHARACTERS}. They are not party members. Do not list the player characters here.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "role": {
+                            "type": "string",
+                            "description": "One sentence about who they are, using their name, as a fact about the world: 'Harlan Voss is the Thorn Guild's tax collector in Ashby.'",
+                        },
+                        "appearance": {
+                            "type": "string",
+                            "description": "How they look, if it was decided or discussed (what anyone could see). Leave it out to have it written for you.",
+                        },
+                        "known": {
+                            "type": "boolean",
+                            "description": "True if the player has already been told about this person in Session 0; false if they are a secret the player has not met or heard of.",
+                        },
+                    },
+                    "required": ["name", "role", "known"],
                 },
             },
             "gm_notes": {
@@ -115,6 +147,12 @@ def _party(raw: Any, problems: list[str]) -> list[dict[str, Any]]:
                 f"{label}: 'background' is too thin (at least {MIN_BACKGROUND} characters; give where they come "
                 "from, who knows them, and what they know of the setting)"
             )
+        appearance = member.get("appearance")
+        if not isinstance(appearance, str) or len(appearance.strip()) < MIN_APPEARANCE:
+            problems.append(
+                f"{label}: 'appearance' is too thin (at least {MIN_APPEARANCE} characters; give age, build, "
+                "coloring, hair, face, notable features and usual clothing, as the player chose or approved)"
+            )
         xp = member.get("xp", 0)
         if xp is None:
             xp = 0
@@ -127,9 +165,56 @@ def _party(raw: Any, problems: list[str]) -> list[dict[str, Any]]:
                 "name": name.strip() if isinstance(name, str) else "",
                 "sheet": sheet.strip() if isinstance(sheet, str) else "",
                 "background": background.strip() if isinstance(background, str) else "",
+                "appearance": appearance.strip() if isinstance(appearance, str) else "",
             }
         )
     return party
+
+
+def _characters(raw: Any, party: list[dict[str, Any]], problems: list[str]) -> list[dict[str, Any]]:
+    """The key people made in Session 0 (docs/LOOKS.md 4.1)."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or len(raw) > MAX_KEY_CHARACTERS:
+        problems.append(f"'characters' must be a list of at most {MAX_KEY_CHARACTERS} people")
+        return []
+    taken = {m["name"].lower() for m in party}
+    out = []
+    for i, entry in enumerate(raw, 1):
+        if not isinstance(entry, dict):
+            problems.append(f"key character {i} must be an object with name, role and known")
+            continue
+        name, role = entry.get("name"), entry.get("role")
+        label = f"key character {i}" + (f" ({name})" if isinstance(name, str) and name.strip() else "")
+        if not isinstance(name, str) or not name.strip():
+            problems.append(f"{label}: 'name' must be a non-empty string")
+            continue
+        if name.strip().lower() in taken:
+            problems.append(f"{label}: the name is already used by a party member or another key character")
+        taken.add(name.strip().lower())
+        words = len(role.split()) if isinstance(role, str) else 0
+        if not MIN_ROLE_WORDS <= words <= MAX_ROLE_WORDS or name.strip().lower() not in role.lower():
+            problems.append(
+                f"{label}: 'role' must be one sentence of {MIN_ROLE_WORDS} to {MAX_ROLE_WORDS} words that uses "
+                "their name, such as 'Harlan Voss is the Thorn Guild's tax collector in Ashby.'"
+            )
+        if isinstance(role, str) and (why := independence_problem(role, [m["name"] for m in party])):
+            problems.append(f"{label}: 'role' {why}; write it as a fact about the world")
+        known = entry.get("known")
+        if not isinstance(known, bool):
+            problems.append(f"{label}: 'known' must be true or false")
+        appearance = entry.get("appearance")
+        if appearance is not None and not isinstance(appearance, str):
+            problems.append(f"{label}: 'appearance' must be a string")
+        out.append(
+            {
+                "name": name.strip(),
+                "role": role.strip() if isinstance(role, str) else "",
+                "known": known is True,
+                "appearance": appearance.strip() if isinstance(appearance, str) else "",
+            }
+        )
+    return out
 
 
 def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
@@ -150,6 +235,7 @@ def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameSta
     if isinstance(level, bool) or not isinstance(level, int) or not 1 <= level <= 20:
         problems.append("'level' must be an integer from 1 to 20")
     party = _party(tool_input.get("party"), problems)
+    characters = _characters(tool_input.get("characters"), party, problems)
     notes = tool_input.get("gm_notes")
     if notes is not None and not isinstance(notes, str):
         problems.append("'gm_notes' must be a string")
@@ -157,9 +243,13 @@ def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameSta
         return _error(*problems)
     xp = {m["name"]: m.pop("xp") for m in party}  # starting experience belongs to the heroes, not to the record
     campaign: dict[str, Any] = {"setting": setting, "opening": opening, "level": level, "party": party}
+    if characters:
+        campaign["characters"] = characters
     if notes and notes.strip():
         campaign["gm_notes"] = notes.strip()
-    if len(setting) + len(opening) + sum(len(m["sheet"]) + len(m["background"]) for m in party) + len(notes or "") > MAX_TOTAL:
+    size = sum(len(m["sheet"]) + len(m["background"]) + len(m["appearance"]) for m in party)
+    size += sum(len(c["role"]) + len(c["appearance"]) for c in characters)
+    if len(setting) + len(opening) + size + len(notes or "") > MAX_TOTAL:
         return _error("the record is too long; condense it")
     state.phase = Phase.ADVENTURE
     state.campaign = campaign

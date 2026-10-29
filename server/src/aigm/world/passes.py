@@ -417,6 +417,14 @@ async def run_bootstrap(
         result.ops += applied.ops
         result.notes += applied.skipped
 
+    key_people = [c for c in campaign.get("characters", []) if isinstance(c, dict) and c.get("name") and c.get("role")]
+    seed_ops: list[Op] = []
+    for person in key_people:  # the key people made in Session 0 are recorded as written (docs/LOOKS.md 4.1)
+        seed_ops.append(AddEntity(str(person["name"]), "npc"))
+        disclosure = "known" if person.get("known") else "hidden"
+        seed_ops.append(AddFact(str(person["role"]), (str(person["name"]),), "role", disclosure, "seed", 0))
+    commit(seed_ops)
+
     emit("Building the setting...")
     ex = await curator.bootstrap(
         BootstrapRequest(
@@ -425,6 +433,7 @@ async def run_bootstrap(
             level=int(campaign.get("level") or 1),
             party=party,
             gm_notes=str(campaign.get("gm_notes") or ""),
+            characters=[(str(c["name"]), str(c["role"])) for c in key_people],
         )
     )
     ex = _clean_extraction(ex, config, result, standalone=True)

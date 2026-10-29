@@ -2,4 +2,6 @@
 
 {{sheet}}
 
+{{appearance}}
+
 {{background}}

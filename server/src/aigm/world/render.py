@@ -6,8 +6,10 @@ from aigm.world.curator import (
     ExpandRequest,
     ExtractRequest,
     FamiliarityRequest,
+    LookRequest,
     PlotRequest,
     ReconcileRequest,
+    ReviseRequest,
     SheetRequest,
 )
 from aigm.world.model import Entity, Fact, Motive
@@ -116,6 +118,11 @@ def render_bootstrap(req: BootstrapRequest) -> str:
     members = "\n\n".join(f"### {name}\n{sheet.strip()}" for name, sheet in req.party)
     parts.append(f"## Player characters (level {req.level})\n{members}")
     parts.append("## Private GM notes (the player has not been told these)\n" + (req.gm_notes.strip() or "(none)"))
+    if req.characters:
+        parts.append(
+            "## Key people already recorded (use these exact names; do not list them again)\n"
+            + "\n".join(f"- {name}: {role}" for name, role in req.characters)
+        )
     return "\n\n".join(parts)
 
 
@@ -179,5 +186,46 @@ def render_plot(req: PlotRequest) -> str:
     if req.feedback:
         parts.append(
             "## Your previous answer was rejected\nFix these and answer again:\n" + "\n".join(f"- {x}" for x in req.feedback)
+        )
+    return "\n\n".join(parts)
+
+
+def render_looks(req: LookRequest) -> str:
+    parts = [f"## Setting\n{req.setting.strip() or '(none given)'}", f"## Ruleset\n{req.ruleset}"]
+    parts.append("## Looks already in this game (make the new ones clearly different)\n" + ("\n".join(f"- {x}" for x in req.existing) or "(none)"))
+    blocks = []
+    for i, sub in enumerate(req.subjects):
+        lines = [f"### {i}: {sub.name} ({'player character' if sub.party else 'person'})"]
+        if sub.aliases:
+            lines.append(f"Also called: {', '.join(sub.aliases)}")
+        if sub.sheet.strip():
+            lines.append(f"Sheet: {sub.sheet.strip()}")
+        if sub.background.strip():
+            lines.append(f"Background: {sub.background.strip()}")
+        if sub.facts:
+            lines.append("Recorded facts (never put a hidden one in the look):\n" + "\n".join(f"- {f}" for f in sub.facts))
+        if sub.given:
+            lines.append(f"Already decided by {sub.given_by or 'the story'} (keep every detail):\n" + "\n".join(f"- {g}" for g in sub.given))
+        if sub.narration:
+            lines.append(
+                "The story has already said this about them (any visible detail here is decided; keep it):\n"
+                + "\n".join(f"- {n}" for n in sub.narration)
+            )
+        if i in req.feedback:
+            lines.append("Your previous answer for this character was rejected. Fix these:\n" + "\n".join(f"- {x}" for x in req.feedback[i]))
+        blocks.append("\n".join(lines))
+    parts.append("## Characters to describe\n" + "\n\n".join(blocks))
+    return "\n\n".join(parts)
+
+
+def render_revise(req: ReviseRequest) -> str:
+    parts = [f"## Setting\n{req.setting.strip() or '(none given)'}", "## Characters whose look the story just described"]
+    for i, sub in enumerate(req.subjects):
+        look = sub.current
+        parts.append(
+            f"### {i}: {sub.name} ({'player character' if sub.party else 'person'}; look is "
+            f"{'fixed' if sub.fixed else 'provisional'})\n"
+            f"Current look: {look.summary}\n{look.description}\nTags: {look.tags}\n"
+            "The story said:\n" + "\n".join(f"- {n}" for n in sub.narration)
         )
     return "\n\n".join(parts)

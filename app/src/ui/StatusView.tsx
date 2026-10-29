@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Json } from "../core/events";
 import { StatusPanel } from "../core/panels";
-import { Button, Heading, TabBar } from "./controls";
+import { Button, Heading, LookBlock, TabBar } from "./controls";
 import { color, font, selectable, space } from "./theme";
 import { useStore } from "./useStore";
 
@@ -96,6 +96,7 @@ function Sheet({ page }: { page: Json }) {
         </Text>
       ) : null}
       {page.progress ? <Text style={styles.dim}>{String(page.progress)}</Text> : null}
+      <LookBlock look={page.look} />
       {arr(page.sections).map((sec, i) => (
         <View key={i}>
           <Heading>{String(sec.title)}</Heading>

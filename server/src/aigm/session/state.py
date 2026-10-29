@@ -10,6 +10,7 @@ from aigm.rulesets import BY_ID, DEFAULT_RULESET
 from aigm.story import ENDLESS, STRUCTURES, Story
 from aigm.compendium import Compendium
 from aigm.combat import Combat, read_combat
+from aigm.looks import Look, LookError, read_looks, validate
 from aigm.sheets import Sheet, read_sheets
 from aigm.world import World
 
@@ -91,6 +92,11 @@ class GameState:
     # pairs (docs/ROLEPLAY.md 5). Set by the turn loop; not saved.
     player_text: str = field(default="", compare=False)
     social_done: set[tuple[int, str]] = field(default_factory=set, compare=False)
+    # Visible traits the GM said it would narrate for a person (establish `look_notes`), by normalized name, until the
+    # next sweep writes their Look from them (docs/LOOKS.md 4.4). Not saved: it only bridges a turn and the sweep.
+    look_hints: dict[str, str] = field(default_factory=dict, compare=False)
+    # Each party member's Look, by name (docs/LOOKS.md 8). NPCs' Looks are on their entities in the world.
+    looks: dict[str, Look] = field(default_factory=dict)
 
     @property
     def party_names(self) -> list[str]:
@@ -106,6 +112,16 @@ class GameState:
         """The party member a name refers to (case and spacing aside), or None."""
         wanted = " ".join(str(name).lower().split())
         return next((n for n in self.party_names if " ".join(n.lower().split()) == wanted), None)
+
+    def set_look(self, name: str, look: Look) -> Look:
+        """Give a party member their Look, or replace it. Raises LookError if there is no such member or the Look
+        breaks the content rules."""
+        found = self.find_hero(name)
+        if found is None:
+            raise LookError(f"{name!r} is not a party member")
+        validate(look, found)
+        self.looks[found] = look.copy()
+        return self.looks[found]
 
     def hero(self, name: str) -> Hero:
         return self.heroes.get(name) or Hero(self.start_level, 0)
@@ -135,6 +151,8 @@ class GameState:
             self.combat.copy() if self.combat else None,
             self.player_text,
             set(self.social_done),
+            look_hints=dict(self.look_hints),
+            looks={n: lk.copy() for n, lk in self.looks.items()},
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -149,6 +167,7 @@ class GameState:
             "compendium": self.compendium.to_dict(),
             "sheets": {n: s.to_dict() for n, s in self.sheets.items()},
             "combat": self.combat.to_dict() if self.combat else None,
+            "looks": {n: lk.to_dict() for n, lk in self.looks.items()},
         }
 
     @classmethod
@@ -183,4 +202,5 @@ class GameState:
         return cls(phase, campaign, world, ruleset, structure=structure, story=story, heroes=heroes,
                    compendium=Compendium.from_dict(data.get("compendium")),  # none before version 6
                    sheets=read_sheets(data.get("sheets")),  # none before version 8
-                   combat=read_combat(data.get("combat")))  # none before version 9
+                   combat=read_combat(data.get("combat")),  # none before version 9
+                   looks=read_looks(data.get("looks")))  # none before version 10

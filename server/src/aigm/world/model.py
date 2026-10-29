@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from aigm.errors import CorruptSave
+from aigm.looks import Look, LookError, validate
 from aigm.world.digest import Digest
 from aigm.world.text import normalize_name, normalize_text, tokens, word_count
 
@@ -114,6 +115,7 @@ class Entity:
     aliases: list[str] = field(default_factory=list)
     parent: str | None = None
     discovered: bool = False  # has the player been told anything about it (cached from its facts)
+    look: Look | None = None  # how a person appears (docs/LOOKS.md); only `npc` entities have one
 
     def names(self) -> list[str]:
         return [self.name, *self.aliases]
@@ -122,6 +124,7 @@ class Entity:
         return {
             "id": self.id, "name": self.name, "kind": self.kind, "aliases": list(self.aliases),
             "parent": self.parent, "discovered": self.discovered,
+            "look": self.look.to_dict() if self.look else None,
         }  # fmt: skip
 
 
@@ -438,6 +441,19 @@ class World:
         self._by_name[normalize_name(alias)] = ent.id
         self._touch()
 
+    def set_look(self, entity_id: str, look: Look) -> Look:
+        """Give a person their Look, or replace it (docs/LOOKS.md). The Look must pass the content rules."""
+        ent = self._entity_or_error(entity_id)
+        if ent.kind != "npc":
+            raise WorldError(f"{ent.name} is not a person; only people have a look")
+        try:
+            validate(look, ent.name)
+        except LookError as exc:
+            raise WorldError(str(exc)) from None
+        ent.look = look.copy()
+        self._touch()
+        return ent.look
+
     def add_fact(
         self,
         text: str,
@@ -517,6 +533,9 @@ class World:
             if eid != location and eid not in present_ids:
                 present_ids.append(eid)
         self.scene = Scene(location, present_ids)
+        for eid in present_ids:  # the player can see who is there, so a person has been met even with no facts yet
+            if self.entities[eid].kind == "npc":
+                self.entities[eid].discovered = True
         if location is not None:  # arriving: what can be seen there is now known
             for fact in self.facts_about(location):
                 if fact.aspect in ARRIVAL_ASPECTS and fact.subject == location:
@@ -908,10 +927,17 @@ class World:
             ent = Entity(
                 raw["id"], raw["name"], raw["kind"], list(raw["aliases"]), raw["parent"], bool(raw["discovered"])
             )
+            if raw.get("look") is not None:  # saves from before looks have none
+                try:
+                    ent.look = Look.from_dict(raw["look"])
+                except ValueError as exc:
+                    raise WorldError(f"entity {ent.id} has a bad look: {exc}") from None
             if not _ENTITY_ID.match(str(ent.id)) or ent.id in world.entities:
                 raise WorldError(f"bad or repeated entity id {ent.id!r}")
             if ent.kind not in KINDS or not isinstance(ent.name, str) or not ent.name.strip():
                 raise WorldError(f"entity {ent.id} has a bad name or kind")
+            if ent.look is not None and ent.kind != "npc":
+                raise WorldError(f"entity {ent.id} is not a person but has a look")
             world.entities[ent.id] = ent
         for ent in world.entities.values():
             if ent.parent is not None and ent.parent not in world.entities:

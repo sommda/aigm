@@ -7,6 +7,7 @@ merged) skips it instead of failing, so replaying them is safe."""
 
 from dataclasses import dataclass, field
 
+from aigm.looks import Look
 from aigm.world.digest import Digest
 from aigm.world.model import World, WorldError
 from aigm.world.text import normalize_text
@@ -131,9 +132,25 @@ class DiscloseMotive:
     level: str = "hinted"
 
 
+@dataclass
+class SetLook:
+    """Give a person their first Look. A person who already has one keeps it (revisions are a separate op)."""
+
+    entity: str  # name or id
+    look: Look
+
+
+@dataclass
+class ReviseLook:
+    """Replace a person's Look with its next revision. Skipped if the Look has changed since it was read."""
+
+    entity: str  # name or id
+    look: Look  # rev is the old rev plus one
+
+
 Op = (
     AddEntity | AddAlias | AddFact | Supersede | Reveal | SetScene | SettleTime | StartClock | Correct | MarkProcessed
-    | AddDigest | AddMotive | ShiftMotive | ResolveMotive | DiscloseMotive
+    | AddDigest | AddMotive | ShiftMotive | ResolveMotive | DiscloseMotive | SetLook | ReviseLook
 )
 
 
@@ -268,4 +285,20 @@ def _apply(world: World, op: Op) -> bool:
         return True
     if isinstance(op, DiscloseMotive):
         return world.disclose_motive(op.motive_id, op.level)
+    if isinstance(op, SetLook):
+        ent = world.resolve(op.entity)
+        if ent is None:
+            raise WorldError(f"unknown entity {op.entity!r}")
+        if ent.look is not None:
+            return False
+        world.set_look(ent.id, op.look)
+        return True
+    if isinstance(op, ReviseLook):
+        ent = world.resolve(op.entity)
+        if ent is None or ent.look is None:
+            raise WorldError(f"{op.entity!r} has no look to revise")
+        if ent.look.rev != op.look.rev - 1:
+            return False  # someone else changed it first
+        world.set_look(ent.id, op.look)
+        return True
     raise WorldError(f"unknown op {op!r}")

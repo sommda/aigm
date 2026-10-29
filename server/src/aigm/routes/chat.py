@@ -58,6 +58,8 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
         service = app.state.curator
         if service is not None:
             await service.run_if_due(session)
+            await service.run_looks_if_due(session)
+            await service.run_revisions_if_due(session)
         await app.state.dumper.update(session)  # the turn, a tool or the pass may have changed the world
 
     background = BackgroundTasks()

@@ -7,6 +7,8 @@ so a scripted curator and the real one are held to the same rules."""
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from aigm.looks import Look
+
 from aigm.world.model import Entity, Fact, Motive, WorldTime
 
 
@@ -83,6 +85,7 @@ class BootstrapRequest:
     level: int
     party: list[tuple[str, str]]  # (name, character sheet)
     gm_notes: str  # private notes: they become hidden facts
+    characters: list[tuple[str, str]] = field(default_factory=list)  # key people already recorded: (name, role fact)
 
 
 @dataclass
@@ -108,6 +111,58 @@ class SheetRequest:
     level: int
     name: str
     text: str
+
+
+@dataclass
+class LookSubject:
+    """One character to describe (docs/LOOKS.md 5.2)."""
+
+    name: str
+    party: bool  # a player character (else an NPC)
+    aliases: list[str] = field(default_factory=list)
+    facts: list[str] = field(default_factory=list)  # recorded facts about them, as "[disclosure] text"
+    sheet: str = ""  # party members
+    background: str = ""  # party members
+    given: list[str] = field(default_factory=list)  # appearance already decided: it must be kept
+    given_by: str = ""  # who decided it: "the player in Session 0", "the narration", "the GM's notes"
+    narration: list[str] = field(default_factory=list)  # sentences of the story that name them (docs/LOOKS.md 4.3)
+
+
+@dataclass
+class LookRequest:
+    """A batch of characters to describe. The answer is a Look for each, by the subject's index."""
+
+    subjects: list[LookSubject]
+    setting: str
+    ruleset: str  # the ruleset's name, for mapping its species to an ancestry
+    existing: list[str] = field(default_factory=list)  # "Name: summary" of the looks already in the game
+    feedback: dict[int, list[str]] = field(default_factory=dict)  # a retry: subject index -> why it was rejected
+
+
+@dataclass
+class ReviseSubject:
+    """A character who already has a Look and whom the last narration described (docs/LOOKS.md 7)."""
+
+    name: str
+    party: bool
+    current: Look
+    narration: list[str]  # the sentences that name them and look like description
+    fixed: bool  # the Look is fixed: only a lasting change may alter it
+
+
+@dataclass
+class ReviseRequest:
+    subjects: list[ReviseSubject]
+    setting: str = ""
+
+
+@dataclass
+class LookRevision:
+    """The reviser's verdict on one character: same | adds | lasting | contradicts."""
+
+    verdict: str
+    look: Look | None = None  # adds and lasting: the whole Look with the change worked in
+    note: str = ""  # contradicts: what the Look says and what the narration said instead
 
 
 @dataclass
@@ -258,6 +313,12 @@ class Curator(Protocol):
     async def bootstrap(self, request: BootstrapRequest) -> Extraction: ...
 
     # Optional: `async def sheet(self, request: SheetRequest) -> Sheet` writes a character's sheet as sections.
+
+    # Optional: `async def look(self, request: LookRequest) -> dict[int, Look]` describes characters
+    # (docs/LOOKS.md 5); the keys are indexes into `request.subjects`, and a missing one means "no answer".
+
+    # Optional: `async def revise_looks(self, request: ReviseRequest) -> dict[int, LookRevision]` checks the narration
+    # against existing Looks (docs/LOOKS.md 7); the keys are indexes into `request.subjects`.
 
     # Optional: `async def digest(self, request: DigestRequest) -> list[str]` returns one short account per turn,
     # in order; an empty string means "no digest for this turn".

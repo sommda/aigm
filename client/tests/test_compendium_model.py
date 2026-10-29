@@ -349,3 +349,12 @@ def test_a_lapsed_scene_motive_says_it_expired():
                                              "disclosure": "hidden", "status": "expired", "text": "Wants a drink."}]},
                   hidden=True)
     assert "  want  (leaning, scene, hidden, expired)" in plain(m.detail_lines(60)[0])
+
+
+def test_a_person_with_only_an_appearance_shows_it_and_no_facts():
+    m = loaded()
+    m.switch_tab("characters")
+    m.load_detail(detail(id="e010", name="Wren", kind="npc", aliases=[], path=[], children=[], related=[], facts=[],
+                         look={"summary": "A stout woman.", "description": "Wren is a stout woman with red hands."}))
+    lines = plain(m.detail_lines(60)[0])
+    assert "Appearance" in lines and "  Wren is a stout woman with red hands." in lines
