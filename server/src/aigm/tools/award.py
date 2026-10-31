@@ -141,13 +141,16 @@ def award(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> Too
     for name, cls, class_level, level in ups:
         h = state.hero(name)
         state.heroes[name] = Hero(level, h.xp, {**h.classes, cls: class_level})
+    for ent in state.world.entities.values():
+        if ent.holding is not None and ent.holding.owed == state.turn:
+            ent.holding.owed = None  # the award for what the party got this turn is made (docs/KEY_ITEMS.md 6.3)
     average = state.average_level
     notes = []
     if state.story is not None:
         state.story.party_level = average
         if story_rules.chapter_complete(state.story, state.turn):  # reaching the level can be what ends a chapter
             chapter = story_rules.advance_chapter(state.story, state.turn)
-            story_rules.settle_ready(state.story)
+            story_rules.settle_ready(state.story, state.world)
             notes.append(chapter_note(state.story, chapter))
     standings = _standings(state, before)
     event = Award(

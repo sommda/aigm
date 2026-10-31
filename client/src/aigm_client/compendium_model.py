@@ -6,10 +6,12 @@ from typing import Any
 
 from rich.text import Text
 
-TABS = ("locations", "characters", "other")
+TABS = ("locations", "characters", "items", "other")
 HIDDEN = "hidden"  # the debug-only tab of what the player has not been told (docs/COMPENDIUM.md 11)
-TITLES = {"locations": "Locations", "characters": "Characters", "other": "Other", HIDDEN: "Hidden"}
+TITLES = {"locations": "Locations", "characters": "Characters", "items": "Key Items", "other": "Other", HIDDEN: "Hidden"}
+HOLDING_LABELS = {"held": "held", "known": "to find", "used": "used", "lost": "lost"}  # a key item's standing
 EMPTY = "Nothing is known yet."
+LOOK_HEADINGS = {"location": "View", "item": "Description"}  # the heading of a Look (people: "Appearance")
 STATUS_STYLE = {"new": "bold green", "updated": "yellow"}
 
 
@@ -31,6 +33,7 @@ class CompendiumModel:
         self.counts: dict[str, dict[str, int]] = {t: {"count": 0, "new": 0, "updated": 0} for t in (*TABS, HIDDEN)}
         self.cursor: dict[str, int] = {t: 0 for t in (*TABS, HIDDEN)}
         self.details: dict[str, dict[str, Any]] = {}
+        self._detail_sigs: dict[str, str] = {}  # what an entry's list row said when its detail was fetched
         self.hidden_details: dict[str, dict[str, Any]] = {}  # apart from `details`: the ids are the same entities
         self.query = ""
         self.unseen_only = False
@@ -57,13 +60,22 @@ class CompendiumModel:
             self.counts[HIDDEN]["count"] = len(self.lists[HIDDEN])
             self.hidden_details.clear()  # a secret can change under the cursor: always fetch it again
             return
-        self.details = {k: v for k, v in self.details.items() if k in {e["id"] for t in TABS for e in self.lists[t]}}
+        # an entry whose row changed since its detail was fetched (a fact learned, a key item found) is fetched again
+        ids = {e["id"] for t in TABS for e in self.lists[t]}
+        self.details = {k: v for k, v in self.details.items() if k in ids and self._detail_sigs.get(k) == self._row_sig(k)}
 
     def index_of(self, category: str, entity_id: str | None) -> int:
         return next((i for i, e in enumerate(self.lists[category]) if e["id"] == entity_id), 0)
 
     def load_detail(self, detail: dict[str, Any], hidden: bool = False) -> None:
         (self.hidden_details if hidden else self.details)[detail["id"]] = detail
+        if not hidden:
+            self._detail_sigs[detail["id"]] = self._row_sig(detail["id"])
+
+    def _row_sig(self, entity_id: str) -> str:
+        """The parts of a list row that say its detail would read differently."""
+        row = next((e for t in TABS for e in self.lists[t] if e["id"] == entity_id), None)
+        return "" if row is None else "|".join(str(row.get(k)) for k in ("fact_count", "updated_turn", "holding"))
 
     @property
     def on_hidden(self) -> bool:
@@ -250,7 +262,7 @@ class CompendiumModel:
         current = self.cursor[self.tab]
         for i, entry in enumerate(rows):
             status = entry.get("status")
-            tag = self._hidden_tag(entry) if self.on_hidden else status or ""
+            tag = self._hidden_tag(entry) if self.on_hidden else HOLDING_LABELS.get(entry.get("holding") or "", status or "")
             mark = (self.marks.star + " ") if status else "  "
             indent = "  " * int(entry.get("depth") or 0)
             room = max(width - len(tag) - 1, 8)
@@ -288,10 +300,11 @@ class CompendiumModel:
             extra.append("also called: " + ", ".join(d["aliases"]))
         for note in extra:
             lines += [Text(part, style="dim") for part in textwrap.wrap(note, wrap) or [""]]
+        lines += self._holding_lines(d.get("holding"), wrap)
         look = d.get("look")
         if look and look.get("description"):
             lines.append(Text(""))
-            lines.append(Text("View" if d.get("kind") == "location" else "Appearance", style="bold cyan"))
+            lines.append(Text(LOOK_HEADINGS.get(d.get("kind") or "", "Appearance"), style="bold cyan"))
             lines += [Text("  " + part) for part in textwrap.wrap(look["description"], max(wrap - 2, 8)) or [""]]
         facts = d.get("facts") or []
         plain = [f for f in facts if not f.get("label")]  # the description: no heading, no indent
@@ -324,6 +337,35 @@ class CompendiumModel:
                 selected = len(lines)
             lines.append(row)
         return lines, selected
+
+    def _holding_lines(self, holding: dict[str, Any] | None, wrap: int) -> list[Text]:
+        """A key item's standing: whether the party has it, and how it came and went (docs/KEY_ITEMS.md 11)."""
+        if not holding:
+            return []
+        status, history = holding.get("status"), holding.get("history") or []
+        headline = {
+            "known": "Not yet found",
+            "held": f"Held by the party since turn {holding.get('since')}",
+            "used": f"Used up on turn {holding.get('since')}",
+            "lost": f"Lost on turn {holding.get('since')}",
+        }.get(status or "", "")
+        if not headline:
+            return []
+        gone = status in ("used", "lost")
+        lines = [Text(""), Text(headline, style="dim bold" if gone else "bold yellow")]
+        last = history[-1].get("note") if history else ""
+        if gone and last:
+            lines += [Text("  " + part, style="dim") for part in textwrap.wrap(last, max(wrap - 2, 8))]
+        if len(history) > 1:
+            lines.append(Text("History", style="bold cyan"))
+            for step in history:
+                note = f" {self.marks.dot} {step['note']}" if step.get("note") else ""
+                label = {"held": "Had it", "used": "Used", "lost": "Lost", "known": "Heard of"}.get(step.get("status"), "")
+                lines += [
+                    Text("  " + part, style="dim")
+                    for part in textwrap.wrap(f"Turn {step.get('turn')}: {label}{note}", max(wrap - 2, 8))
+                ]
+        return lines
 
     def _fact_lines(self, d: dict[str, Any], fact: dict[str, Any], wrap: int, indent: int) -> list[Text]:
         new = fact.get("new") and d["id"] not in self.read

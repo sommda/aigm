@@ -31,6 +31,7 @@ from aigm.world.curator import (
     FamiliarityRequest,
     Label,
     LookRequest,
+    ItemLookRequest,
     PlaceLookRequest,
     LookRevision,
     MotiveProposal,
@@ -44,7 +45,7 @@ from aigm.world.curator import (
     ReviseRequest,
     SheetRequest,
 )
-from aigm.looks import CONTROLLED_TAGS, PLACE_CONTROLLED_TAGS, Look
+from aigm.looks import CONTROLLED_TAGS, ITEM_CONTROLLED_TAGS, PLACE_CONTROLLED_TAGS, Look
 from aigm.sheets import Section, Sheet
 
 _DIRECTIVE = re.compile(r"\[\[(\w+):\s*(.*?)\]\]", re.DOTALL)
@@ -248,6 +249,39 @@ class ScriptedCurator:
                 f"look of a place between visitors. {known}"
             ).strip()
             summary = f"A {tags['scale']} of {tags['architecture']}, with {tags['terrain']} underfoot."
+            out[i] = Look(summary, body, tags)
+        return out
+
+    async def item_look(self, request: ItemLookRequest) -> dict[int, Look]:
+        """A deterministic Look for each key item: form, material and wear chosen from short lists by the name and the
+        place in the batch, the `frame` from the form, and the facts the player was told repeated word for word."""
+        self.calls.append("item_look")
+        forms = ITEM_CONTROLLED_TAGS["form"][:-1]
+        frames = {"map": "landscape", "document": "portrait", "book": "portrait"}
+        sizes = ITEM_CONTROLLED_TAGS["size"]
+        stuff = ("dark iron", "pale bone", "tarnished brass", "waxed leather", "yellowed vellum", "red-brown copper",
+                 "grey slate", "polished walnut", "braided silver wire", "cracked ivory")  # fmt: skip
+        wear = ("worn smooth", "scuffed at the edges", "freshly cleaned", "dusty", "darkened by age", "lightly scratched")
+        out: dict[int, Look] = {}
+        for i, sub in enumerate(request.subjects):
+            step = i + len(request.existing)
+            seed = zlib.crc32(sub.name.encode())
+            form = forms[(seed + step) % len(forms)]
+            tags = {
+                "form": form, "frame": frames.get(form, "square"), "size": sizes[(seed + 3 * step) % 4],
+                "material": stuff[(seed + 7 * step) % len(stuff)], "condition": wear[(seed + 5 * step) % len(wear)],
+                "markings": "a small maker's mark", "features": [f"{stuff[(seed + 2 * step) % len(stuff)]} fittings"],
+            }  # fmt: skip
+            known = " ".join(f"Also: {f.split('] ', 1)[-1].strip()}" for f in sub.facts[:3])[:360]
+            body = (
+                f"{sub.name} is a {tags['size']} {form} of {tags['material']}, {tags['condition']}. Its surface shows "
+                f"a small maker's mark and the faint polish of many hands. {stuff[(seed + 2 * step) % len(stuff)].capitalize()} "
+                f"fittings catch the light along one edge, and the other edges are plain and softened by use. It "
+                f"rests whole and uncluttered on a flat surface, seen from slightly above, with nothing beside it and "
+                f"nothing written on it that could be read. The whole object is calm, simple and clearly made by "
+                f"someone who meant it to last. {known}"
+            ).strip()
+            summary = f"A {tags['size']} {form} of {tags['material']}, {tags['condition']}."
             out[i] = Look(summary, body, tags)
         return out
 

@@ -161,7 +161,7 @@ def test_only_people_and_places_have_looks_and_bad_looks_change_nothing():
     world = World()
     guild = world.add_entity("The Thorn Guild", "faction")
     marta = world.add_entity("Marta Venn", "npc")
-    with pytest.raises(WorldError, match="only people and places"):
+    with pytest.raises(WorldError, match="only people, places and key items"):
         world.set_look(guild.id, make_look())
     inn = world.add_entity("The Flagon", "location")
     with pytest.raises(WorldError, match="Invalid look"):  # a person's tags on a place

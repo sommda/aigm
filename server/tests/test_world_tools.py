@@ -39,9 +39,9 @@ def run(state, name, **inp):
 def test_world_tools_are_adventure_only_and_described_by_prompt_files():
     zero = {t["name"] for t in tool_schemas(phase=Phase.SESSION_ZERO)}
     adv = {t["name"]: t for t in tool_schemas(phase=Phase.ADVENTURE)}
-    assert not zero & {"recall", "establish", "set_scene"}
-    assert {"recall", "establish", "set_scene"} <= set(adv)
-    assert all(len(adv[n]["description"]) > 100 for n in ("recall", "establish", "set_scene"))
+    assert not zero & {"recall", "establish", "key_item", "set_scene"}
+    assert {"recall", "establish", "key_item", "set_scene"} <= set(adv)
+    assert all(len(adv[n]["description"]) > 100 for n in ("recall", "establish", "key_item", "set_scene"))
     out = dispatch("recall", "t", {"about": "x"}, GameState(Phase.SESSION_ZERO))
     assert out.is_error and "Unknown tool" in out.content
 
@@ -180,7 +180,7 @@ def test_set_scene_moves_the_party_and_advances_time(state):
 
 
 def test_moving_without_present_clears_who_is_there_but_time_only_keeps_them(state):
-    assert run(state, "set_scene", elapsed_hours=2).content.endswith("Time: Day 1, 10:00.")
+    assert run(state, "set_scene", elapsed_hours=2).content.startswith("Scene: Ashby. With the party: Wren. Time: Day 1, 10:00.")
     assert state.world.scene.present == ["e004"]
     assert "nobody recorded" in run(state, "set_scene", location="Harrow Mine").content
     assert state.world.scene.present == []
@@ -329,3 +329,28 @@ def test_motive_command_in_test_mode_adds_a_scene_motive_the_gm_recalls(client):
     assert re.search(r"Recorded\. m\d+: Wren, want \(driven, scene\)", reply_text(ev))
     assert "Motives (GM only, never state them):" in reply_text(chat(client, "recall Wren"))
     assert "Recorded" not in reply_text(chat(client, "motive Nobody"))  # a person who is not recorded is refused
+
+
+def test_a_scene_call_without_a_place_says_the_place_did_not_change(state):
+    out = run(state, "set_scene", elapsed_hours=1, present=["Wren"])
+    assert "The place did not change (still Ashby). If the party has moved on, pass `location`." in out.content
+    assert "NOT change" not in out.content
+
+
+@pytest.mark.parametrize("said", ["head to the servants hall", "Walk into the cellar", "go back to the inn", "follow Wren up the stairs"])
+def test_when_the_player_asked_to_go_somewhere_the_gm_is_told_to_call_again_with_a_place(state, said):
+    state.player_text = said
+    out = run(state, "set_scene", elapsed_hours=1)
+    assert "did NOT change: the party is still at Ashby" in out.content and "call `set_scene` again now with `location`" in out.content
+
+
+def test_a_call_that_names_the_place_says_nothing_of_the_kind(state):
+    state.player_text = "head to the old mine"
+    out = run(state, "set_scene", location="the old mine", elapsed_hours=1)
+    assert "did not change" not in out.content and "NOT" not in out.content
+
+
+@pytest.mark.parametrize("said", ["I look at the ledger", "ask Wren about the mine", "rest"])
+def test_a_question_or_an_action_in_place_gets_only_the_quiet_note(state, said):
+    state.player_text = said
+    assert "NOT" not in run(state, "set_scene", elapsed_hours=1).content

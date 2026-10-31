@@ -17,7 +17,8 @@ from aigm.portraits import Portrait
 from aigm.world.digest import Digest
 from aigm.world.text import normalize_name, normalize_text, tokens, word_count
 
-KINDS = ("location", "npc", "faction", "concept")
+KINDS = ("location", "npc", "faction", "concept", "item")
+CURATOR_KINDS = ("location", "npc", "faction", "concept")  # the curator never makes key items (docs/KEY_ITEMS.md 5.1)
 DISCLOSURES = ("hidden", "hinted", "known")
 SOURCES = ("seed", "play", "generated", "improvised", "background")
 STATUSES = ("active", "superseded")
@@ -32,6 +33,7 @@ ASPECTS: dict[str, tuple[str, ...]] = {
     "npc": ("role", "appearance", "manner", "motivation", "relationships", "knowledge", "location"),
     "faction": ("goals", "leaders", "resources", "methods", "rivals", "presence", "history"),
     "concept": ("nature", "origin", "who_believes_it", "effects"),
+    "item": ("appearance", "purpose", "whereabouts", "origin", "contents", "powers", "history", "secret", "custody"),
 }  # fmt: skip
 
 # Aspects the party can plainly see on arriving at a place: a fact with one of these about the place the party is
@@ -66,8 +68,19 @@ HOURS_PER_DAY = 24
 _FACT_ID = re.compile(r"^f\d+$")
 _MOTIVE_ID = re.compile(r"^m\d+$")
 _ENTITY_ID = re.compile(r"^e\d+$")
-LOOK_KINDS = ("npc", "location")  # the kinds of entity that have a Look
+LOOK_KINDS = ("npc", "location", "item")  # the kinds of entity that have a Look
 
+# A key item's relationship to the party (docs/KEY_ITEMS.md 4.2): the statuses, and the events that move between them.
+HOLDING_STATUSES = ("unfound", "known", "held", "used", "lost")
+HOLDING_EVENTS: dict[str, tuple[tuple[str, ...], str]] = {  # event -> (statuses it may start from, status it ends in)
+    "learned": (("unfound",), "known"),
+    "acquired": (("unfound", "known", "used", "lost"), "held"),
+    "used": (("held",), "used"),
+    "lost": (("held",), "lost"),
+}
+MAX_HOLDING_NOTE_WORDS = 25
+VISIBLE_HOLDINGS = ("known", "held", "used", "lost")  # every status but unfound shows in the compendium
+REVEALED_ON_ACQUIRING = ("appearance", "purpose")  # what the party can see once an item is in hand
 
 class WorldError(ValueError):
     """A change the world rules reject. The message is written to be shown to the model."""
@@ -110,6 +123,63 @@ class WorldTime:
 
 
 @dataclass
+class HoldingChange:
+    """One step in a key item's history (docs/KEY_ITEMS.md 4.2)."""
+
+    turn: int
+    status: str
+    note: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"turn": self.turn, "status": self.status, "note": self.note}
+
+
+@dataclass
+class Holding:
+    """Where a key item stands with the party: `unfound` (not in play, hidden from the player), `known` (the party has
+    heard of it), `held`, `used` or `lost`, since which turn, and every change so far, oldest first."""
+
+    status: str = "unfound"
+    since: int = 0
+    history: list[HoldingChange] = field(default_factory=list)
+    # The turn the party first got the item, while no award has been made for it (docs/KEY_ITEMS.md 6.3).
+    owed: int | None = None
+
+    def copy(self) -> "Holding":
+        return Holding(
+            self.status, self.since, [HoldingChange(h.turn, h.status, h.note) for h in self.history], self.owed
+        )
+
+    @property
+    def acquired(self) -> bool:
+        """Has the party ever had it in hand?"""
+        return any(h.status == "held" for h in self.history)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status, "since": self.since, "history": [h.to_dict() for h in self.history], "owed": self.owed,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> "Holding":
+        if not isinstance(raw, dict) or raw.get("status") not in HOLDING_STATUSES:
+            raise WorldError("holding must be an object with a valid status")
+        history = raw.get("history", [])
+        if not isinstance(history, list):
+            raise WorldError("holding history must be a list")
+        steps = []
+        for h in history:
+            if not isinstance(h, dict) or h.get("status") not in HOLDING_STATUSES or not isinstance(h.get("note", ""), str):
+                raise WorldError("holding history entries need a status and a note")
+            steps.append(HoldingChange(_count(h.get("turn", 0), "holding turn"), h["status"], h.get("note", "")))
+        owed = raw.get("owed")
+        return cls(
+            raw["status"], _count(raw.get("since", 0), "holding since"), steps,
+            None if owed is None else _count(owed, "holding owed"),
+        )
+
+
+@dataclass
 class Entity:
     id: str
     name: str
@@ -119,6 +189,7 @@ class Entity:
     discovered: bool = False  # has the player been told anything about it (cached from its facts)
     look: Look | None = None  # how a person or place appears (docs/LOOKS.md, docs/PLACES.md); npcs and locations
     portrait: Portrait | None = None  # their generated headshot (docs/PORTRAITS.md), likewise
+    holding: Holding | None = None  # a key item's standing with the party (docs/KEY_ITEMS.md); items only
 
     def names(self) -> list[str]:
         return [self.name, *self.aliases]
@@ -129,6 +200,7 @@ class Entity:
             "parent": self.parent, "discovered": self.discovered,
             "look": self.look.to_dict() if self.look else None,
             "portrait": self.portrait.to_dict() if self.portrait else None,
+            "holding": self.holding.to_dict() if self.holding else None,
         }  # fmt: skip
 
 
@@ -427,7 +499,7 @@ class World:
                 raise WorldError(f"unknown parent {parent!r}")
             if kind != "location" or parent_ent.kind != "location":
                 raise WorldError("only locations can be inside other locations (parent must be a location)")
-        ent = Entity(self._new_id("e"), name, kind, alias_list, parent)
+        ent = Entity(self._new_id("e"), name, kind, alias_list, parent, holding=Holding() if kind == "item" else None)
         self.entities[ent.id] = ent
         self._index_entity(ent)
         self._touch()
@@ -449,7 +521,7 @@ class World:
         """Give a person their Look, or replace it (docs/LOOKS.md). The Look must pass the content rules."""
         ent = self._entity_or_error(entity_id)
         if ent.kind not in LOOK_KINDS:
-            raise WorldError(f"{ent.name} is a {ent.kind}; only people and places have a look")
+            raise WorldError(f"{ent.name} is a {ent.kind}; only people, places and key items have a look")
         try:
             validate(look, ent.name, look_kind(ent.kind))
         except LookError as exc:
@@ -462,10 +534,47 @@ class World:
         """Give a person their portrait record, or replace it (docs/PORTRAITS.md 6.2)."""
         ent = self._entity_or_error(entity_id)
         if ent.kind not in LOOK_KINDS:
-            raise WorldError(f"{ent.name} is a {ent.kind}; only people and places have a portrait")
+            raise WorldError(f"{ent.name} is a {ent.kind}; only people, places and key items have a portrait")
         ent.portrait = portrait.copy()
         self._touch()
         return ent.portrait
+
+    def set_holding(self, entity_id: str, event: str, note: str = "", turn: int = 0, source: str = "play") -> bool:
+        """Move a key item between `unfound`, `known`, `held`, `used` and `lost` (docs/KEY_ITEMS.md 4.2). Returns False
+        when the item is already where the event would put it. The change is written as a known `custody` fact, and
+        the first time the party has the item in hand its appearance and purpose become known."""
+        ent = self._entity_or_error(entity_id)
+        if ent.kind != "item" or ent.holding is None:
+            raise WorldError(f"{ent.name} is a {ent.kind}, not a key item")
+        if event not in HOLDING_EVENTS:
+            raise WorldError(f"event must be one of {', '.join(HOLDING_EVENTS)}, got {event!r}")
+        starts, end = HOLDING_EVENTS[event]
+        hold = ent.holding
+        if hold.status == end:
+            return False
+        if hold.status not in starts:
+            raise WorldError(f"{ent.name} is {hold.status}, so it cannot be {event}")
+        note = " ".join(str(note or "").split())
+        if word_count(note) > MAX_HOLDING_NOTE_WORDS:
+            raise WorldError(f"the note is {word_count(note)} words; at most {MAX_HOLDING_NOTE_WORDS}")
+        first_time = end == "held" and not hold.acquired
+        text = _custody_text(ent.name, event, end, hold.acquired, note)
+        old = next((f for f in self.facts_about(ent.id) if f.subject == ent.id and f.aspect == "custody"), None)
+        if old is None:
+            self.add_fact(text, [ent.id], aspect="custody", disclosure="known", source=source, turn=turn)
+        else:
+            self.supersede(old.id, text, disclosure="known", source=source, turn=turn, allow_known=True)
+        hold.status, hold.since = end, turn
+        hold.history.append(HoldingChange(turn, end, note))
+        if first_time and source != "seed":  # what the party starts with earns nothing
+            hold.owed = turn
+        ent.discovered = True
+        if first_time:
+            for fact in self.facts_about(ent.id):
+                if fact.subject == ent.id and fact.aspect in REVEALED_ON_ACQUIRING:
+                    self.reveal(fact.id, turn)
+        self._touch()
+        return True
 
     def add_fact(
         self,
@@ -870,7 +979,8 @@ class World:
     def _mark_discovered(self, fact: Fact) -> None:
         if fact.disclosure == "known":
             for eid in fact.about:
-                self.entities[eid].discovered = True
+                if self.entities[eid].kind != "item":  # a key item is discovered by learning of it or having it
+                    self.entities[eid].discovered = True
 
     # ---- copying and saving ------------------------------------------------------------
 
@@ -950,6 +1060,12 @@ class World:
                     ent.portrait = Portrait.from_dict(raw["portrait"])
                 except CorruptSave as exc:
                     raise WorldError(f"entity {ent.id} has a bad portrait: {exc}") from None
+            if raw.get("holding") is not None:  # saves from before key items have none
+                ent.holding = Holding.from_dict(raw["holding"])
+            if ent.kind == "item" and ent.holding is None:
+                ent.holding = Holding()
+            if ent.holding is not None and ent.kind != "item":
+                raise WorldError(f"entity {ent.id} is a {ent.kind} but has a holding")
             if not _ENTITY_ID.match(str(ent.id)) or ent.id in world.entities:
                 raise WorldError(f"bad or repeated entity id {ent.id!r}")
             if ent.kind not in KINDS or not isinstance(ent.name, str) or not ent.name.strip():
@@ -1096,6 +1212,17 @@ def _clean_phrases(values: Iterable[str], label: str) -> tuple[str, ...]:
     if len(out) > MAX_MOTIVE_PHRASES:
         raise WorldError(f"at most {MAX_MOTIVE_PHRASES} {label} entries per motive")
     return tuple(out)
+
+
+def _custody_text(name: str, event: str, end: str, had_before: bool, note: str) -> str:
+    """The sentence that records a change of holding as a fact (docs/KEY_ITEMS.md 4.4)."""
+    base = {
+        "learned": f"The party has heard of {name}.",
+        "acquired": f"The party has {name}{' again' if had_before else ''}.",
+        "used": f"The party used up {name}.",
+        "lost": f"The party lost {name}.",
+    }[event]
+    return f"{base} {note.rstrip('.')}." if note else base
 
 
 def _count(value: Any, label: str) -> int:

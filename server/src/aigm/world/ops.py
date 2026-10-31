@@ -150,6 +150,17 @@ class SetPortrait:
 
 
 @dataclass
+class SetHolding:
+    """A key item changes hands (docs/KEY_ITEMS.md 4.2): `event` is learned, acquired, used or lost."""
+
+    entity: str  # name or id
+    event: str
+    note: str = ""
+    turn: int = 0
+    source: str = "play"
+
+
+@dataclass
 class ReviseLook:
     """Replace a person's Look with its next revision. Skipped if the Look has changed since it was read."""
 
@@ -160,6 +171,7 @@ class ReviseLook:
 Op = (
     AddEntity | AddAlias | AddFact | Supersede | Reveal | SetScene | SettleTime | StartClock | Correct | MarkProcessed
     | AddDigest | AddMotive | ShiftMotive | ResolveMotive | DiscloseMotive | SetLook | ReviseLook | SetPortrait
+    | SetHolding
 )
 
 
@@ -316,4 +328,9 @@ def _apply(world: World, op: Op) -> bool:
             raise WorldError(f"unknown entity {op.entity!r}")
         world.set_portrait(ent.id, op.portrait)
         return True
+    if isinstance(op, SetHolding):
+        ent = world.resolve(op.entity)
+        if ent is None:
+            raise WorldError(f"unknown entity {op.entity!r}")
+        return world.set_holding(ent.id, op.event, op.note, op.turn, op.source)
     raise WorldError(f"unknown op {op!r}")

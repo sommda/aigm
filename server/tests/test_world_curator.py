@@ -404,7 +404,7 @@ async def test_the_steps_that_only_write_to_a_format_run_with_thinking_off_and_t
     from aigm.world.anthropic_curator import NO_THINKING
     from aigm.world.curator import LookRequest, PlaceLookRequest
 
-    assert NO_THINKING == {"describe", "describe_place"}
+    assert NO_THINKING == {"describe", "describe_place", "describe_item"}
     reasoning = {"entities": [], "facts": [], "reveals": [], "location": None, "present": None, "elapsed_hours": 0}
     cur, calls = curator({"looks": []}, {"looks": []}, reasoning)
     await cur.look(LookRequest([], "s", "r"))

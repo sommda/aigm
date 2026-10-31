@@ -97,7 +97,9 @@ Stored in the game state as `GameState.story` (`None` for an endless game), save
       "required": true,              // counts toward ending the chapter
       "entities": ["e017", "e020"],  // where and with whom it lives
       "done_turn": null,
-      "outcome": null                // a short note written when it is done: what happened, what the party chose
+      "outcome": null,               // a short note written when it is done: what happened, what the party chose
+      "finds": null,                 // the id of a key item the quest is about finding (docs/KEY_ITEMS.md 6.1)
+      "needs": []                    // key items the party must have had in hand before it is offered (6.2)
     }
   ],
   "endings": [

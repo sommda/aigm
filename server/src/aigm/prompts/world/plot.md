@@ -35,6 +35,16 @@ Count carefully: write exactly the number of required quests per chapter that th
 
 Write two to four `endings`, each with a `title` and a `when`: the situation that produces it. Make them different in kind, not just win and lose: for example a clean victory, a victory with a cost, a bargain with the enemy, a failure the world survives. Base them on what the party might choose or fail to do.
 
+## Key items
+
+A **key item** is a quest object the party can get that helps in its quest: a key, a map, a letter, a piece of evidence. It is not gear, coin or loot. Use them sparingly and for the story, a few per game (about 1 to 3 in a short game, 3 to 6 in a medium one and 6 to 12 in a long one, spread over the chapters), and make them with `entities` of kind `item`, exactly like other entities. Name an item as the characters would ("the steward's ledger"), never in a way that gives its secret away. Every key item needs hidden `facts` about it, in the aspects `appearance` (what it looks like to someone holding it, one concrete sentence), `purpose` and `whereabouts` (where it is, or who has it: it must be somewhere that exists in the world), and optionally `contents`, `origin` or `secret`. An item connects to the world through its `whereabouts` fact, which must name an existing place or person.
+
+Two kinds of quest use key items:
+- **Find the item**: set `finds` to the item's name. The party first hears of the item (a rumor, a request), then finds it; the quest is done when it has it. Give such a quest a `brief` that says how the party can learn where the item is.
+- **Needs the item**: set `needs` to a list of item names. The quest is not offered until the party has had every one of them in hand, so use it for a quest whose very start depends on the item (the ledger that proves a crime, the key to a door that opens the next stage). The party may get such an item by accident, on the way to something else, and meet the quest as a result. An item that a quest `needs` must be obtainable: let a quest of the same or an earlier chapter `finds` it, or give it a `whereabouts` fact at a real place. Never make a required quest wait on an item that only a later quest can give.
+
+Use an item's name in `finds` and `needs` exactly as you wrote it in `entities`. Leave `finds` empty and `needs` an empty list for every other quest. A quest may find one item and need another. Key items are in addition to the quests you were asked for, not instead of them: a find-the-item quest counts as a quest like any other.
+
 ## Do not
 
 Do not mention the player characters by name in facts. Do not invent anything that depends on the party's coming. Do not write more quests than asked for, or quests for chapters you were not asked about.

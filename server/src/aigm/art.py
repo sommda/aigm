@@ -36,6 +36,17 @@ PLACE_FRAMING = (
 )
 
 
+# How a key item is placed in the picture, the same for every style (docs/KEY_ITEMS.md 8). The shape of the picture
+# (square, landscape or portrait) is the item Look's `frame`; the prompt says only that the object is shown whole.
+ITEM_FRAMING = (
+    "A still-life picture of one single object, centered, shown whole and uncropped with a little room around it, on a "
+    "plain, empty surface in soft even light, seen from slightly above. Nothing else is in the picture: no people, no "
+    "hands, no creatures, no other objects, no scenery. A map, letter or book is shown flat and complete. No readable "
+    "text, lettering or writing of any kind: any marks are only the texture of marks. No border, no frame, no "
+    "watermark."
+)
+
+
 @dataclass(frozen=True)
 class Style:
     id: str
@@ -43,8 +54,12 @@ class Style:
     direction: str
     # The direction for a view of a place, where `direction` speaks of faces or characters. Empty: use `direction`.
     place: str = ""
+    # The same for an object, where `direction` speaks of faces, characters or heroes. Empty: use `direction`.
+    item: str = ""
 
     def direction_for(self, kind: str) -> str:
+        if kind == "item" and self.item:
+            return self.item
         return self.place if kind == "place" and self.place else self.direction
 
 
@@ -61,6 +76,7 @@ STYLES: tuple[Style, ...] = (
         "visible brush strokes, simplified smooth planes of color, bright saturated hues, strong dark outlines and a "
         "slightly idealized, heroic look.",
         place="A hand-painted 1980s fantasy paperback cover landscape in flat opaque gouache, not photorealistic: matte paint with visible brush strokes, simplified smooth planes of color, bright saturated hues, strong dark outlines and a slightly idealized, adventurous look.",
+        item="A hand-painted 1980s fantasy paperback illustration of an object in flat opaque gouache, not photorealistic: matte paint with visible brush strokes, simplified smooth planes of color, bright saturated hues, strong dark outlines and a slightly idealized look.",
     ),
     Style(
         "moody", "Moody painting",
@@ -71,6 +87,7 @@ STYLES: tuple[Style, ...] = (
         "comic", "Inked and colored",
         "Bold inked fantasy illustration from an early-2000s core rulebook: confident black outlines, flat bright "
         "digital color with simple cel-style shading, dynamic and clearly readable shapes, a slightly comic-book feel.",
+        item="Bold inked fantasy illustration of an object from an early-2000s core rulebook: confident black outlines, flat bright digital color with simple cel-style shading, clearly readable shapes, a slightly comic-book feel.",
     ),
     Style(
         "vivid", "Vivid digital",
@@ -78,6 +95,7 @@ STYLES: tuple[Style, ...] = (
         "strong colored rim lights in teal and orange, smooth airbrushed gradients, sharp clean edges and slightly "
         "exaggerated heroic proportions.",
         place="Stylized digital fantasy concept art of an environment from the late 2000s, not photorealistic: very high saturation, glossy highlights, strong colored light in teal and orange, smooth airbrushed gradients, sharp clean edges and slightly exaggerated, dramatic scale.",
+        item="Stylized digital concept art of an object from the late 2000s, not photorealistic: very high saturation, glossy highlights, strong colored rim lights in teal and orange, smooth airbrushed gradients, sharp clean edges.",
     ),
     Style(
         "modern", "Modern painting",
@@ -90,6 +108,7 @@ STYLES: tuple[Style, ...] = (
         "Richly detailed fantasy hardback illustration: dense ornament on armor, jewelry and cloth, intricate "
         "textures, dramatic lighting and an epic, polished painted finish with fine edge detail.",
         place="Richly detailed fantasy hardback environment illustration: dense ornament on buildings and ironwork, intricate textures, dramatic lighting and an epic, polished painted finish with fine edge detail.",
+        item="Richly detailed fantasy hardback illustration of an object: intricate ornament and textures, dramatic lighting and an epic, polished painted finish with fine edge detail.",
     ),
     Style(
         "clean", "Clean stylized",
@@ -97,6 +116,7 @@ STYLES: tuple[Style, ...] = (
         "shading, a slight vector-art look, a bright harmonious palette, and slightly exaggerated, friendly "
         "proportions and features.",
         place="Clean, stylized 2D fantasy environment illustration, clearly not photorealistic: simplified shapes, smooth flat gradient shading, a slight vector-art look, a bright harmonious palette and slightly exaggerated, friendly proportions.",
+        item="Clean, stylized 2D fantasy illustration of an object, clearly not photorealistic: simplified shapes, smooth flat gradient shading, a slight vector-art look and a bright harmonious palette.",
     ),
     Style(
         "storybook", "Storybook watercolor",
@@ -108,6 +128,7 @@ STYLES: tuple[Style, ...] = (
         "A graphite pencil portrait sketch on cream paper: soft shading, visible construction lines at the edges, "
         "light smudging and no color.",
         place="A graphite pencil landscape sketch on cream paper: soft shading, visible construction lines at the edges, light smudging and no color.",
+        item="A graphite pencil study of an object on cream paper: soft shading, visible construction lines at the edges, light smudging and no color.",
     ),
     Style(
         "anime", "Anime",
@@ -115,6 +136,7 @@ STYLES: tuple[Style, ...] = (
         "expressive eyes, a tiny simplified nose and mouth, smooth skin with no pores or wrinkles, cel shading with "
         "soft gradients, vivid color and glossy, detailed hair.",
         place="Japanese anime background art, a flat 2D painted scene and clearly not realistic: clean fine linework, richly painted skies and foliage, cel-style shading with soft gradients, vivid color and a soft glow of light.",
+        item="Japanese anime prop art, a flat 2D drawing and clearly not realistic: clean fine linework, cel shading with soft gradients, vivid color and a soft glow of light on the object.",
     ),
     Style(
         "illustration", "Fantasy novel illustration",
@@ -122,6 +144,7 @@ STYLES: tuple[Style, ...] = (
         "finish with visible brushwork, a warm golden palette, romantic dramatic lighting, and a slightly dreamy, "
         "idealized look, like a printed book jacket.",
         place="A classic fantasy novel cover painting of a landscape in oil, soft focus at the edges and a soft glow: a gentle painterly finish with visible brushwork, a warm golden palette, romantic dramatic lighting, and a slightly dreamy, idealized look, like a printed book jacket.",
+        item="A classic fantasy novel illustration of an object in oil, soft focus at the edges and a soft glow: a gentle painterly finish with visible brushwork, a warm golden palette, romantic lighting, like a printed book jacket.",
     ),
 )
 BY_ID = {s.id: s for s in STYLES}
@@ -221,6 +244,22 @@ def build_place_prompt(look: Look, style: Style, names: list[str]) -> str:
     room = MAX_PROMPT_CHARS - len(head)
     if len(body) > room:
         body = f"The place: {summary} {description}"
+        if len(body) > room:
+            body = body[:room].rsplit(". ", 1)[0].rstrip(".") + "."
+    return f"{head}{body}\n\nRender all of this strictly in the style described first: {style.name.lower()}."
+
+
+def build_item_prompt(look: Look, style: Style, names: list[str]) -> str:
+    """The prompt for a picture of a key item: the style (its object variant), the framing of a still life, the object
+    and a closing reminder (docs/KEY_ITEMS.md 8). Never the name, and nothing but the item's Look."""
+    tags = _tag_line(look, ("form", "size", "material"))
+    summary = scrub_name(look.summary.strip(), names, "the object")
+    description = scrub_name(" ".join(look.description.split()), names, "the object")
+    head = f"{style.direction_for('item')}\n\n{ITEM_FRAMING}\n\n"
+    body = f"The object: {summary} " + (f"({tags}). " if tags else "") + description
+    room = MAX_PROMPT_CHARS - len(head)
+    if len(body) > room:
+        body = f"The object: {summary} {description}"
         if len(body) > room:
             body = body[:room].rsplit(". ", 1)[0].rstrip(".") + "."
     return f"{head}{body}\n\nRender all of this strictly in the style described first: {style.name.lower()}."

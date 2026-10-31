@@ -60,6 +60,7 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
             await service.run_if_due(session)
             await service.run_looks_if_due(session)
             await service.run_place_looks_if_due(session)
+            await service.run_item_looks_if_due(session)
             await service.run_revisions_if_due(session)
         portraits = app.state.portraits
         if portraits is not None:

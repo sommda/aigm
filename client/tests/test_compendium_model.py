@@ -34,7 +34,7 @@ def plain(texts):
 
 def test_the_tabs_show_counts_and_unread():
     text = loaded().tabs_text().plain
-    assert "1 Locations (3) ✦2" in text and "2 Characters (1)" in text and "3 Other (1) ✦1" in text
+    assert "1 Locations (3) ✦2" in text and "2 Characters (1)" in text and "4 Other (1) ✦1" in text
     assert "*2" in loaded(True).tabs_text().plain
 
 
@@ -267,7 +267,7 @@ def hidden_loaded() -> CompendiumModel:
 
 
 def test_the_hidden_tab_exists_only_when_asked_for():
-    assert CompendiumModel().tabs == ("locations", "characters", "other")
+    assert CompendiumModel().tabs == ("locations", "characters", "items", "other")
     m = CompendiumModel(hidden=True)
     assert m.tabs[-1] == "hidden"
     m.switch_tab(step=-1)  # tabs wrap, so the hidden tab is last
@@ -280,7 +280,7 @@ def test_the_hidden_tab_exists_only_when_asked_for():
 def test_the_hidden_tab_is_in_the_tab_line_with_its_count():
     m = CompendiumModel(hidden=True)
     m.load_list("hidden", {"entries": [hidden_row("e010", "Wren")]})
-    assert "4 Hidden (1)" in m.tabs_text().plain
+    assert "5 Hidden (1)" in m.tabs_text().plain
     assert "Hidden" not in CompendiumModel().tabs_text().plain
 
 
@@ -372,3 +372,68 @@ def test_a_place_shows_its_description_under_the_heading_view_and_a_person_under
     m2.load_detail(detail(id="e010", name="Wren", kind="npc", facts=[], look=look))
     text2 = plain(m2.detail_lines(60)[0])
     assert "Appearance" in text2 and "View" not in text2
+
+
+# ---- key items (docs/KEY_ITEMS.md 11) -----------------------------------------------------
+
+
+def item_row(i, name, holding, status=None):
+    return {**row(i, name, status), "kind": "item", "holding": holding}
+
+
+def test_item_rows_say_whether_the_party_has_the_item():
+    m = loaded()
+    m.load_list("items", {"entries": [
+        item_row("e030", "Steward's Ledger", "held"), item_row("e031", "Sluice Key", "known", "new"),
+        item_row("e032", "Old Map", "lost"),
+    ]})
+    m.tab = "items"
+    lines, _ = m.list_lines(40)
+    text = [t.plain for t in lines]
+    assert "held" in text[0] and "to find" in text[1] and "lost" in text[2]
+    assert text[1].lstrip().startswith("✦")  # still marked new
+    assert "Key Items" in m.tabs_text().plain
+
+
+def detail_for(holding, look=None):
+    m = loaded()
+    m.load_list("items", {"entries": [item_row("e030", "Steward's Ledger", holding["status"])]})
+    m.tab = "items"
+    m.details["e030"] = {
+        "id": "e030", "name": "Steward's Ledger", "kind": "item", "facts": [], "holding": holding, "look": look,
+    }
+    lines, _ = m.detail_lines(60)
+    return [t.plain for t in lines]
+
+
+def test_a_known_item_says_it_is_not_yet_found_and_has_no_description():
+    text = detail_for({"status": "known", "since": 2, "history": [{"turn": 2, "status": "known", "note": ""}]})
+    assert "Not yet found" in text and "Description" not in text
+
+
+def test_a_held_item_shows_its_description_and_since_when():
+    look = {"summary": "A ledger.", "description": "A thick green-bound book with brass corners."}
+    text = detail_for({"status": "held", "since": 4, "history": [{"turn": 4, "status": "held", "note": "Found."}]}, look)
+    assert "Held by the party since turn 4" in text and "Description" in text
+    assert any("brass corners" in t for t in text) and "History" not in text
+
+
+def test_a_lost_item_says_how_and_lists_its_history():
+    text = detail_for({"status": "lost", "since": 9, "history": [
+        {"turn": 3, "status": "held", "note": "Found."}, {"turn": 9, "status": "lost", "note": "Stolen by the guard."},
+    ]})
+    assert "Lost on turn 9" in text and any("Stolen by the guard." in t for t in text) and "History" in text
+    assert any(t.strip().startswith("Turn 3: Had it") for t in text)
+
+
+def test_a_detail_is_fetched_again_when_its_row_changes_but_not_when_only_the_marks_move():
+    def entry(**kw):
+        return {**item_row("e030", "Rubbing", "known"), "fact_count": 1, "updated_turn": 51, **kw}
+
+    m = loaded()
+    m.load_list("items", {"entries": [entry()]})
+    m.load_detail({"id": "e030", "name": "Rubbing", "kind": "item", "facts": [], "holding": {"status": "known"}})
+    m.load_list("items", {"entries": [entry(status="updated", unseen_count=2)]})  # only the read marks changed
+    assert "e030" in m.details
+    m.load_list("items", {"entries": [entry(holding="held", fact_count=3, updated_turn=56)]})  # the party found it
+    assert "e030" not in m.details

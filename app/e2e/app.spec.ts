@@ -89,10 +89,13 @@ test("the tabs share the screen with the story", async ({ page }) => {
   await expect(page.getByTestId("transcript")).toContainText("still playing");
   await expect(dock).toBeVisible();
 
+  await say(page, "item Sluice Key acquired"); // the party gets a key item while the status tab is open
+  await expect(page.getByTestId("transcript")).toContainText("now in the party's hands");
   await page.getByTestId("nav-compendium").click();
   await expect(page.getByTestId("compendium-view")).toBeVisible();
   await expect(page.getByTestId("tab-locations")).toBeVisible();
   await expect(page.getByTestId("tab-hidden")).toBeVisible(); // a debug server
+  await expect(page.getByTestId("tab-items")).toBeVisible(); // key items, empty until the party learns of one
   await expect(page.locator('[data-testid^="entry-"]').first()).toBeVisible();
   await page.locator('[data-testid^="entry-"]').first().click();
   await expect(page.getByTestId("compendium-detail")).toBeVisible();
@@ -115,6 +118,17 @@ test("the tabs share the screen with the story", async ({ page }) => {
   expect(await npc.locator("img").getAttribute("src")).toContain("/portraits/p_");
   expect(await npc.locator("img").evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
   await page.screenshot({ path: "e2e/shots/compendium-portrait.png" });
+
+  // a key item the party holds: its standing, its description and a picture in the shape its description chose
+  await page.getByTestId("tab-items").click();
+  await page.locator('[data-testid^="entry-"]', { hasText: "Sluice Key" }).first().click();
+  const itemPage = page.getByTestId("compendium-detail");
+  await expect(itemPage).toContainText("Held by the party since turn");
+  const itemPicture = itemPage.locator('[data-testid="portrait"], [data-testid="view"]');
+  await expect(itemPicture).toBeVisible({ timeout: 20_000 });
+  expect(await itemPicture.locator("img").evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+  await expect(itemPage).toContainText("Description");
+  await page.screenshot({ path: "e2e/shots/compendium-item.png" });
 
   await page.getByTestId("dock-close").click();
   await expect(dock).toBeHidden();

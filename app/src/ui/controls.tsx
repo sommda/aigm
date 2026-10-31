@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { frameFor, paintingText, shapeOf } from "../core/pictures";
 import { color, font, radius, selectable, space } from "./theme";
 
 export function Button({
@@ -108,6 +109,7 @@ export function Portrait({
   resolve,
   maxWidth = 360,
   fitHeight = false,
+  subject,
 }: {
   portrait: unknown;
   name: string;
@@ -117,17 +119,21 @@ export function Portrait({
   maxWidth?: number;
   /** Also keep a landscape picture to about a third of the window's height, so what is under it stays in view. */
   fitHeight?: boolean;
+  /** What the picture is of (the entry's kind): an object's placeholder shows its name, not initials. */
+  subject?: string;
 }) {
   const p = portrait as { state?: string; url?: string; shape?: string } | null | undefined;
   const [broken, setBroken] = useState(false);
   const { width, height } = useWindowDimensions();
   useEffect(() => setBroken(false), [p?.url]);
   if (!p || (p.state !== "ready" && p.state !== "pending")) return null;
-  const landscape = p.shape === "landscape";
-  // a person's portrait is a small square; a place's view is wide (3:2) and as large as the column allows
-  const frame = landscape
-    ? { width: "100%" as const, maxWidth: fitHeight ? Math.min(maxWidth, Math.round(height * 0.3 * 1.5)) : maxWidth, aspectRatio: 3 / 2 }
-    : { width: width < 600 ? 120 : 160, height: width < 600 ? 120 : 160 };
+  const shape = shapeOf(p);
+  const landscape = shape === "landscape";
+  // a person's portrait is a small square; a place's view is wide (3:2) and as large as the column allows; an
+  // object's picture is the shape its description chose
+  const sized = frameFor({ shape, windowWidth: width, windowHeight: height, maxWidth, fitHeight });
+  const frame = sized.fill ? { width: "100%" as const, maxWidth: sized.maxWidth, aspectRatio: sized.aspectRatio } : sized;
+  const named = landscape || subject === "item";
   if (p.state === "ready" && p.url && !broken) {
     return (
       <Image
@@ -142,8 +148,8 @@ export function Portrait({
   }
   return (
     <View testID={landscape ? "view-placeholder" : "portrait-placeholder"} style={[styles.portrait, styles.frame, frame]}>
-      <Text style={landscape ? styles.placeName : styles.initials}>{landscape ? name : initials(name)}</Text>
-      {p.state === "pending" ? <Text style={styles.painting}>{landscape ? "Painting a view…" : "Painting a portrait…"}</Text> : null}
+      <Text style={named ? styles.placeName : styles.initials}>{named ? name : initials(name)}</Text>
+      {p.state === "pending" ? <Text style={styles.painting}>{paintingText(subject, shape)}</Text> : null}
     </View>
   );
 }

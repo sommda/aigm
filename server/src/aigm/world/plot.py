@@ -28,7 +28,9 @@ from aigm.world.passes import PassConfig, _plan_expansion
 
 log = logging.getLogger(__name__)
 
-PLOT_CONFIG = PassConfig(max_facts_per_call=40, max_entities_per_call=10)
+PLOT_CONFIG = PassConfig(
+    max_facts_per_call=40, max_entities_per_call=16, max_new_entities=16, max_new_facts=40, allow_items=True
+)
 ATTEMPTS = 2  # the plotter gets one chance to fix a plan that breaks the rules
 
 
@@ -44,8 +46,14 @@ class PlotResult:
     def rebind(self, world: World) -> None:
         """Point the quests at the entities of `world` (the live world may have numbered new ones differently since the
         plan was written against a snapshot)."""
+        def moved(entity_id: str) -> str | None:
+            ent = world.find(self.names.get(entity_id, ""))
+            return ent.id if ent is not None else None
+
         for m in self.milestones:
             m.entities = [e.id for n in m.entities if (e := world.find(self.names.get(n, ""))) is not None]
+            m.finds = moved(m.finds) if m.finds else None
+            m.needs = [i for n in m.needs if (i := moved(n)) is not None]
 
 
 def chapters_to_plan(length: str) -> tuple[int, ...]:
@@ -159,8 +167,18 @@ def _quests(
                 requires=[keys[r] for r in quest.requires if r in keys],
                 required=quest.required,
                 entities=resolve(quest.entities),
+                finds=(resolve([quest.finds]) or [None])[0] if quest.finds.strip() else None,
+                needs=resolve(quest.needs),
             )
         )
+        for label, names in (("finds", [quest.finds] if quest.finds.strip() else []), ("needs", quest.needs)):
+            for name in dict.fromkeys(names):
+                if not resolve([name]):
+                    problems.append(
+                        f"quest {quest.key!r} {label} {name!r}, which is not a key item you created: add it to `entities` "
+                        "(kind item) with `appearance` and `whereabouts` facts, the whereabouts fact also naming a place or "
+                        "person that exists, and use exactly the same name here"
+                    )
     if any(not m.title or not m.brief for m in milestones):
         problems.append("every quest needs a title and a brief")
     if any(m.scale not in ("small", "medium", "large") for m in milestones):
@@ -204,7 +222,7 @@ def _assemble(
     if missing_chapters:
         problems.append(f"write quests for chapter {missing_chapters[0]}")
     problems += validate_plan(story, snap)
-    settle_ready(story)
+    settle_ready(story, snap)
     return story, problems
 
 

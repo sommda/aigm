@@ -33,7 +33,7 @@ from aigm.sheets import Sheet, clean
 from aigm.history import digest_for, turn_chars, turns as split_turns
 from aigm.world.digest import Digest, clean_digest_text
 from aigm.world.independence import independence_problem, standalone_problem
-from aigm.world.model import ASPECTS, DISCLOSURES, KINDS, Entity, Fact, Motive, World
+from aigm.world.model import ASPECTS, CURATOR_KINDS, DISCLOSURES, Entity, Fact, Motive, World
 from aigm.world.ops import (
     AddAlias,
     AddDigest,
@@ -46,6 +46,7 @@ from aigm.world.ops import (
     Op,
     ResolveMotive,
     Reveal,
+    SetHolding,
     SetScene,
     SettleTime,
     ShiftMotive,
@@ -87,6 +88,7 @@ class PassConfig:
     story_entities: int = 3  # new entities per pass in those chapters (docs/STORY.md 6.4)
     familiar_entities: int = 16  # new entities from what the characters know (docs/OPENING.md 5.4)
     familiar_facts: int = 32  # facts from what the characters know
+    allow_items: bool = False  # the plotter alone may make key items (docs/KEY_ITEMS.md 6.1)
 
 
 @dataclass
@@ -122,7 +124,7 @@ def player_turns(messages: list[dict[str, Any]]) -> int:
     )
 
 
-WORLD_TOOLS = ("establish", "set_scene", "set_motive")
+WORLD_TOOLS = ("establish", "key_item", "set_scene", "set_motive")
 
 
 def transcript(messages: list[dict[str, Any]]) -> str:
@@ -180,6 +182,8 @@ def frontier(world: World, limit: int) -> list[tuple[Entity, str, list[str]]]:
     dist = world.distances(loc)
     ranked = []
     for ent in world.entities.values():
+        if ent.kind == "item":  # key items are made and filled in by the GM and the plotter, never fleshed out
+            continue
         d = dist.get(ent.id)
         if d is None:
             if not ent.discovered:
@@ -423,6 +427,15 @@ async def run_bootstrap(
         seed_ops.append(AddEntity(str(person["name"]), "npc"))
         disclosure = "known" if person.get("known") else "hidden"
         seed_ops.append(AddFact(str(person["role"]), (str(person["name"]),), "role", disclosure, "seed", 0))
+    for item in campaign.get("key_items", []):  # what the party starts with, or has been told of (docs/KEY_ITEMS.md 5.3)
+        if not (isinstance(item, dict) and item.get("name") and item.get("appearance")):
+            continue
+        name = str(item["name"])
+        seed_ops.append(AddEntity(name, "item"))
+        seed_ops.append(AddFact(f"{name} is {str(item['appearance']).rstrip('.')}.", (name,), "appearance", "known", "seed", 0))
+        if item.get("purpose"):
+            seed_ops.append(AddFact(str(item["purpose"]), (name,), "purpose", "known", "seed", 0))
+        seed_ops.append(SetHolding(name, "acquired" if item.get("status") == "held" else "learned", "", 0, "seed"))
     commit(seed_ops)
 
     emit("Building the setting...")
@@ -543,7 +556,7 @@ def _familiar_ops(
     by_name = {
         normalize_name(e.name): e
         for e in ex.entities
-        if isinstance(e.name, str) and e.name.strip() and e.kind in KINDS and normalize_name(e.name) not in names
+        if isinstance(e.name, str) and e.name.strip() and e.kind in CURATOR_KINDS and normalize_name(e.name) not in names
     }
     here = snap.entity(snap.scene.location) if snap.scene.location else None
     root = (snap.parent_chain(here.id) or [here])[-1] if here else None
@@ -680,9 +693,8 @@ async def _independent_expansion(curator: Curator, request: ExpandRequest, party
 
 
 def _clean_extraction(ex: Extraction, config: PassConfig, result: PassResult, standalone: bool = False) -> Extraction:
-    ex.entities = [
-        e for e in ex.entities if isinstance(e.name, str) and e.name.strip() and e.kind in KINDS
-    ]
+    kinds = (*CURATOR_KINDS, "item") if config.allow_items else CURATOR_KINDS
+    ex.entities = [e for e in ex.entities if isinstance(e.name, str) and e.name.strip() and e.kind in kinds]
     ex.facts = [
         f
         for f in ex.facts
@@ -878,6 +890,8 @@ def _plan_expansion(
             prop = new.pop(key)
             result.notes.append(f"dropped {prop.name!r}: {addition_allowed(config.story, world, prop.kind, prop.parent)[1]}")
 
+    if config.allow_items:  # a plan's key items are what its quests are about: they are the last to be cut
+        new = dict(sorted(new.items(), key=lambda kv: kv[1].kind != "item"))
     for key in list(new)[entity_cap:]:
         result.notes.append(f"over the entity cap: {new.pop(key).name!r}")
 

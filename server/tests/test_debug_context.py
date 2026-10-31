@@ -137,7 +137,7 @@ def test_adventure_tree_is_in_request_order(debug):
 
     system = top[0]["children"]
     assert system[0]["id"] == "prompt/system/common/01_role.md" and all(c["kind"] == "prompt" for c in system)
-    assert [t["title"] for t in top[1]["children"]] == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
+    assert [t["title"] for t in top[1]["children"]] == ["roll_dice", "recall", "establish", "key_item", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
     assert "Input schema:" in top[1]["children"][0]["text"]
 
     history = top[2]["children"]

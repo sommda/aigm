@@ -66,13 +66,17 @@ class Milestone:
     status: str = "pending"
     done_turn: int | None = None
     outcome: str | None = None
+    # Key items (docs/KEY_ITEMS.md 6): the item this quest is about finding, and the items the party must have had in
+    # hand before the quest is offered. Entity ids.
+    finds: str | None = None
+    needs: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id, "chapter": self.chapter, "title": self.title, "brief": self.brief, "scale": self.scale,
             "gives": self.gives, "requires": list(self.requires), "required": self.required,
             "entities": list(self.entities), "status": self.status, "done_turn": self.done_turn,
-            "outcome": self.outcome,
+            "outcome": self.outcome, "finds": self.finds, "needs": list(self.needs),
         }  # fmt: skip
 
 
@@ -218,10 +222,14 @@ def _read_milestone(raw: dict[str, Any]) -> Milestone:
     outcome = raw.get("outcome")
     if outcome is not None and not isinstance(outcome, str):
         raise ValueError("'outcome' must be a string or null")
+    finds = raw.get("finds")
+    if finds is not None and not isinstance(finds, str):
+        raise ValueError("'finds' must be a string or null")
     return Milestone(
         id=_text(raw, "id"), chapter=chapter, title=_text(raw, "title"), brief=_text(raw, "brief"), scale=scale,
         gives=_text(raw, "gives", optional=True), requires=_strings(raw, "requires"), required=required,
         entities=_strings(raw, "entities"), status=status, done_turn=_opt_int(raw, "done_turn"), outcome=outcome,
+        finds=finds, needs=_strings(raw, "needs"),
     )  # fmt: skip
 
 
@@ -307,6 +315,7 @@ def validate_plan(story: Story, world: World | None = None) -> list[str]:
             problems.append(f"{m.id} requires itself")
     problems += _graph_problems(story)
     problems += _strength_problems(story)
+    problems += _item_problems(story, world)
     if world is not None:
         named = [(story.goal.title if story.goal else "the goal", story.goal.entities if story.goal else [])]
         named += [(m.id, m.entities) for m in story.milestones]
@@ -314,6 +323,30 @@ def validate_plan(story: Story, world: World | None = None) -> list[str]:
             for entity_id in ids:
                 if world.entity(entity_id) is None:
                     problems.append(f"{label} names {entity_id}, which is not in the world")
+    return problems
+
+
+def _item_problems(story: Story, world: World | None) -> list[str]:
+    """The key items a plan names (docs/KEY_ITEMS.md 6.2): they must be key items of the world, a quest cannot both find
+    and need the same item, and an item a quest needs must be one the party can get: some quest finds it, or the world
+    says where it is. Whether the quests that find and need an item can be reached in order is `_graph_problems`."""
+    problems: list[str] = []
+    found_by = {m.finds for m in story.milestones if m.finds}
+    for m in story.milestones:
+        if m.finds and m.finds in m.needs:
+            problems.append(f"{m.id} both finds and needs the same item")
+        if world is None:
+            continue
+        for item_id in [*([m.finds] if m.finds else []), *m.needs]:
+            ent = world.entity(item_id)
+            if ent is None or ent.kind != "item":
+                problems.append(f"{m.id} names {item_id}, which is not a key item of the world")
+        for item_id in m.needs:
+            ent = world.entity(item_id)
+            if ent is None or ent.kind != "item" or item_id in found_by:
+                continue
+            if not any(f.subject == item_id and f.aspect == "whereabouts" for f in world.facts_about(item_id)):
+                problems.append(f"{m.id} needs {ent.name}, but no quest finds it and the world does not say where it is")
     return problems
 
 
@@ -353,13 +386,26 @@ def _graph_problems(story: Story) -> list[str]:
         for r in m.requires:
             if by_id[r].chapter > m.chapter:
                 problems.append(f"{m.id} (chapter {m.chapter}) requires {r}, which is in chapter {by_id[r].chapter}")
+    # A quest that needs an item can be offered once the quest that finds the item can be reached (it is a link too).
+    finders = {m.finds: m for m in story.milestones if m.finds}
+    waits: dict[str, list[str]] = {}
+    for m in story.milestones:
+        waits[m.id] = list(m.requires)
+        for item in m.needs:
+            finder = finders.get(item)
+            if finder is not None and finder.id != m.id:
+                waits[m.id].append(finder.id)
+                if finder.chapter > m.chapter:
+                    problems.append(
+                        f"{m.id} (chapter {m.chapter}) needs an item that {finder.id}, in chapter {finder.chapter}, finds"
+                    )
     # A milestone can be reached when everything it requires can be reached: peel off the ones with no open needs.
     reached: set[str] = set()
     progress = True
     while progress:
         progress = False
         for m in story.milestones:
-            if m.id not in reached and all(r in reached for r in m.requires):
+            if m.id not in reached and all(r in reached for r in waits[m.id]):
                 reached.add(m.id)
                 progress = True
     for m in story.milestones:
@@ -371,11 +417,22 @@ def _graph_problems(story: Story) -> list[str]:
 # ---- moving through the story -------------------------------------------------------------
 
 
-def settle_ready(story: Story) -> list[str]:
-    """Make the milestones of the current chapter whose requirements are settled active. Returns the ids opened."""
+def items_in_hand(world: World | None, item_ids: list[str]) -> bool:
+    """Has the party had every one of these key items in hand at some time? (Used or lost ones count: a quest an
+    item opens is not taken away when the item is spent.) Without a world, only an empty list is satisfied."""
+    if not item_ids:
+        return True
+    if world is None:
+        return False
+    return all((e := world.entity(i)) is not None and e.holding is not None and e.holding.acquired for i in item_ids)
+
+
+def settle_ready(story: Story, world: World | None = None) -> list[str]:
+    """Make the milestones of the current chapter whose requirements are settled, and whose key items the party has
+    had, active. Returns the ids opened. A quest that needs an item stays pending without a `world` to check it in."""
     opened = []
     for m in story.in_chapter(story.chapter):
-        if m.status == "pending" and all(
+        if m.status == "pending" and items_in_hand(world, m.needs) and all(
             (r := story.milestone(req)) is not None and r.status in SETTLED for req in m.requires
         ):
             m.status = "active"
@@ -419,7 +476,9 @@ class Progress:
     advanced_to: int | None = None  # the chapter the story moved into, if it did
 
 
-def report(story: Story, milestone_id: str, status: str, outcome: str, turn: int) -> Progress:
+def report(
+    story: Story, milestone_id: str, status: str, outcome: str, turn: int, world: World | None = None
+) -> Progress:
     """The GM says a milestone is `done`, `skipped` or `failed`. Changes the story only when the report is valid."""
     if story.concluded:
         return Progress(False, "the story has ended")
@@ -438,11 +497,11 @@ def report(story: Story, milestone_id: str, status: str, outcome: str, turn: int
         story.choices = [*story.choices, {"turn": turn, "milestone": milestone_id, "note": outcome.strip()}][
             -MAX_CHOICES:
         ]
-    opened = settle_ready(story)
+    opened = settle_ready(story, world)
     advanced = None
     if chapter_complete(story, turn):
         advanced = advance_chapter(story, turn)
-        opened += settle_ready(story)
+        opened += settle_ready(story, world)
     return Progress(True, f"{milestone_id} is now {status}", opened, advanced)
 
 
@@ -527,7 +586,7 @@ def addition_allowed(story: Story | None, world: World, kind: str, parent: str |
     person, are details and stay allowed. `parent` is an entity id or name."""
     if story is None or story.chapter == 1 or story.concluded:
         return True, ""
-    if kind == "npc":
+    if kind in ("npc", "item"):  # a person or a key item is a detail, not a major addition
         return True, ""
     if kind != "location":
         return False, f"a new {kind} is a major addition, and this chapter takes only details"
@@ -547,6 +606,21 @@ REVEAL_NUDGE_SHARE = 2 / 3  # of chapter 1's required quests settled: clues abou
 
 def _names(world: World, ids: list[str]) -> str:
     return ", ".join(e.name for i in ids if (e := world.entity(i)) is not None)
+
+
+def _item_note(world: World, m: Milestone) -> str:
+    """For an active quest, the key item it is about, and where the party stands with it (docs/KEY_ITEMS.md 6.1)."""
+    item = world.entity(m.finds) if m.finds else None
+    if item is None or item.holding is None:
+        return ""
+    stand = {
+        "unfound": "the party has not heard of it yet: let them hear of it this chapter, then call key_item `learned`",
+        "known": "the party knows of it and is looking for it",
+        "held": "the party has it",
+        "used": "the party had it and used it up",
+        "lost": "the party had it and lost it",
+    }[item.holding.status]
+    return f" Finding: {item.name} ({stand})."
 
 
 def briefing_block(story: Story, world: World, turn: int, nudge_turns: int = NUDGE_TURNS) -> str:
@@ -589,9 +663,20 @@ def briefing_block(story: Story, world: World, turn: int, nudge_turns: int = NUD
             where = _names(world, m.entities)
             tail = f"; {m.scale}" + (f"; at/with {where}" if where else "")
             gives = f" Finishing it builds: {m.gives}." if m.gives else ""
-            lines.append(f"- [{m.id}] {m.title} ({tail[2:]}): {m.brief}{gives}")
+            lines.append(f"- [{m.id}] {m.title} ({tail[2:]}): {m.brief}{gives}{_item_note(world, m)}")
     elif not group:
         lines.append("The quests for this chapter are not planned yet: keep the story moving with ordinary play.")
+    waiting = [
+        m for m in group
+        if m.status == "pending" and m.needs and not items_in_hand(world, m.needs)
+        and all((r := story.milestone(q)) is not None and r.status in SETTLED for q in m.requires)
+    ][:MAX_ACTIVE_SHOWN]  # fmt: skip
+    for m in waiting:
+        wanted = _names(world, [i for i in m.needs if not items_in_hand(world, [i])])
+        lines.append(
+            f"- [{m.id}] {m.title} is not offered until the party has {wanted}. Let them come by it through play, "
+            "and say nothing of why; when they do it opens."
+        )
     if n == 3 and story.endings:
         lines.append("Possible endings (steer toward the one the party's choices earn; do not announce it):")
         lines += [f"- {e.id}: {e.title}. {e.when}" for e in story.endings]

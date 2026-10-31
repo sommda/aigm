@@ -25,7 +25,7 @@ export const HELP = `Commands:
   /saves                list saved games
   /info NAME            show info about a saved game
   /delete NAME          delete a saved game
-  /compendium [TAB|NAME]  what you have learned: locations, characters, other
+  /compendium [TAB|NAME]  what you have learned: locations, characters, items, other
   /status               where you are and who is with you
   /sheet [NAME]         a character's sheet
   /reconnect            retry connecting to the server
@@ -280,7 +280,7 @@ export class GameController {
       this.session.addSystem("This server does not offer the compendium.", "yellow");
       return;
     }
-    const tabs = ["locations", "characters", "other", ...(this.debugServer ? ["hidden"] : [])];
+    const tabs = ["locations", "characters", "items", "other", ...(this.debugServer ? ["hidden"] : [])];
     const lower = where?.toLowerCase();
     const tab = lower && tabs.includes(lower) ? lower : undefined;
     this.prompter.openPanel("compendium", { tab, name: where && !tab ? where : undefined });

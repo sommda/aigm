@@ -14,9 +14,9 @@ from aigm.tools.ruleset import SET_RULESET
 from aigm.tools.social import SOCIAL_CHECK
 from aigm.tools.story import END_STORY
 from aigm.tools.structure import SET_STRUCTURE
-from aigm.tools.world import ESTABLISH, RECALL, SET_SCENE
+from aigm.tools.world import ESTABLISH, KEY_ITEM, RECALL, SET_SCENE
 
-REGISTRY: dict[str, Tool] = {t.schema["name"]: t for t in (ROLL_DICE, SET_RULESET, SET_ART_STYLE, SET_STRUCTURE, BEGIN_ADVENTURE, RECALL, ESTABLISH, SET_SCENE, UPDATE_CHARACTER, SET_COMBAT, SET_MOTIVE, SOCIAL_CHECK, AWARD, END_STORY)}
+REGISTRY: dict[str, Tool] = {t.schema["name"]: t for t in (ROLL_DICE, SET_RULESET, SET_ART_STYLE, SET_STRUCTURE, BEGIN_ADVENTURE, RECALL, ESTABLISH, KEY_ITEM, SET_SCENE, UPDATE_CHARACTER, SET_COMBAT, SET_MOTIVE, SOCIAL_CHECK, AWARD, END_STORY)}
 
 
 def tool_schemas(

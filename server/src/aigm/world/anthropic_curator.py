@@ -26,6 +26,7 @@ from aigm.world.curator import (
     FamiliarityRequest,
     Label,
     LookRequest,
+    ItemLookRequest,
     PlaceLookRequest,
     MotiveProposal,
     MotiveReport,
@@ -39,10 +40,10 @@ from aigm.world.curator import (
     SheetRequest,
 )
 from aigm.looks import (
-    CONTROLLED_TAGS, LIST_TAGS, PLACE_CONTROLLED_TAGS, PLACE_LIST_TAGS, PLACE_TEXT_TAGS, TEXT_TAGS, Look,
+    CONTROLLED_TAGS, ITEM_CONTROLLED_TAGS, ITEM_LIST_TAGS, ITEM_TEXT_TAGS, LIST_TAGS, PLACE_CONTROLLED_TAGS, PLACE_LIST_TAGS, PLACE_TEXT_TAGS, TEXT_TAGS, Look,
 )  # fmt: skip
 from aigm.sheets import Sheet, clean
-from aigm.world.model import ASPECTS, DISCLOSURES, KINDS, MOTIVE_KINDS
+from aigm.world.model import ASPECTS, CURATOR_KINDS, DISCLOSURES, MOTIVE_KINDS
 from aigm.world.render import (
     render_bootstrap,
     render_digest,
@@ -50,6 +51,7 @@ from aigm.world.render import (
     render_extract,
     render_familiarity,
     render_looks,
+    render_item_looks,
     render_place_looks,
     render_revise,
     render_sheet,
@@ -72,7 +74,7 @@ def _nullable(schema: dict[str, Any]) -> dict[str, Any]:
 _STR = {"type": "string"}
 _STRS = {"type": "array", "items": _STR}
 _ASPECT = _nullable({"type": "string", "enum": sorted({a for v in ASPECTS.values() for a in v})})
-_ENTITY = _obj(name=_STR, kind={"type": "string", "enum": list(KINDS)}, aliases=_STRS, parent=_nullable(_STR))
+_ENTITY = _obj(name=_STR, kind={"type": "string", "enum": list(CURATOR_KINDS)}, aliases=_STRS, parent=_nullable(_STR))
 
 _MOTIVE_REPORT = _obj(
     id=_STR,
@@ -147,6 +149,14 @@ _PLACE_TAGS = _obj(
 PLACE_LOOK_SCHEMA = _obj(
     looks={"type": "array", "items": _obj(index={"type": "integer"}, summary=_STR, description=_STR, tags=_PLACE_TAGS)},
 )
+_ITEM_TAGS = _obj(
+    **{k: {"type": "string", "enum": list(v)} for k, v in ITEM_CONTROLLED_TAGS.items()},
+    **{k: _STR for k in ITEM_TEXT_TAGS},
+    **{k: _STRS for k in ITEM_LIST_TAGS},
+)
+ITEM_LOOK_SCHEMA = _obj(
+    looks={"type": "array", "items": _obj(index={"type": "integer"}, summary=_STR, description=_STR, tags=_ITEM_TAGS)},
+)
 VERDICTS = ("same", "adds", "lasting", "contradicts")
 REVISE_SCHEMA = _obj(
     revisions={
@@ -179,6 +189,9 @@ EXPAND_SCHEMA = _obj(
     },
     motives={"type": "array", "items": _MOTIVE},
 )
+_PLOT_ENTITY = _obj(
+    name=_STR, kind={"type": "string", "enum": [*CURATOR_KINDS, "item"]}, aliases=_STRS, parent=_nullable(_STR)
+)
 PLOT_SCHEMA = _obj(
     goal_title=_STR,
     goal_summary=_STR,
@@ -200,10 +213,12 @@ PLOT_SCHEMA = _obj(
             requires=_STRS,
             required={"type": "boolean"},
             entities=_STRS,
+            finds=_STR,
+            needs=_STRS,
         ),
     },
     endings={"type": "array", "items": _obj(title=_STR, when=_STR)},
-    entities={"type": "array", "items": _ENTITY},
+    entities={"type": "array", "items": _PLOT_ENTITY},
     facts={"type": "array", "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT)},
 )
 DIGEST_SCHEMA = _obj(digests={"type": "array", "items": _obj(turn={"type": "integer"}, text=_STR)})
@@ -298,7 +313,7 @@ def parse_looks(data: dict[str, Any], count: int) -> dict[int, Look]:
 
 # Steps that only write to a fixed format from facts they are given. They need no thinking, and with it on the model
 # sometimes thought for the whole output budget and answered nothing ("stopped with max_tokens").
-NO_THINKING = frozenset({"describe", "describe_place"})
+NO_THINKING = frozenset({"describe", "describe_place", "describe_item"})
 
 
 class AnthropicCurator:
@@ -319,7 +334,7 @@ class AnthropicCurator:
         self.effort, self.expand_effort = effort, expand_effort
         self.max_tokens = max_tokens
         self._client = client
-        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "familiarity", "sheet", "digest", "plot", "describe", "describe_place", "revise")}
+        self.system = {n: prompts.world_prompt(n) for n in ("extract", "reconcile", "expand", "independence", "bootstrap", "familiarity", "sheet", "digest", "plot", "describe", "describe_place", "describe_item", "revise")}
         self.guides = prompts.aspect_guides()
 
     def _get_client(self) -> Any:
@@ -410,6 +425,10 @@ class AnthropicCurator:
         data = await self._ask("describe_place", self.model, self.effort, render_place_looks(request), PLACE_LOOK_SCHEMA)
         return parse_looks(data, len(request.subjects))
 
+    async def item_look(self, request: ItemLookRequest) -> dict[int, Look]:
+        data = await self._ask("describe_item", self.model, self.effort, render_item_looks(request), ITEM_LOOK_SCHEMA)
+        return parse_looks(data, len(request.subjects))
+
     async def revise_looks(self, request: ReviseRequest) -> dict[int, LookRevision]:
         data = await self._ask("revise", self.model, self.effort, render_revise(request), REVISE_SCHEMA)
         out: dict[int, LookRevision] = {}
@@ -468,7 +487,7 @@ class AnthropicCurator:
                 QuestProposal(
                     text(q.get("key")), whole(q.get("chapter")) or 0, text(q.get("title")), text(q.get("brief")),
                     text(q.get("scale")), text(q.get("gives")), _strs(q.get("requires")), q.get("required") is not False,
-                    _strs(q.get("entities")),
+                    _strs(q.get("entities")), text(q.get("finds")), _strs(q.get("needs")),
                 )
                 for q in items("quests")
             ],

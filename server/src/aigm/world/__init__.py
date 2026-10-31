@@ -3,6 +3,7 @@
 from aigm.world.digest import Digest
 from aigm.world.model import (
     ASPECTS,
+    CURATOR_KINDS,
     DISCLOSURES,
     KINDS,
     MOTIVE_KINDS,
@@ -18,6 +19,7 @@ from aigm.world.model import (
 
 __all__ = [
     "ASPECTS",
+    "CURATOR_KINDS",
     "DISCLOSURES",
     "Digest",
     "KINDS",

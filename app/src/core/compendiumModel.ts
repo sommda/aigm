@@ -3,14 +3,49 @@
 
 import { Json } from "./events";
 
-export const TABS = ["locations", "characters", "other"] as const;
+export const TABS = ["locations", "characters", "items", "other"] as const;
 export const HIDDEN = "hidden"; // the debug-only tab of what the player has not been told (docs/COMPENDIUM.md 11)
 export const TITLES: Record<string, string> = {
   locations: "Locations",
   characters: "Characters",
+  items: "Key Items",
   other: "Other",
   [HIDDEN]: "Hidden",
 };
+/** A key item's standing on a list row (docs/KEY_ITEMS.md 11). */
+export const HOLDING_LABELS: Record<string, string> = { held: "held", known: "to find", used: "used", lost: "lost" };
+/** The heading a Look gets, by kind of entry (people: "Appearance"). */
+export const LOOK_HEADINGS: Record<string, string> = { location: "View", item: "Description" };
+
+export interface HoldingView {
+  headline: string;
+  gone: boolean; // used or lost: shown quietly
+  note: string; // how it was used or lost
+  history: string[]; // one line per change, only when there is more than one
+}
+
+/** What a key item's entry says about whether the party has it, and how it came and went. */
+export function holdingView(holding: Json | null | undefined): HoldingView | null {
+  if (!holding) return null;
+  const status = String(holding.status ?? "");
+  const since = holding.since;
+  const headline =
+    { known: "Not yet found", held: `Held by the party since turn ${since}`, used: `Used up on turn ${since}`, lost: `Lost on turn ${since}` }[status] ?? "";
+  if (!headline) return null;
+  const history = Array.isArray(holding.history) ? (holding.history as Json[]) : [];
+  const gone = status === "used" || status === "lost";
+  const label: Record<string, string> = { held: "Had it", used: "Used", lost: "Lost", known: "Heard of" };
+  return {
+    headline,
+    gone,
+    note: gone && history.length ? String(history[history.length - 1].note ?? "") : "",
+    history:
+      history.length > 1
+        ? history.map((h) => `Turn ${h.turn}: ${label[String(h.status)] ?? ""}${h.note ? " · " + h.note : ""}`)
+        : [],
+  };
+}
+
 export type Counts = { count: number; new: number; updated: number };
 export interface Link {
   heading: string;
@@ -28,6 +63,7 @@ export class CompendiumModel {
   counts: Record<string, Counts> = Object.fromEntries(ALL_TABS.map((t) => [t, emptyCounts()]));
   cursor: Record<string, number> = Object.fromEntries(ALL_TABS.map((t) => [t, 0]));
   details: Record<string, Json> = {};
+  private detailSigs: Record<string, string> = {}; // what an entry's list row said when its detail was fetched
   hiddenDetails: Record<string, Json> = {}; // apart from `details`: the ids are the same entities
   query = "";
   unseenOnly = false;
@@ -64,9 +100,11 @@ export class CompendiumModel {
       return;
     }
     const known = new Set(TABS.flatMap((t) => this.lists[t].map(idOf)));
+    // an entry whose row has changed since its detail was fetched (a fact learned, a key item found) is fetched again
+    const current = (id: string) => this.detailSigs[id] === this.rowSig(id);
     // an entry whose portrait is still being painted is always fetched again: the picture may be there by now
     const waiting = (d: Json) => (d.portrait as { state?: string } | null | undefined)?.state === "pending";
-    this.details = Object.fromEntries(Object.entries(this.details).filter(([k, d]) => known.has(k) && !waiting(d)));
+    this.details = Object.fromEntries(Object.entries(this.details).filter(([k, d]) => known.has(k) && !waiting(d) && current(k)));
   }
 
   indexOf(category: string, id: string | null): number {
@@ -76,6 +114,13 @@ export class CompendiumModel {
 
   loadDetail(detail: Json, hidden = false): void {
     (hidden ? this.hiddenDetails : this.details)[idOf(detail)] = detail;
+    if (!hidden) this.detailSigs[idOf(detail)] = this.rowSig(idOf(detail));
+  }
+
+  /** The parts of a list row that say its detail would read differently. */
+  private rowSig(id: string): string {
+    const row = TABS.flatMap((t) => this.lists[t]).find((e) => idOf(e) === id);
+    return row ? [row.fact_count, row.updated_turn, row.holding].join("|") : "";
   }
 
   get onHidden(): boolean {

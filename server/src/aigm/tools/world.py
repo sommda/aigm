@@ -3,13 +3,16 @@
 They work on the turn's working copy of the game state, so what they record only becomes real if
 the turn succeeds. Descriptions live in prompts/tools/*.md. See docs/WORLD.md section 6."""
 
+import re
 from typing import Any
 
 from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
+from aigm import story as story_rules
 from aigm.story import addition_allowed
 from aigm.tools.story import STORY_PROPERTY, check_story_report
 from aigm.world import DISCLOSURES, KINDS, Entity, Fact, World, WorldError
+from aigm.world.model import HOLDING_EVENTS, MAX_HOLDING_NOTE_WORDS
 from aigm.world.briefing import LABELS, motive_line
 from aigm.world.text import normalize_name
 
@@ -20,6 +23,9 @@ MAX_NEW_FACTS = 12
 MAX_NEW_ENTITIES = 6
 MAX_ELAPSED_HOURS = 24 * 30
 MAX_LOOK_NOTE_WORDS = 40
+MAX_ITEM_EVENTS = 6
+MAX_NEW_ITEMS = 2  # key items created by one `establish` call (docs/KEY_ITEMS.md 5.1)
+MAX_ITEM_NOTE_WORDS = 30
 
 
 def _fact_line(fact: Fact) -> str:
@@ -117,7 +123,7 @@ ESTABLISH_SCHEMA: dict[str, Any] = {
         "properties": {
             "entities": {
                 "type": "array",
-                "description": f"New people, places, groups or concepts you have introduced (at most {MAX_NEW_ENTITIES}). Skip ones already recorded.",
+                "description": f"New people, places, groups, concepts or key items you have introduced (at most {MAX_NEW_ENTITIES}). Skip ones already recorded.",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -130,7 +136,7 @@ ESTABLISH_SCHEMA: dict[str, Any] = {
                         },
                         "look_notes": {
                             "type": "string",
-                            "description": f"For a person: the visible traits you are about to narrate, at most {MAX_LOOK_NOTE_WORDS} words ('tall, one-eyed, in a guard's tabard'). They become part of the person's recorded description.",
+                            "description": f"For a person: the visible traits you are about to narrate, at most {MAX_LOOK_NOTE_WORDS} words ('tall, one-eyed, in a guard's tabard'). They become part of the person's recorded description. Required for a key item: what it is and looks like, as a phrase that completes 'It is ...', at most {MAX_ITEM_NOTE_WORDS} words ('a thick green-bound ledger with brass corners').",
                         },
                     },
                     "required": ["name", "kind"],
@@ -187,6 +193,17 @@ def _look_note(raw: dict[str, Any], name: str, hints: dict[str, str], ignored: l
         hints[normalize_name(name)] = " ".join(note.split())
 
 
+def _item_note(raw: dict[str, Any], name: str, out: dict[str, str]) -> None:
+    """A key item must come with what it looks like, since a picture cannot be made from nothing."""
+    note = raw.get("look_notes")
+    words = len(note.split()) if isinstance(note, str) else 0
+    if words < 2:
+        raise WorldError(f"a key item needs `look_notes`: a phrase completing 'It is ...' that says what {name} looks like")
+    if words > MAX_ITEM_NOTE_WORDS:
+        raise WorldError(f"look_notes is {words} words; at most {MAX_ITEM_NOTE_WORDS}")
+    out[name] = " ".join(note.split())
+
+
 def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
     entities, facts, reveals = (_as_list(tool_input.get(k)) for k in ("entities", "facts", "reveal"))
     if not (entities or facts or reveals):
@@ -201,6 +218,11 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     reused: list[str] = []
     ignored: list[str] = []
     hints: dict[str, str] = {}  # person's name -> look_notes, kept only if the whole call is accepted
+    appearance: dict[str, str] = {}  # key item's name -> what it looks like, recorded as a hidden fact below
+    items_made: list[str] = []
+    new_items = sum(1 for r in entities if isinstance(r, dict) and r.get("kind") == "item" and world.find(str(r.get("name"))) is None)
+    if new_items > MAX_NEW_ITEMS:
+        problems.append(f"at most {MAX_NEW_ITEMS} new key items per call: only quest objects are key items")
     for raw in entities:
         label = f"entity {raw.get('name')!r}" if isinstance(raw, dict) else "entity"
         try:
@@ -241,12 +263,26 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
             done.append(f"{ent.name} ({ent.id})")
             if kind == "npc":
                 _look_note(raw, ent.name, hints, ignored)
+            elif kind == "item":
+                items_made.append(ent.id)
+                _item_note(raw, ent.name, appearance)
             elif raw.get("look_notes"):
                 ignored.append(f"`look_notes` of {name!r} (only people have a look)")
         except WorldError as exc:
             problems.append(f"{label}: {exc}")
     recorded: list[str] = []
     skipped: list[str] = []
+    for name, note in appearance.items():  # until the party has the item, how it looks is the GM's alone
+        try:
+            ent = world.find(name)
+            assert ent is not None
+            fact = world.add_fact(
+                f"{ent.name} is {note.rstrip('.')}.", [ent.id], aspect="appearance", disclosure="hidden",
+                source="improvised", turn=state.turn,
+            )
+            recorded.append(fact.id)
+        except WorldError as exc:
+            problems.append(f"look_notes of {name!r}: {exc}")
     for i, raw in enumerate(facts, 1):
         label = f"fact {i}"
         try:
@@ -330,6 +366,25 @@ SET_SCENE_SCHEMA: dict[str, Any] = {
 }
 
 
+_MOVE = re.compile(
+    r"\b(head|go|walk|run|ride|sail|travel|move|enter|leave|return|climb|descend|follow|sneak|cross|visit|proceed|"
+    r"hurry|rush|retreat|flee|step)\b.*\b(to|into|toward|towards|down|up|back|out|inside|through|across|home)\b",
+    re.I | re.S,
+)
+
+
+def _unmoved_note(state: GameState, where: str) -> str:
+    """Said when `set_scene` was called without a `location`, so the place did not change: a GM that narrated a move
+    but left the place out would otherwise be told only where the party still is."""
+    if _MOVE.search(state.player_text or ""):
+        return (
+            f" The place did NOT change: the party is still at {where}. The player asked to go somewhere: if they have "
+            "arrived, call `set_scene` again now with `location` (record a new place with `establish` first), before "
+            "you write your reply."
+        )
+    return f" The place did not change (still {where}). If the party has moved on, pass `location`."
+
+
 def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
     world = state.world.copy()
     problems: list[str] = []
@@ -375,12 +430,115 @@ def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     if new_story is not None:
         state.story = new_story
     where = world.entities[location].name if location else "not set"
+    unmoved = _unmoved_note(state, where) if loc_ref is None and location else ""
     here = _names([world.entities[e] for e in world.scene.present]) or "nobody recorded"
-    return ToolOutcome(f"Scene: {where}. With the party: {here}. Time: {world.time}." + "".join(f" {n}" for n in story_notes))
+    return ToolOutcome(f"Scene: {where}. With the party: {here}. Time: {world.time}." + unmoved + "".join(f" {n}" for n in story_notes))
+
+
+# ---- key_item ---------------------------------------------------------------------------
+
+KEY_ITEM_SCHEMA: dict[str, Any] = {
+    "name": "key_item",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "events": {
+                "type": "array",
+                "description": f"What happened to key items this turn (at most {MAX_ITEM_EVENTS}).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "A key item recorded with `establish` (kind item)."},
+                        "event": {"type": "string", "enum": list(HOLDING_EVENTS)},
+                        "note": {
+                            "type": "string",
+                            "description": f"One short sentence saying how (at most {MAX_HOLDING_NOTE_WORDS} words): 'Taken from the steward's desk.'",
+                        },
+                    },
+                    "required": ["name", "event"],
+                },
+            }
+        },
+        "required": ["events"],
+    },
+}
+
+_EVENT_RESULT = {
+    "learned": "now known to the player (not yet found)",
+    "acquired": "now in the party's hands",
+    "used": "used up",
+    "lost": "lost",
+}
+
+
+def _item_follow_ups(state: GameState, first: list[Entity]) -> str:
+    """What the GM should do next about the key items the party has just got (docs/KEY_ITEMS.md 6): report the quest
+    that was about finding one, make the award, and take up the quests the item opens."""
+    if not first:
+        return ""
+    notes = []
+    story = state.story
+    for ent in first:
+        finds = [m for m in (story.milestones if story else []) if m.finds == ent.id and m.status == "active"]
+        for m in finds:
+            notes.append(f"This completes the quest [{m.id}] {m.title}: report it in your next `set_scene` `story` field.")
+        if finds:
+            notes.append(f"Its award is the quest's: one `award` for the quest, not a second one for {ent.name}.")
+        else:
+            notes.append(
+                f"Getting {ent.name} should usually earn an award: call `award` in this same response (XP in your "
+                "ruleset's scale, reason: what the party did to get it), unless it was trivial."
+            )
+    if story is not None and story.planned:
+        work = story.copy()
+        opened = story_rules.settle_ready(work, state.world)
+        if opened:
+            state.story = work
+            titles = ", ".join(f"[{i}] {work.milestone(i).title}" for i in opened)  # type: ignore[union-attr]
+            notes.append(f"Now active, since the party has the item: {titles}. Your story notes show them.")
+    return " " + " ".join(notes)
+
+
+def key_item(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
+    events = _as_list(tool_input.get("events"))
+    if not events:
+        return ToolOutcome("Give `events`: what happened to which key item.", is_error=True)
+    if len(events) > MAX_ITEM_EVENTS:
+        return ToolOutcome(f"At most {MAX_ITEM_EVENTS} events per call.", is_error=True)
+    world = state.world.copy()  # all or nothing, like establish
+    problems: list[str] = []
+    lines: list[str] = []
+    first: list[Entity] = []  # items the party has just got for the first time
+    for i, raw in enumerate(events, 1):
+        try:
+            if not isinstance(raw, dict):
+                raise WorldError("each event must be an object with name and event")
+            ent = world.resolve(raw["name"]) if isinstance(raw.get("name"), str) else None
+            if ent is None:
+                raise WorldError(f"{raw.get('name')!r} is not recorded; create it first with `establish` (kind item)")
+            if ent.kind != "item":
+                raise WorldError(f"{ent.name} is a {ent.kind}, not a key item")
+            event = raw.get("event")
+            before = ent.holding.acquired if ent.holding else False
+            changed = world.set_holding(ent.id, str(event), str(raw.get("note") or ""), state.turn)
+            if changed and event == "acquired" and not before:
+                first.append(ent)
+            lines.append(
+                f"{ent.name}: {_EVENT_RESULT[event]}" if changed else f"{ent.name}: already so, nothing changed"
+            )
+        except WorldError as exc:
+            problems.append(f"event {i}: {exc}")
+    if problems:
+        return ToolOutcome(
+            "Nothing was recorded:\n- " + "\n- ".join(problems) + "\nFix these and call key_item again.", is_error=True
+        )
+    state.world = world
+    return ToolOutcome("Recorded. " + "; ".join(lines) + "." + _item_follow_ups(state, first))
 
 
 RECALL = Tool(schema=RECALL_SCHEMA, handler=recall, phases=ADVENTURE)
 ESTABLISH = Tool(schema=ESTABLISH_SCHEMA, handler=establish, phases=ADVENTURE)
+KEY_ITEM = Tool(schema=KEY_ITEM_SCHEMA, handler=key_item, phases=ADVENTURE)
 SET_SCENE = Tool(
     schema=SET_SCENE_SCHEMA, handler=set_scene, phases=ADVENTURE, story_properties=STORY_PROPERTY
 )

@@ -69,6 +69,7 @@ The server is running with `--test`: replies are scripted, not from a model. Try
 - `structure <mode>`: choose endless, short, medium or long in Session 0 (calls the real `set_structure` tool)
 - `begin`: end Session 0 and start the adventure (calls the real `begin_adventure` tool; a new game starts in Session 0)
 - `establish <name>`: record a new person in the world (adventure only; calls the real `establish` tool)
+- `item <name> [learned|acquired|used|lost]`: record a key item (calls `establish`), and move it (calls `key_item`) when an event is given (adventure only)
 - `recall <name>`: look a name up in the world (adventure only; calls `recall`)
 - `persuade <name> [words]`: a social check on a person (adventure only; calls `social_check`). With no words the GM asks what you say; with words of your own it rolls, and eight or more words count as strong. Name a person you have `establish`ed
 - `motive <name> [text]`: give a recorded person a scene motive (adventure only; calls `set_motive`)
@@ -170,6 +171,23 @@ def _establish_plan(name: str) -> list[Step]:
     ]
 
 
+ITEM_EVENTS = ("learned", "acquired", "used", "lost")
+
+
+def _item_plan(arg: str) -> list[Step]:
+    """`item Sluice Key acquired`: make the key item if it is new, and then change hands as asked."""
+    name, _, last = arg.rpartition(" ")
+    event = last.lower() if last.lower() in ITEM_EVENTS else ""
+    name = (name if event else arg).strip() or "Sluice Key"
+    steps: list[Step] = [
+        Say(f"{name}. "),
+        UseTool("establish", {"entities": [{"name": name, "kind": "item", "look_notes": "a plain old thing of worn metal"}]}),
+    ]
+    if event:
+        steps.append(UseTool("key_item", {"events": [{"name": name, "event": event, "note": "As the test script says."}]}))
+    return steps
+
+
 def _motive_plan(arg: str) -> list[Step]:
     name, _, text = arg.partition(" ")
     name = name or "Wren"
@@ -236,6 +254,7 @@ def _wound_plan(arg: str) -> list[Step]:
 WORLD_COMMANDS: dict[str, Callable[[str], list[Step]]] = {
     "quest": _quest_plan,
     "establish": _establish_plan,
+    "item": _item_plan,
     "motive": _motive_plan,
     "persuade": _persuade_plan,
     "recall": lambda arg: [Say("Let me think... "), UseTool("recall", {"about": arg or "Wren"})],
@@ -341,7 +360,7 @@ def narrate_tool_results(messages: list[dict[str, Any]]) -> list[Step]:
         if name == "begin_adventure":  # on success the history is replaced, so only errors get here
             lines.append(f"- The adventure could not begin: {b.get('content')}")
             continue
-        if name in WORLD_COMMANDS or name in ("recall", "establish", "set_scene", "set_motive", "social_check", "set_ruleset", "set_structure", "update_character", "set_combat"):
+        if name in WORLD_COMMANDS or name in ("recall", "establish", "key_item", "set_scene", "set_motive", "social_check", "set_ruleset", "set_structure", "update_character", "set_combat"):
             lines.append(f"- `{name}`{' (error)' if b.get('is_error') else ''}:\n\n```\n{b.get('content')}\n```")
             continue
         expr = tool_input.get("expression", "?")

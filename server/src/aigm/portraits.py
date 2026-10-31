@@ -20,7 +20,7 @@ from aigm import art
 from aigm.art import Style
 from aigm.errors import CorruptSave
 from aigm.images import MODERATION, QUOTA, Image, ImageError, Images
-from aigm.looks import Look
+from aigm.looks import Look, frame_of
 
 log = logging.getLogger(__name__)
 
@@ -178,6 +178,27 @@ def place_wanted(entity: Any) -> bool:
     return True
 
 
+def item_wanted(entity: Any) -> bool:
+    """Is this visible key item pictured? Every one is, for now; a later limit to the important ones has one place to
+    go (docs/KEY_ITEMS.md 8)."""
+    return True
+
+
+def _visible_items(world: Any, *, any_look: bool = False) -> list[Any]:
+    """The key items the player can see in the compendium that have a Look and are wanted, the most recently acquired
+    first (a new item is what the player is most likely looking at)."""
+    from aigm.compendium import _visible
+
+    def acquired(e: Any) -> int:
+        return max((h.turn for h in e.holding.history if h.status == "held"), default=0) if e.holding else 0
+
+    items = [
+        e for e in world.entities.values()
+        if e.kind == "item" and (e.look or (any_look and e.portrait)) and item_wanted(e) and _visible(world, e.id)
+    ]  # fmt: skip
+    return sorted(items, key=lambda e: (-acquired(e), -int(e.id[1:])))
+
+
 def _visible_places(world: Any, *, any_look: bool = False) -> list[Any]:
     """The locations the player can see in the compendium that have a Look and are wanted, in the order they are given
     pictures: the party's current location first, then the rest newest first."""
@@ -214,8 +235,12 @@ class Job:
     look: Look
     old: Portrait | None
     names: list[str]  # the name and aliases to take out of the text
-    entity: str | None = None  # the entity id of an NPC or a place; None for a party member
-    place: bool = False  # a view of a place, not a portrait of a person
+    entity: str | None = None  # the entity id of an NPC, a place or an item; None for a party member
+    kind: str = "person"  # person | place (a view) | item (a still life)
+
+    @property
+    def place(self) -> bool:
+        return self.kind == "place"
 
     @property
     def key(self) -> str:
@@ -234,7 +259,7 @@ class PortraitService:
         self.quality = quality
         # Does the curator write Looks for these kinds? Then a person or place without one is about to get it, and
         # shows as pending rather than as nothing (set by the app from the curator's abilities).
-        self.describes = {"npc": False, "location": False}
+        self.describes = {"npc": False, "location": False, "item": False}
         self.disabled = False  # set after a billing or key failure: stop trying until the server restarts
 
     def due_jobs(self, state: Any) -> list[Job]:
@@ -251,11 +276,14 @@ class PortraitService:
                 jobs.append(Job(name, look, state.portraits.get(name), [name]))
         places = [p for p in _visible_places(state.world) if is_due(p.look, p.portrait, style, state.turn, self.store)]
         here = [p for p in places if p.id == state.world.scene.location]
-        jobs += [Job(p.name, p.look, p.portrait, p.names(), p.id, place=True) for p in here]
-        for ent in _visible_people(state.world):
-            if is_due(ent.look, ent.portrait, style, state.turn, self.store):
-                jobs.append(Job(ent.name, ent.look, ent.portrait, ent.names(), ent.id))
-        jobs += [Job(p.name, p.look, p.portrait, p.names(), p.id, place=True) for p in places if p not in here]
+        jobs += [Job(p.name, p.look, p.portrait, p.names(), p.id, "place") for p in here]
+        people = [e for e in _visible_people(state.world) if is_due(e.look, e.portrait, style, state.turn, self.store)]
+        scene = set(state.world.scene.present)
+        jobs += [Job(e.name, e.look, e.portrait, e.names(), e.id) for e in people if e.id in scene]
+        items = [i for i in _visible_items(state.world) if is_due(i.look, i.portrait, style, state.turn, self.store)]
+        jobs += [Job(i.name, i.look, i.portrait, i.names(), i.id, "item") for i in items]
+        jobs += [Job(e.name, e.look, e.portrait, e.names(), e.id) for e in people if e.id not in scene]
+        jobs += [Job(p.name, p.look, p.portrait, p.names(), p.id, "place") for p in places if p not in here]
         return jobs[:MAX_PER_SWEEP]
 
     def view(self, session: Any, name: str) -> dict[str, Any] | None:
@@ -270,24 +298,38 @@ class PortraitService:
     def view_entity(self, session: Any, entity_id: str) -> dict[str, Any] | None:
         """The same for an NPC or a place, which must already be visible to the player (the caller has checked)."""
         ent = session.state.world.entities.get(entity_id)
-        if ent is None or ent.kind not in ("npc", "location"):
+        if ent is None or ent.kind not in ("npc", "location", "item"):
             return None
-        shape = "landscape" if ent.kind == "location" else "square"
+        shape = self.shape_of(ent)
         if ent.look is None:
             return self._awaiting_look(session, ent, shape)
         return self._view(session, ent.look, ent.portrait, shape)
 
+    @staticmethod
+    def shape_of(ent: Any) -> str:
+        """The shape of an entity's picture: people square, places landscape, an item's whatever its Look chose (square
+        until it has one)."""
+        if ent.kind == "location":
+            return "landscape"
+        return frame_of(ent.look) if ent.kind == "item" and ent.look else "square"
+
     def _awaiting_look(self, session: Any, ent: Any, shape: str) -> dict[str, Any] | None:
         """No Look yet: if one is about to be written the picture is on its way, so say so. A place is only described
-        once it is known well enough (docs/PLACES.md 5.1), and a sweep that failed waits a few turns."""
+        once it is known well enough (docs/PLACES.md 5.1), an item once the party has had it in hand (docs/KEY_ITEMS.md
+        7), and a sweep that failed waits a few turns."""
+        from aigm.world.describe_items import describable as item_describable
         from aigm.world.describe_places import describable
 
         state = session.state
         style = art.resolve_style(state.art_style, state.ruleset)
         if style is None or self.disabled or not self.describes.get(ent.kind):
             return None
-        retry = session.place_looks_retry_turn if ent.kind == "location" else session.looks_retry_turn
+        retry = {"location": session.place_looks_retry_turn, "item": session.item_looks_retry_turn}.get(
+            ent.kind, session.looks_retry_turn
+        )
         if state.turn < retry or (ent.kind == "location" and not describable(state.world, ent)):
+            return None
+        if ent.kind == "item" and not item_describable(ent):
             return None
         return {"state": "pending", "style": style.id, "shape": shape}
 
@@ -309,7 +351,11 @@ class PortraitService:
         """The file of an image this session may show its player: a party member's current portrait, or the picture of a
         person or place the player has discovered (the compendium's rule), or None."""
         state = session.state
-        seen = [*_visible_people(state.world, any_look=True), *_visible_places(state.world, any_look=True)]
+        seen = [
+            *_visible_people(state.world, any_look=True),
+            *_visible_places(state.world, any_look=True),
+            *_visible_items(state.world, any_look=True),
+        ]
         records = [*state.portraits.values(), *(e.portrait for e in seen if e.portrait)]
         if not any(record.image == file for record in records):
             return None
@@ -363,10 +409,25 @@ class PortraitService:
 
         return {name: rec for name, rec in await asyncio.gather(*(one(j) for j in jobs)) if rec is not None}
 
+    def size_for(self, job: Job) -> str:
+        """The size of a picture: portraits and square objects the server's portrait size, a view of a place and a
+        landscape object the place size, and a portrait-shaped object the place size turned on its side."""
+        if job.kind == "place":
+            return self.place_size
+        if job.kind == "item":
+            frame = frame_of(job.look)
+            if frame == "landscape":
+                return self.place_size
+            if frame == "portrait":
+                wide, _, high = self.place_size.partition("x")
+                return f"{high}x{wide}"
+        return self.size
+
     async def _make(self, job: Job, style: Style, turn: int) -> Portrait | None:
-        prompt = (art.build_place_prompt if job.place else art.build_prompt)(job.look, style, job.names)
+        build = {"place": art.build_place_prompt, "item": art.build_item_prompt}.get(job.kind, art.build_prompt)
+        prompt = build(job.look, style, job.names)
         model = self.images.model
-        size = self.place_size if job.place else self.size
+        size = self.size_for(job)
         image_id = art.image_id(model, size, style, prompt, self.quality)
         stored = self.store.find(image_id)
         if stored:  # the same picture was made before (a restored game, a repeated Look)
@@ -382,8 +443,8 @@ class PortraitService:
             return self._failed(job, style, turn, exc.kind)
         meta = {
             "prompt": prompt, "model": image.model, "style": style.id, "size": size, "quality": self.quality,
-            "kind": "place" if job.place else "person", "look_summary": job.look.summary,
-            "look_search_text": job.look.search_text("place" if job.place else "person"), "look_rev": job.look.rev,
+            "kind": job.kind, "look_summary": job.look.summary,
+            "look_search_text": job.look.search_text(job.kind), "look_rev": job.look.rev,
             "usage": image.usage, "turn": turn,
         }  # fmt: skip
         try:
@@ -394,12 +455,12 @@ class PortraitService:
         return Portrait(name, style.id, job.look.rev, image.model, turn)
 
     async def _generate(self, prompt: str, job: Job, style: Style, size: str) -> Image:
-        # Portraits are made at the server's default size; only a view of a place asks for its own.
-        asked = size if job.place else None
+        # Portraits are made at the server's default size; a view of a place or an object asks for its own.
+        asked = size if job.kind != "person" else None
         try:
             return await self.images.generate(prompt, asked)
         except ImageError as exc:
-            if exc.kind != MODERATION or job.place:
+            if exc.kind != MODERATION or job.kind != "person":
                 raise  # a view has nothing softer to try: a refusal is recorded and not repeated
         # Refused: one more try with only the tags and the Look's first sentence (docs/PORTRAITS.md 8.3).
         return await self.images.generate(art.build_prompt(job.look, style, job.names, softened=True), asked)

@@ -26,7 +26,7 @@ HELP = """Commands:
   /saves                list saved games
   /info NAME            show info about a saved game
   /delete NAME          delete a saved game
-  /compendium [TAB|NAME]  what you have learned: locations, characters, other  (Ctrl+G)
+  /compendium [TAB|NAME]  what you have learned: locations, characters, items, other  (Ctrl+G)
   /status               where you are and who is with you  (F7)
   /sheet [NAME]         a character's sheet
   /reconnect            retry connecting to the server
@@ -37,7 +37,7 @@ DEBUG_HELP = (
     "\nDebug server: /context (Ctrl+K) shows exactly what the model will be sent for your next message."
     "\n  /story  prints the whole story plan (spoilers)"
     "\n  /thinking [on|off]  (F6) turn the model's thinking on or off, to compare a move both ways"
-    "\n  /compendium hidden  (or key 4 in the compendium) browses the facts and motives the player has not been told"
+    "\n  /compendium hidden  (or key 5 in the compendium) browses the facts and motives the player has not been told"
 )
 
 

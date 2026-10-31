@@ -121,7 +121,9 @@ class Game:
         """The world notes for this request (empty outside the adventure or while the world is empty)."""
         if state.phase is not Phase.ADVENTURE:
             return ""
-        notes = build_briefing(state.world, user_text=user_text, gm_text=gm_text, budget_tokens=self.briefing_tokens)
+        notes = build_briefing(
+            state.world, user_text=user_text, gm_text=gm_text, budget_tokens=self.briefing_tokens, turn=state.turn
+        )
         if state.story is not None:
             block = briefing_block(state.story, state.world, state.turn, self.story_nudge_turns)
             notes = f"{block}\n\n{notes}" if block and notes else block or notes

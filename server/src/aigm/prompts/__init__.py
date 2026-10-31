@@ -131,6 +131,7 @@ class PromptLibrary:
                 "party_size": str(len(rendered)),
                 "party": "\n\n".join(rendered),
                 "characters": self._characters_section(campaign.get("characters")),
+                "key_items": self._key_items_section(campaign.get("key_items")),
             },
         )
 
@@ -184,6 +185,19 @@ class PromptLibrary:
             look = f" Appearance: {str(c['appearance']).strip()}" if str(c.get("appearance") or "").strip() else ""
             lines.append(f"- **{c['name']}** ({who}). {str(c.get('role', '')).strip()}{look}")
         return "### Key people\n\nPeople of the setting made in Session 0 (not party members).\n\n" + "\n".join(lines) + "\n\n"
+
+    @staticmethod
+    def _key_items_section(value: Any) -> str:
+        """The key items the party starts with or knows of, or nothing (docs/KEY_ITEMS.md 5.3)."""
+        items = [i for i in value if isinstance(i, dict) and i.get("name")] if isinstance(value, list) else []
+        if not items:
+            return ""
+        lines = []
+        for i in items:
+            stand = "the party has it" if i.get("status") == "held" else "the party knows of it and is looking for it"
+            purpose = f" {str(i['purpose']).strip()}" if str(i.get("purpose") or "").strip() else ""
+            lines.append(f"- **{i['name']}** ({stand}): {str(i.get('appearance', '')).strip()}.{purpose}")
+        return "### Key items\n\nQuest objects recorded in Session 0 (already in your notes as key items).\n\n" + "\n".join(lines) + "\n\n"
 
     @staticmethod
     def _fill(template: str, values: dict[str, str]) -> str:

@@ -129,6 +129,17 @@ def sample_compendium() -> dict[str, dict]:
         "e010": ent("e010", "Wren", "npc", "characters", None, [fact("f5", "Wren runs the Rusty Flagon.", "Role")]),
         "e020": ent("e020", "Thorn Guild", "faction", "other", "new",
                     [fact("f6", "The Thorn Guild controls the toll road.", "Goals", True)]),
+        "e030": ent("e030", "Steward's Ledger", "item", "items", None,
+                    [fact("f7", "The ledger is a thick green-bound book.", "Appearance")],
+                    holding={"status": "held", "since": 4, "history": [{"turn": 4, "status": "held", "note": "Found."}]}),
+        "e031": ent("e031", "Sluice Key", "item", "items", None,
+                    [fact("f8", "Wren says the key hangs in the gatehouse.", "Whereabouts")],
+                    holding={"status": "known", "since": 2, "history": [{"turn": 2, "status": "known", "note": ""}]}),
+        "e032": ent("e032", "Old Map", "item", "items", None,
+                    [fact("f9", "The map shows Ashby.", "Contents")],
+                    holding={"status": "lost", "since": 9, "history": [
+                        {"turn": 3, "status": "held", "note": "Found."},
+                        {"turn": 9, "status": "lost", "note": "Stolen by the harbor guard."}]}),
     }
 
 
@@ -207,7 +218,7 @@ class FakeServer:
         parts = path.strip("/").split("/")
         if len(parts) == 1:
             cats = []
-            for cid, title in (("locations", "Locations"), ("characters", "Characters"), ("other", "Other")):
+            for cid, title in (("locations", "Locations"), ("characters", "Characters"), ("items", "Key Items"), ("other", "Other")):
                 ents = [e for e in self.compendium.values() if e["category"] == cid]
                 st = [self._status(e) for e in ents]
                 cats.append({"id": cid, "title": title, "count": len(ents), "new": st.count("new"),
@@ -225,7 +236,7 @@ class FakeServer:
             facts = [{**f, "new": f["new"] and e["id"] not in self.seen} for f in e["facts"]]
             return self._json(200, {"aliases": [], "path": [], "children": [], "related": [], "learned_turn": 3,
                                     "updated_turn": 3, **e, "status": status, "facts": facts})
-        if parts[1] in ("locations", "characters", "other"):
+        if parts[1] in ("locations", "characters", "items", "other"):
             q = params.get("q", "").casefold()
             rows = []
             for e in self.compendium.values():
@@ -235,9 +246,9 @@ class FakeServer:
                 rows.append({"id": e["id"], "name": e["name"], "kind": e["kind"], "category": e["category"],
                              "summary": e["facts"][0]["text"], "parent": e["parent"], "depth": depth,
                              "fact_count": len(e["facts"]), "status": self._status(e), "unseen_count": 0,
-                             "learned_turn": 3})
+                             "learned_turn": 3, "holding": (e.get("holding") or {}).get("status")})
             rows.sort(key=lambda r: (r["depth"] and 0, r["id"]))
-            return self._json(200, {"session_id": "default", "category": parts[1], "title": parts[1].title(),
+            return self._json(200, {"session_id": "default", "category": parts[1], "title": "Key Items" if parts[1] == "items" else parts[1].title(),
                                     "count": len(rows), "entries": rows})
         return self._err(404, "not_found", f"{method} {path}")
 

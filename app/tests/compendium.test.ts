@@ -1,4 +1,4 @@
-import { CompendiumModel, HIDDEN } from "../src/core/compendiumModel";
+import { CompendiumModel, HIDDEN, HOLDING_LABELS, holdingView } from "../src/core/compendiumModel";
 import { CHARACTER_PREFIX, StatusModel } from "../src/core/statusModel";
 
 const e = (id: string, name: string, status?: string, extra: object = {}) => ({ id, name, kind: "place", status, ...extra });
@@ -13,7 +13,7 @@ function model(hidden = false) {
 
 describe("CompendiumModel", () => {
   test("the hidden tab exists only for a debug server", () => {
-    expect(new CompendiumModel(false).tabs).toEqual(["locations", "characters", "other"]);
+    expect(new CompendiumModel(false).tabs).toEqual(["locations", "characters", "items", "other"]);
     expect(new CompendiumModel(true).tabs).toContain(HIDDEN);
   });
   test("summary counts and unread totals", () => {
@@ -104,5 +104,66 @@ describe("StatusModel", () => {
     expect(m.character).toBe("Toby");
     m.loadRoster({ characters: [{ name: "Kit Harrow" }] });
     expect(m.tab).toBe("status"); // the tab's character left the party
+  });
+});
+
+describe("key items", () => {
+  test("rows are labelled by whether the party has the item", () => {
+    expect(HOLDING_LABELS).toEqual({ held: "held", known: "to find", used: "used", lost: "lost" });
+  });
+  test("a known item is not yet found", () => {
+    const v = holdingView({ status: "known", since: 2, history: [{ turn: 2, status: "known", note: "" }] });
+    expect(v).toEqual({ headline: "Not yet found", gone: false, note: "", history: [] });
+  });
+  test("a held item says since when, with no history yet", () => {
+    const v = holdingView({ status: "held", since: 4, history: [{ turn: 4, status: "held", note: "Found." }] });
+    expect(v?.headline).toBe("Held by the party since turn 4");
+    expect(v?.history).toEqual([]);
+  });
+  test("a lost item says how and lists what happened", () => {
+    const v = holdingView({
+      status: "lost",
+      since: 9,
+      history: [
+        { turn: 3, status: "held", note: "Found." },
+        { turn: 9, status: "lost", note: "Stolen by the guard." },
+      ],
+    });
+    expect(v).toEqual({
+      headline: "Lost on turn 9",
+      gone: true,
+      note: "Stolen by the guard.",
+      history: ["Turn 3: Had it · Found.", "Turn 9: Lost · Stolen by the guard."],
+    });
+  });
+  test("no holding, or a status it does not know, shows nothing", () => {
+    expect(holdingView(null)).toBeNull();
+    expect(holdingView({ status: "unfound", since: 0, history: [] })).toBeNull();
+  });
+});
+
+describe("a detail goes stale when its row changes", () => {
+  const row = (extra: object = {}) => ({ id: "e30", name: "Rubbing", kind: "item", fact_count: 1, updated_turn: 51, holding: "known", ...extra });
+  const loaded = (r: object) => {
+    const m = new CompendiumModel(false);
+    m.loadList("items", { entries: [r] });
+    return m;
+  };
+
+  test("a key item found since its entry was read is fetched again", () => {
+    const m = loaded(row());
+    m.loadDetail({ id: "e30", name: "Rubbing", holding: { status: "known" } });
+    m.loadList("items", { entries: [row()] }); // nothing changed: the cached entry stays
+    expect(m.details["e30"]).toBeDefined();
+    m.loadList("items", { entries: [row({ holding: "held", fact_count: 3, updated_turn: 56 })] });
+    expect(m.details["e30"]).toBeUndefined();
+  });
+  test("a fact learned about an entry fetches it again, and marking it read does not", () => {
+    const m = loaded(row({ holding: null, kind: "npc" }));
+    m.loadDetail({ id: "e30", name: "Wren" });
+    m.loadList("items", { entries: [row({ holding: null, unseen_count: 0, status: null })] });
+    expect(m.details["e30"]).toBeDefined(); // only the read marks moved
+    m.loadList("items", { entries: [row({ holding: null, updated_turn: 60 })] });
+    expect(m.details["e30"]).toBeUndefined();
   });
 });

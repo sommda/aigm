@@ -328,7 +328,7 @@ def test_a_test_game_makes_the_partys_portrait_on_disk_and_saves_it(tmp_path):
     assert rec.ready and (tmp_path / "images" / rec.image).is_file() and rec.style == "modern"  # the dnd55e default
     client.put("/history/g/save")
     saved = json.loads((tmp_path / "g.json").read_text())
-    assert saved["version"] == 11 and saved["portraits"]["Test Hero"]["image"] == rec.image
+    assert saved["version"] == 12 and saved["portraits"]["Test Hero"]["image"] == rec.image
     client.post("/history/g/restore")
     again = client.app.state.sessions.get("default").state
     assert again.portraits["Test Hero"].image == rec.image

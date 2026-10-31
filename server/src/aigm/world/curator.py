@@ -162,6 +162,28 @@ class PlaceLookRequest:
 
 
 @dataclass
+class ItemSubject:
+    """One key item to describe (docs/KEY_ITEMS.md 7). The party has it, and everything here is known to the player."""
+
+    name: str
+    aliases: list[str] = field(default_factory=list)
+    facts: list[str] = field(default_factory=list)  # known facts about the item, as "[aspect] text"
+    found: str = ""  # how the party came by it, if it was said ("Taken from the steward's desk.")
+    narration: list[str] = field(default_factory=list)  # sentences of the story that name it
+
+
+@dataclass
+class ItemLookRequest:
+    """A batch of key items to describe. The answer is a Look for each, by the subject's index."""
+
+    subjects: list[ItemSubject]
+    setting: str
+    ruleset: str
+    existing: list[str] = field(default_factory=list)  # "Name: summary" of the items already described
+    feedback: dict[int, list[str]] = field(default_factory=dict)  # a retry: subject index -> why it was rejected
+
+
+@dataclass
 class ReviseSubject:
     """A character who already has a Look and whom the last narration described (docs/LOOKS.md 7)."""
 
@@ -276,6 +298,8 @@ class QuestProposal:
     requires: list[str] = field(default_factory=list)  # keys
     required: bool = True
     entities: list[str] = field(default_factory=list)  # names
+    finds: str = ""  # the name of the key item the quest is about finding (docs/KEY_ITEMS.md 6.1)
+    needs: list[str] = field(default_factory=list)  # names of key items the party must have had before it is offered
 
 
 @dataclass
@@ -341,6 +365,9 @@ class Curator(Protocol):
 
     # Optional: `async def place_look(self, request: PlaceLookRequest) -> dict[int, Look]` describes places
     # (docs/PLACES.md); the keys are indexes into `request.subjects`, and a missing one means "no answer".
+
+    # Optional: `async def item_look(self, request: ItemLookRequest) -> dict[int, Look]` describes key items
+    # (docs/KEY_ITEMS.md 7); the keys are indexes into `request.subjects`, and a missing one means "no answer".
 
     # Optional: `async def revise_looks(self, request: ReviseRequest) -> dict[int, LookRevision]` checks the narration
     # against existing Looks (docs/LOOKS.md 7); the keys are indexes into `request.subjects`.

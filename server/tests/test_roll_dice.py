@@ -81,6 +81,6 @@ def test_too_many_rolls():
 
 
 def test_registry():
-    assert [s["name"] for s in tool_schemas()] == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
+    assert [s["name"] for s in tool_schemas()] == ["roll_dice", "recall", "establish", "key_item", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
     assert not dispatch("roll_dice", "t", {"expression": "1d6", "narration": "The die spins."}).is_error
     assert dispatch("nope", "t", {}).is_error

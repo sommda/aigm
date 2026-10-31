@@ -45,7 +45,7 @@ def test_beginning_a_game_describes_the_party_and_the_cast_while_the_player_wait
     assert messages.index("Picturing the characters...") == len(messages) - 2 and messages[-1] == "The world is ready."
     client.put("/history/g/save")
     saved = json.loads((tmp_path / "g.json").read_text())
-    assert saved["version"] == 11 and list(saved["looks"]) == ["Test Hero"]
+    assert saved["version"] == 12 and list(saved["looks"]) == ["Test Hero"]
     innkeeper = next(e for e in saved["world"]["entities"] if e["name"] == "Innkeeper")
     assert innkeeper["look"]["summary"] and saved["looks"]["Test Hero"]["rev"] == 1
 

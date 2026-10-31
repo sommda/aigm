@@ -73,7 +73,7 @@ async def restore_history(
 
 async def catch_up(app: Any, session: Session, generation: int) -> None:
     """After a game is loaded, write the descriptions and pictures it is missing without waiting for a turn: Looks of
-    people, then of places, then the pictures, a few sweeps of each (the same sweeps a turn runs, never the world pass).
+    people, then of places, then of key items, then the pictures, a few sweeps of each (the same sweeps a turn runs, never the world pass).
     A game loaded from a save made before these existed, or one the server was stopped in the middle of, fills in
     while the player reads. It stops if the game is replaced, and never raises."""
     try:
@@ -85,6 +85,7 @@ async def catch_up(app: Any, session: Session, generation: int) -> None:
             if service is not None:
                 progressed |= await service.run_looks_if_due(session)
                 progressed |= await service.run_place_looks_if_due(session)
+                progressed |= await service.run_item_looks_if_due(session)
             if portraits is not None:
                 progressed |= await portraits.run_if_due(session)
             if not progressed:

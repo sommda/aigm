@@ -40,14 +40,14 @@ def props(tools, name):
 
 def test_endless_games_see_no_story_tools_or_fields():
     tools = tool_schemas(phase=Phase.ADVENTURE)
-    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
+    assert names(tools) == ["roll_dice", "recall", "establish", "key_item", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
     assert "story" not in props(tools, "set_scene")
     assert "report its progress" not in next(t for t in tools if t["name"] == "set_scene")["description"]
 
 
 def test_story_games_get_end_story_and_the_story_field():
     tools = tool_schemas(phase=Phase.ADVENTURE, structured=True)
-    assert names(tools) == ["roll_dice", "recall", "establish", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award", "end_story"]
+    assert names(tools) == ["roll_dice", "recall", "establish", "key_item", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award", "end_story"]
     assert "story" in props(tools, "set_scene") and "goal_revealed" in str(props(tools, "set_scene")["story"])
     description = next(t for t in tools if t["name"] == "set_scene")["description"]
     assert description.startswith("Tell the world notes") and "report its progress" in description

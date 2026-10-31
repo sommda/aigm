@@ -11,6 +11,8 @@ MIN_SHEET = 150  # per character
 MIN_BACKGROUND = 80  # per character; origin, reputation, ties
 MIN_APPEARANCE = 60  # per character; how they look (docs/LOOKS.md 4.1)
 MAX_KEY_CHARACTERS = 8
+MAX_STARTING_ITEMS = 4
+MAX_ITEM_NOTE_WORDS = 30
 MAX_ROLE_WORDS = 40
 MIN_ROLE_WORDS = 3
 MAX_TOTAL = 30_000
@@ -83,6 +85,30 @@ SCHEMA: dict[str, Any] = {
                         },
                     },
                     "required": ["name", "role", "known"],
+                },
+            },
+            "key_items": {
+                "type": "array",
+                "description": f"Optional: quest objects the party has or knows of from the start (docs/KEY_ITEMS.md), at most {MAX_STARTING_ITEMS}: a map of the dungeon given in advance, a letter of introduction, a key left to them. Never ordinary gear (that goes on the character sheets) and never an item the player has not been told about.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "What the characters call it: 'the old mine map'."},
+                        "appearance": {
+                            "type": "string",
+                            "description": f"What it is and looks like, as a phrase completing 'It is ...' (2 to {MAX_ITEM_NOTE_WORDS} words): 'a creased sheet of vellum with a hand-drawn plan of the mine'.",
+                        },
+                        "purpose": {
+                            "type": "string",
+                            "description": "Optional: one sentence using its name that says what it is for, as the party understands it.",
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["held", "known"],
+                            "description": "held: the party has it now. known: the party knows it exists and is looking for it.",
+                        },
+                    },
+                    "required": ["name", "appearance", "status"],
                 },
             },
             "gm_notes": {
@@ -217,6 +243,44 @@ def _characters(raw: Any, party: list[dict[str, Any]], problems: list[str]) -> l
     return out
 
 
+def _key_items(raw: Any, taken: set[str], problems: list[str]) -> list[dict[str, str]]:
+    """The key items the party starts with or knows of (docs/KEY_ITEMS.md 5.3)."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or len(raw) > MAX_STARTING_ITEMS:
+        problems.append(f"'key_items' must be a list of at most {MAX_STARTING_ITEMS} items")
+        return []
+    out = []
+    for i, entry in enumerate(raw, 1):
+        if not isinstance(entry, dict):
+            problems.append(f"key item {i} must be an object with name, appearance and status")
+            continue
+        name, appearance, purpose, status = (entry.get(k) for k in ("name", "appearance", "purpose", "status"))
+        label = f"key item {i}" + (f" ({name})" if isinstance(name, str) and name.strip() else "")
+        if not isinstance(name, str) or not name.strip():
+            problems.append(f"{label}: 'name' must be a non-empty string")
+            continue
+        if name.strip().lower() in taken:
+            problems.append(f"{label}: the name is already used by a party member, key character or key item")
+        taken.add(name.strip().lower())
+        words = len(appearance.split()) if isinstance(appearance, str) else 0
+        if not 2 <= words <= MAX_ITEM_NOTE_WORDS:
+            problems.append(f"{label}: 'appearance' must be a phrase of 2 to {MAX_ITEM_NOTE_WORDS} words saying what it looks like")
+        if status not in ("held", "known"):
+            problems.append(f"{label}: 'status' must be held or known")
+        if purpose is not None and (not isinstance(purpose, str) or len(purpose.split()) < 3):
+            problems.append(f"{label}: 'purpose' must be a sentence about what it is for")
+        out.append(
+            {
+                "name": name.strip(),
+                "appearance": " ".join(appearance.split()) if isinstance(appearance, str) else "",
+                "purpose": " ".join(purpose.split()) if isinstance(purpose, str) else "",
+                "status": status if status in ("held", "known") else "held",
+            }
+        )
+    return out
+
+
 def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
     if state.phase is not Phase.SESSION_ZERO:
         return _error("the adventure has already begun")
@@ -236,6 +300,8 @@ def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameSta
         problems.append("'level' must be an integer from 1 to 20")
     party = _party(tool_input.get("party"), problems)
     characters = _characters(tool_input.get("characters"), party, problems)
+    taken = {m["name"].lower() for m in party} | {c["name"].lower() for c in characters}
+    key_items = _key_items(tool_input.get("key_items"), taken, problems)
     notes = tool_input.get("gm_notes")
     if notes is not None and not isinstance(notes, str):
         problems.append("'gm_notes' must be a string")
@@ -245,10 +311,13 @@ def begin_adventure(tool_use_id: str, tool_input: dict[str, Any], state: GameSta
     campaign: dict[str, Any] = {"setting": setting, "opening": opening, "level": level, "party": party}
     if characters:
         campaign["characters"] = characters
+    if key_items:
+        campaign["key_items"] = key_items
     if notes and notes.strip():
         campaign["gm_notes"] = notes.strip()
     size = sum(len(m["sheet"]) + len(m["background"]) + len(m["appearance"]) for m in party)
     size += sum(len(c["role"]) + len(c["appearance"]) for c in characters)
+    size += sum(len(i["appearance"]) + len(i["purpose"]) for i in key_items)
     if len(setting) + len(opening) + size + len(notes or "") > MAX_TOTAL:
         return _error("the record is too long; condense it")
     state.phase = Phase.ADVENTURE

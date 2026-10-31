@@ -264,7 +264,7 @@ def test_the_overview_counts_each_category(api):
     body = api.get("/compendium").json()
     assert body["phase"] == "adventure"
     assert {c["id"]: (c["count"], c["new"]) for c in body["categories"]} == {
-        "locations": (3, 1), "characters": (1, 0), "other": (0, 0),
+        "locations": (3, 1), "characters": (1, 0), "items": (0, 0), "other": (0, 0),
     }
     assert (body["new"], body["updated"]) == (1, 1)
 

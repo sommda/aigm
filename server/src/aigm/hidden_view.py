@@ -44,6 +44,7 @@ def _row(world: World, entity_id: str) -> dict[str, Any]:
         "name": entity.name,
         "kind": entity.kind,
         "discovered": entity.discovered,
+        "holding": entity.holding.status if entity.holding else None,
         "hidden_count": sum(f.disclosure == "hidden" for f in facts),
         "hinted_count": sum(f.disclosure == "hinted" for f in facts),
         "motive_count": len(_motives(world, entity_id)),

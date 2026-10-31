@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { HIDDEN, TITLES } from "../core/compendiumModel";
+import { HIDDEN, HOLDING_LABELS, LOOK_HEADINGS, TITLES, holdingView } from "../core/compendiumModel";
 import { Json } from "../core/events";
 import { CompendiumPanel } from "../core/panels";
 import { Button, Heading, LookBlock, Portrait, TabBar } from "./controls";
@@ -21,7 +21,7 @@ function Row({ entry, selected, read, hidden, onPress }: { entry: Json; selected
         {String(entry.name)}
       </Text>
       <Text style={[styles.rowTag, status && !read ? { color: tint } : null]}>
-        {hidden ? `${entry.kind ?? ""} ${total}` : status && !read ? status : ""}
+        {hidden ? `${entry.kind ?? ""} ${total}` : HOLDING_LABELS[String(entry.holding ?? "")] ?? (status && !read ? status : "")}
       </Text>
     </Pressable>
   );
@@ -52,6 +52,7 @@ function Detail({ panel }: { panel: CompendiumPanel }) {
   const path = ((d.path as Json[]) ?? []).map((p) => p.name).join(" › ");
   let heading: unknown = null;
   let linkHeading: string | null = null;
+  const holding = holdingView(d.holding as Json | undefined);
   return (
     <View testID="compendium-detail">
       <Text style={styles.title}>
@@ -60,12 +61,24 @@ function Detail({ panel }: { panel: CompendiumPanel }) {
       </Text>
       {d.portrait ? (
         <View style={{ marginVertical: space.sm, alignSelf: (d.portrait as Json).shape === "landscape" ? "stretch" : "flex-start" }}>
-          <Portrait portrait={d.portrait} name={String(d.name)} alt={(d.look as Json | null)?.summary as string | undefined} resolve={(p) => panel.imageUrl(p)} />
+          <Portrait portrait={d.portrait} name={String(d.name)} alt={(d.look as Json | null)?.summary as string | undefined} resolve={(p) => panel.imageUrl(p)} subject={String(d.kind)} />
         </View>
       ) : null}
       {path ? <Text style={styles.dim}>{"in " + path}</Text> : null}
       {(d.aliases as string[] | undefined)?.length ? <Text style={styles.dim}>{"also called: " + (d.aliases as string[]).join(", ")}</Text> : null}
-      <LookBlock look={d.look} title={d.kind === "location" ? "View" : "Appearance"} />
+      {holding ? (
+        <View style={{ marginVertical: space.sm }} testID="holding">
+          <Text style={[styles.holding, holding.gone && { color: color.dim }, selectable]}>{holding.headline}</Text>
+          {holding.note ? <Text style={[styles.dim, selectable]}>{holding.note}</Text> : null}
+        </View>
+      ) : null}
+      <LookBlock look={d.look} title={LOOK_HEADINGS[String(d.kind)] ?? "Appearance"} />
+      {holding?.history.length ? (
+        <View testID="holding-history">
+          <Heading>History</Heading>
+          {holding.history.map((h, i) => <Text key={i} style={[styles.dim, selectable]}>{h}</Text>)}
+        </View>
+      ) : null}
       {plain.length ? <View style={{ marginTop: space.sm }}>{plain.map((f, i) => <FactLines key={i} fact={f} newMark={!!f.new && !read} indent={false} />)}</View> : null}
       {labelled.map((f, i) => {
         const show = f.label !== heading;
@@ -275,6 +288,7 @@ const styles = StyleSheet.create({
   title: { color: color.text, fontFamily: font.story, fontSize: 22, fontWeight: "700" },
   kind: { color: color.dim, fontFamily: font.ui, fontSize: 13, fontWeight: "400" },
   dim: { color: color.dim, fontFamily: font.ui, fontSize: 13 },
+  holding: { color: color.yellow, fontFamily: font.ui, fontSize: 14, fontWeight: "700" },
   fact: { color: color.text, fontFamily: font.story, fontSize: 15, lineHeight: 22, marginBottom: 4 },
   link: { color: color.text, fontFamily: font.ui, fontSize: 14, paddingVertical: 3 },
   hHead: { fontFamily: font.ui, fontWeight: "700", fontSize: 14, marginTop: space.md, marginBottom: 2 },

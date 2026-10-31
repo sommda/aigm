@@ -73,7 +73,7 @@ def check_story_report(report: Any, state: GameState) -> tuple[Story | None, lis
             continue
         outcome = q.get("outcome")
         outcome = outcome.strip()[:MAX_OUTCOME] if isinstance(outcome, str) else ""
-        result = story_rules.report(work, str(q.get("id")), str(q.get("status")), outcome, state.turn)
+        result = story_rules.report(work, str(q.get("id")), str(q.get("status")), outcome, state.turn, state.world)
         if not result.ok:
             problems.append(f"{q.get('id')}: {result.message}")
             continue
@@ -87,7 +87,7 @@ def check_story_report(report: Any, state: GameState) -> tuple[Story | None, lis
             notes.append(chapter_note(work, result.advanced_to))
     if not problems and story_rules.chapter_complete(work, state.turn):  # learning the goal can be what finishes chapter 1
         chapter = story_rules.advance_chapter(work, state.turn)
-        story_rules.settle_ready(work)
+        story_rules.settle_ready(work, state.world)
         notes.append(chapter_note(work, chapter))
     if notes:
         notes.append(CARRY_ON)

@@ -72,7 +72,7 @@ async def test_closing_sends_marks_not_yet_sent():
     async with app.run_test(size=(120, 30)) as pilot:
         await start(app, pilot)
         screen = await open_screen(app, pilot)
-        await pilot.press("3")  # the Thorn Guild, new
+        await pilot.press("4")  # the Thorn Guild, new
         await settle(pilot, lambda: "e020" in screen.model.read)
         screen.model.pending = ["e020"]
         screen._flush_later = lambda: None  # the timer must not get there first
@@ -210,8 +210,8 @@ async def test_a_debug_server_has_a_hidden_tab_with_motives_and_secrets():
     async with app.run_test(size=(120, 30)) as pilot:
         await start(app, pilot)
         screen = await open_screen(app, pilot)
-        assert "4 Hidden (3)" in screen.model.tabs_text().plain
-        await pilot.press("4")
+        assert "5 Hidden (3)" in screen.model.tabs_text().plain
+        await pilot.press("5")
         await settle(pilot, lambda: "Captain Vael" in pane_text(screen, "#cp-list"))
         listing = pane_text(screen, "#cp-list")
         assert "Harrow Mine" in listing and "Wren" in listing and "npc" in listing
@@ -233,7 +233,7 @@ async def test_looking_at_the_hidden_tab_marks_nothing_read():
     async with app.run_test(size=(120, 30)) as pilot:
         await start(app, pilot)
         screen = await open_screen(app, pilot)
-        await pilot.press("4")
+        await pilot.press("5")
         await settle(pilot, lambda: "Harrow Mine" in pane_text(screen, "#cp-list"))
         await settle(pilot, lambda: "smugglers" in pane_text(screen, "#cp-detail"))
         await pilot.pause(0.3)  # longer than the dwell time
@@ -248,7 +248,7 @@ async def test_the_hidden_filter_asks_the_debug_route():
     async with app.run_test(size=(120, 30)) as pilot:
         await start(app, pilot)
         screen = await open_screen(app, pilot)
-        await pilot.press("4", "slash")
+        await pilot.press("5", "slash")
         await pilot.press(*"wren", "enter")
         await settle(pilot, lambda: "Harrow Mine" not in pane_text(screen, "#cp-list"))
         assert "Wren" in pane_text(screen, "#cp-list")
@@ -263,9 +263,24 @@ async def test_a_server_that_is_not_in_debug_mode_has_no_hidden_tab():
     async with app.run_test(size=(120, 30)) as pilot:
         await start(app, pilot)
         screen = await open_screen(app, pilot)
-        await pilot.press("4")
+        await pilot.press("5")
         await pilot.pause(0.2)
         assert screen.model.tab == "locations" and "Hidden" not in screen.model.tabs_text().plain
         assert not any(path.startswith("/debug/hidden") for _, path, _ in fake.calls)
+        await pilot.press("escape")
+        await settle(pilot, lambda: not isinstance(app.screen, CompendiumScreen))
+
+
+async def test_the_key_items_tab_lists_what_the_party_has_and_seeks():
+    fake = fake_with_compendium()
+    app = make_app(fake)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await start(app, pilot)
+        screen = await open_screen(app, pilot)
+        await pilot.press("3")
+        await settle(pilot, lambda: "Steward's Ledger" in pane_text(screen, "#cp-list"))
+        listing = pane_text(screen, "#cp-list")
+        assert "held" in listing and "to find" in listing and "lost" in listing
+        await settle(pilot, lambda: "Held by the party since turn 4" in pane_text(screen, "#cp-detail"))
         await pilot.press("escape")
         await settle(pilot, lambda: not isinstance(app.screen, CompendiumScreen))

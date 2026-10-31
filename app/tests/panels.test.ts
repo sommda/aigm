@@ -15,6 +15,8 @@ function server(extra: Record<string, () => { status: number; body: unknown }> =
         return ok({ entries: [{ id: "e1", name: "Ashby", kind: "place", status: "new" }] });
       case "/compendium/characters":
         return ok({ entries: [{ id: "e2", name: "Wren", kind: "person" }] });
+      case "/compendium/items":
+        return ok({ entries: [] });
       case "/compendium/other":
         return ok({ entries: [] });
       case "/compendium/entities/e1":

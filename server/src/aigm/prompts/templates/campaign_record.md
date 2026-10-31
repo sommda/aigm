@@ -16,6 +16,6 @@
 
 {{party}}
 
-{{characters}}### Opening situation
+{{characters}}{{key_items}}### Opening situation
 
 {{opening}}

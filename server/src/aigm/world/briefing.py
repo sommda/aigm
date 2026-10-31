@@ -68,7 +68,9 @@ def fact_line(fact: Fact, prefix: str = "") -> str:
     return f"- {prefix}[{LABELS[fact.disclosure]}] {fact.text}{who}"
 
 
-def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budget_tokens: int = 2000) -> str:
+def build_briefing(
+    world: World, *, user_text: str = "", gm_text: str = "", budget_tokens: int = 2000, turn: int = 0
+) -> str:
     """The briefing text, or "" when the world has nothing in it yet."""
     if world.is_empty:
         return ""
@@ -110,6 +112,9 @@ def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budg
         else:
             out.add(fact_line(fact, f"{place.name}: "), fact)
 
+    for line, force in item_lines(world, turn):  # what the party has and seeks is always said; the reserve can be cut
+        out.add(line, force=force)
+
     relevant = _relevant(world, f"{user_text}\n{gm_text}", shown)
     if relevant:
         out.add("Also relevant:")
@@ -128,6 +133,49 @@ def build_briefing(world: World, *, user_text: str = "", gm_text: str = "", budg
             out.add(f"- {note['text']}", force=True)
 
     return "\n".join(out.lines)
+
+
+def item_lines(world: World, turn: int = 0) -> list[tuple[str, bool]]:
+    """What the party has and seeks, and the key items the GM holds in reserve, as (line, always-shown) pairs
+    (docs/KEY_ITEMS.md 10)."""
+    held, sought, reserve = [], [], []
+    for ent in world.entities.values():
+        if ent.kind != "item" or ent.holding is None:
+            continue
+        known = [f for f in world.facts_about(ent.id) if f.subject == ent.id and f.disclosure == "known"]
+
+        def said(aspect: str) -> str:
+            return next((f.text for f in known if f.aspect == aspect), "")
+
+        if ent.holding.status == "held":
+            what = ent.look.summary if ent.look else said("appearance")
+            held.append(f"- {ent.name}" + (f": {what}" if what else ""))
+        elif ent.holding.status == "known":
+            where = said("whereabouts") or said("appearance")
+            sought.append(f"- {ent.name}" + (f": {where}" if where else ""))
+        elif ent.holding.status == "unfound":
+            reserve.append(f"- {ent.name}")
+    out: list[tuple[str, bool]] = []
+    # The turn after the party got a key item without an award, say so once (docs/KEY_ITEMS.md 6.3).
+    unpaid = [
+        e.name for e in world.entities.values()
+        if e.kind == "item" and e.holding is not None and turn > 1 and e.holding.owed == turn - 1
+    ]  # fmt: skip
+    if unpaid:
+        out.append((
+            f"Unawarded: the party got {', '.join(unpaid)} last turn and no award was made for it. Make one now with "
+            "`award`, unless it was trivial or the quest's own award covers it.",
+            True,
+        ))
+    if held:
+        out += [("Key items the party has:", True), *((line, True) for line in held)]
+    if sought:
+        out += [("Key items the party is looking for (it knows of them, it has not found them):", True)]
+        out += [(line, True) for line in sought]
+    if reserve:
+        out += [("Key items not yet in play (GM only; call key_item when the party learns of one or gets it):", False)]
+        out += [(line, False) for line in reserve]
+    return out
 
 
 def look_line(look: Look) -> str:

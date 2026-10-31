@@ -12,16 +12,20 @@ from typing import Any
 
 from aigm.errors import CorruptSave
 from aigm.world import ASPECTS, Entity, Fact, World
+from aigm.world.model import VISIBLE_HOLDINGS
 
 CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
     "locations": ("Locations", ("location",)),
     "characters": ("Characters", ("npc",)),
+    "items": ("Key Items", ("item",)),
     "other": ("Other", ("faction", "concept")),
 }
 STATUSES = ("new", "updated", "unseen")
 SORTS = ("name", "recent", "tree")
 SUMMARY_ASPECTS = ("overview", "role", "nature", "goals", "approach", "discovery", "history")
 SUMMARY_CHARS = 140
+ITEM_SUMMARY_ASPECTS = ("appearance", "purpose", "whereabouts", "origin", "contents")
+HOLDING_RANK = {"held": 0, "known": 1, "used": 2, "lost": 2}  # key items: what the party has first, then what it seeks
 MAX_RELATED = 12
 
 
@@ -79,6 +83,8 @@ def known_facts(world: World, entity_id: str) -> list[Fact]:
 
 def _visible(world: World, entity_id: str) -> bool:
     ent = world.entities.get(entity_id)
+    if ent is not None and ent.kind == "item":  # a key item shows from the moment the party learns of it (KEY_ITEMS.md 4.3)
+        return ent.holding is not None and ent.holding.status in VISIBLE_HOLDINGS
     return ent is not None and ent.discovered and (bool(known_facts(world, entity_id)) or _look_only(ent))
 
 
@@ -139,7 +145,10 @@ def _summary(entity: Entity, facts: list[Fact]) -> str:
     if not facts and entity.look:
         return entity.look.summary
     own = [f for f in facts if f.subject == entity.id] or facts
-    pick = next((f for a in SUMMARY_ASPECTS for f in own if f.aspect == a), own[0])
+    aspects = ITEM_SUMMARY_ASPECTS if entity.kind == "item" else SUMMARY_ASPECTS
+    pick = next((f for a in aspects for f in own if f.aspect == a), own[0])
+    if entity.kind == "item" and pick.aspect == "custody":  # the bookkeeping sentence is the last choice
+        pick = next((f for f in facts if f.aspect != "custody"), pick)
     text = pick.text
     if len(text) > SUMMARY_CHARS:
         text = text[:SUMMARY_CHARS].rsplit(" ", 1)[0].rstrip(",;:") + "…"
@@ -169,6 +178,8 @@ def _row(world: World, comp: Compendium, entity: Entity) -> dict[str, Any]:
         "status": status,
         "unseen_count": unseen,
         "learned_turn": min((_learned_turn(f) for f in facts), default=0),
+        "updated_turn": max((_learned_turn(f) for f in facts), default=0),
+        "holding": entity.holding.status if entity.holding else None,
     }
 
 
@@ -219,9 +230,11 @@ def entries(
             if not any(needle in n.casefold() for n in names):
                 continue
         rows.append(row)
+    newest = {e["id"]: max((f.learned_seq for f in known_facts(world, e["id"])), default=0) for e in rows}
     if sort == "recent":
-        newest = {e["id"]: max((f.learned_seq for f in known_facts(world, e["id"])), default=0) for e in rows}
         rows.sort(key=lambda r: (-newest[r["id"]], r["name"].casefold()))
+    elif category == "items":  # held first, then those still to find, then those used or lost; newest first in each
+        rows.sort(key=lambda r: (HOLDING_RANK.get(r["holding"] or "", 3), -newest[r["id"]], r["name"].casefold()))
     elif sort == "tree":
         return _tree(rows)
     else:
@@ -289,6 +302,7 @@ def detail(world: World, comp: Compendium, entity_id: str) -> dict[str, Any] | N
         ],
         "related": related,
         "look": _look(entity),
+        "holding": {k: v for k, v in entity.holding.to_dict().items() if k != "owed"} if entity.holding else None,
         "learned_turn": min((_learned_turn(f) for f in facts), default=0),
         "updated_turn": max((_learned_turn(f) for f in facts), default=0),
     }

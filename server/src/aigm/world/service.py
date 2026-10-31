@@ -22,6 +22,7 @@ from aigm.world.passes import (
 from aigm import rulesets
 from aigm.looks import Look
 from aigm.world.describe import Given, LooksResult, needing, revision_candidates, run_looks, run_revisions
+from aigm.world.describe_items import needing_items, run_item_looks
 from aigm.world.describe_places import needing_places, run_place_looks
 from aigm.world.model import World
 from aigm.world.text import normalize_name
@@ -269,6 +270,48 @@ class CuratorService:
             return False
         if not result.ops:
             session.place_looks_retry_turn = state.turn + LOOK_RETRY_TURNS
+            return False
+        session.pending.append(result.ops)
+        session.drain_pending()
+        return True
+
+    def item_looks_due(self, session: Session) -> bool:
+        """Is any key item the party has had in hand without a Look, and is this a quiet moment?"""
+        state = session.state
+        return (
+            state.phase is Phase.ADVENTURE
+            and not session.curating
+            and not session.busy
+            and state.turn >= session.item_looks_retry_turn
+            and getattr(self.curator, "item_look", None) is not None
+            and bool(needing_items(state.world))
+        )
+
+    async def run_item_looks_if_due(self, session: Session) -> bool:
+        """Describe the key items that need it, in the background, after the turn (docs/KEY_ITEMS.md 7). The results
+        wait for the session to be idle, like a curator pass; a sweep that wrote nothing backs off for a few turns."""
+        if not self.item_looks_due(session):
+            return False
+        generation = session.generation
+        state = session.state
+        session.curating = True
+        try:
+            result = await run_item_looks(
+                state.world.copy(), state.campaign or {}, rulesets.get(state.ruleset).name, self.curator,
+                recent_text=_last_narration(session.messages),
+            )  # fmt: skip
+        except Exception:
+            log.exception("describing items failed; will retry")
+            session.item_looks_retry_turn = state.turn + LOOK_RETRY_TURNS
+            return False
+        finally:
+            session.curating = False
+        for note in result.notes:
+            log.info("item looks: %s", note)
+        if session.generation != generation:
+            return False
+        if not result.ops:
+            session.item_looks_retry_turn = state.turn + LOOK_RETRY_TURNS
             return False
         session.pending.append(result.ops)
         session.drain_pending()

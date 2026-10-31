@@ -722,7 +722,8 @@ What the player has learned about the world (docs/COMPENDIUM.md). Every call tak
 parameter. Only facts the player has been told, and entities they have discovered, are ever returned. The calls read the
 game as of the last finished turn, so they are safe at any time, including during a turn.
 
-Categories: `locations` (location), `characters` (npc) and `other` (faction and concept).
+Categories: `locations` (location), `characters` (npc), `items` (key items, docs/KEY_ITEMS.md) and `other` (faction
+and concept).
 
 ### GET `/compendium`
 
@@ -733,6 +734,7 @@ Categories: `locations` (location), `characters` (npc) and `other` (faction and 
   "categories": [
     { "id": "locations", "title": "Locations", "count": 6, "new": 1, "updated": 1 },
     { "id": "characters", "title": "Characters", "count": 4, "new": 0, "updated": 2 },
+    { "id": "items", "title": "Key Items", "count": 2, "new": 1, "updated": 0 },
     { "id": "other", "title": "Other", "count": 2, "new": 0, "updated": 0 }
   ],
   "new": 1,
@@ -767,14 +769,20 @@ value is `422`; an unknown category is `404`.
       "fact_count": 5,
       "status": "updated",
       "unseen_count": 2,
-      "learned_turn": 31
+      "learned_turn": 31,
+      "updated_turn": 48
     }
   ]
 }
 ```
 
-`parent` is set only when the parent is itself discovered. `depth` is the nesting level in a `tree` sort and `0`
-otherwise. `status` is `"new"`, `"updated"` or `null`.
+`updated_turn` is the turn of the newest fact; with `fact_count` and `holding` it lets a client tell that an entry it
+has already fetched would now read differently. `parent` is set only when the parent is itself discovered. `depth` is
+the nesting level in a `tree` sort and `0` otherwise. `status` is `"new"`, `"updated"` or `null`. `holding` is a key
+item's standing with the party (`known`, `held`, `used` or `lost`) and `null` for every other kind; the `items`
+category lists the held items first, then the known ones the party is still looking for, then those used or lost,
+newest first in each (the `recent` sort is unchanged). An item the party has not yet learned of is not listed, and its
+id is `404`.
 
 ### GET `/compendium/entities/{entity_id}`
 
@@ -804,6 +812,7 @@ otherwise. `status` is `"new"`, `"updated"` or `null`.
   "related": [{ "id": "e020", "name": "Thorn Guild", "kind": "faction", "category": "other" }],
   "look": null,
   "portrait": null,
+  "holding": null,
   "learned_turn": 31,
   "updated_turn": 48
 }
@@ -813,14 +822,18 @@ otherwise. `status` is `"new"`, `"updated"` or `null`.
 when none is written yet. A person the player has met but knows nothing about has an entry with no `facts` and only
 a `look` (its list `summary` is the Look's summary, `fact_count` is `0`, `status` is `null`).
 
-`look` is how a person or a place appears (docs/LOOKS.md, docs/PLACES.md): `{ "summary": "...", "description": "..." }`,
-or `null` for anything else and for a place not yet known well enough to describe (a place the player has only heard
-rumors of has an entry but no `look`).
+`look` is how a person, a place or a key item appears (docs/LOOKS.md, docs/PLACES.md, docs/KEY_ITEMS.md):
+`{ "summary": "...", "description": "..." }`, or `null` for anything else and for a place not yet known well enough
+to describe (a place the player has only heard rumors of has an entry but no `look`) and a key item the party has
+not yet had in hand.
 
-`portrait` is the person's headshot or the place's view, in the same form as on the character page above (`shape`
-`square` or `landscape`): `null` for anything else and for an entity with none coming, `pending` while one is on the
+`portrait` is the person's headshot, the place's view or the key item's picture, in the same form as on the character
+page above (`shape` `square`, `landscape` or, for a key item such as a letter, `portrait`; a client treats any other
+value as square): `null` for anything else and for an entity with none coming, `pending` while one is on the
 way, and `ready` with a `url` for `GET /portraits/{file}`. That route serves a picture only once its person or place
 has an entry here.
+`holding` is `null` except for a key item: `{ "status": "held", "since": 4, "history": [{ "turn": 4, "status": "held",
+"note": "Found." }] }`, with `history` oldest first (docs/KEY_ITEMS.md 4.2). A `known` item has no `look` or `portrait`.
 `facts` read subject facts first, then mentions, each in the order of the kind's checklist. `404` for an id that does
 not exist and, with the same message, for one the player has not discovered. A malformed id is `422`. A fact's `via`
 lists the party members whose starting knowledge it is (usually empty; never anything but party member names).

@@ -82,6 +82,9 @@ def dump_world(world: World, *, known_only: bool = False, session_id: str | None
         if chain:
             entry["in"] = chain
         entry["discovered"] = ent.discovered
+        if ent.holding:
+            entry["holding"] = {"status": ent.holding.status, "since": ent.holding.since,
+                                "history": [h.to_dict() for h in ent.holding.history]}
         if ent.look and not known_only:  # a Look is not something the player was told (docs/LOOKS.md 9)
             entry["look"] = ent.look.to_dict()
         if ent.portrait and not known_only:

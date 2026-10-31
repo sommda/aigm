@@ -1,6 +1,6 @@
 Tell the world notes where the party is now and who is with them, and how much in-world time has passed. Call it when the party moves to a different recorded place, when people join or leave them, or when time passes (travel, a rest, waiting, a night's sleep).
 
-- `location`: the recorded place the party is now in. Moving to a new place clears who is present unless you also give `present`.
+- `location`: the recorded place the party is now in. **Whenever your narration takes the party somewhere (even a room in the building they are in), pass `location`**: without it the place does not change, however you narrate it, and the player's status page stays where it was. Moving to a new place clears who is present unless you also give `present`.
 - `present`: recorded people or groups now with the party; this replaces the previous list. Never list the party members themselves: they are always with the party and are not recorded.
 - `elapsed_hours`: whole hours passed since your last reply (use your best estimate, rounded to the nearest hour; for a night's sleep, 8).
 

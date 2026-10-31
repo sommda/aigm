@@ -32,19 +32,45 @@ PLACE_CONTROLLED_TAGS: dict[str, tuple[str, ...]] = {
 }
 PLACE_TEXT_TAGS = ("architecture", "terrain", "flora", "light", "mood")
 PLACE_LIST_TAGS = ("features",)
-PERSON, PLACE = "person", "place"
+
+# The tags of a key item's Look (docs/KEY_ITEMS.md 7). `frame` is the shape of its picture; one that is missing or
+# unknown is read as square (`frame_of`), so the validator does not insist on it.
+ITEM_CONTROLLED_TAGS: dict[str, tuple[str, ...]] = {
+    "form": ("key", "map", "document", "book", "token", "container", "tool", "jewel", "relic", "other"),
+    "frame": ("square", "landscape", "portrait"),
+    "size": ("tiny", "small", "handheld", "large"),
+}
+ITEM_TEXT_TAGS = ("material", "condition", "markings")
+ITEM_LIST_TAGS = ("features",)
+ITEM_OPTIONAL_TAGS = ("frame",)
+DEFAULT_FRAME = "square"
+PERSON, PLACE, ITEM = "person", "place", "item"
 
 
 def look_kind(entity_kind: str) -> str:
-    """Which kind of Look an entity has: a person's (a party member or an npc) or a place's (a location)."""
-    return PLACE if entity_kind == "location" else PERSON
+    """Which kind of Look an entity has: a person's (a party member or an npc), a place's (a location) or an
+    object's (a key item)."""
+    return PLACE if entity_kind == "location" else ITEM if entity_kind == "item" else PERSON
 
 
 def tag_sets(kind: str) -> tuple[dict[str, tuple[str, ...]], tuple[str, ...], tuple[str, ...]]:
     """The controlled, free-text and list tags of a kind of Look."""
     if kind == PLACE:
         return PLACE_CONTROLLED_TAGS, PLACE_TEXT_TAGS, PLACE_LIST_TAGS
+    if kind == ITEM:
+        return ITEM_CONTROLLED_TAGS, ITEM_TEXT_TAGS, ITEM_LIST_TAGS
     return CONTROLLED_TAGS, TEXT_TAGS, LIST_TAGS
+
+
+def frame_of(look: "Look") -> str:
+    """The shape of a key item's picture: its `frame` tag, or square when that is missing or not a known shape."""
+    frame = look.tags.get("frame")
+    return frame if frame in ITEM_CONTROLLED_TAGS["frame"] else DEFAULT_FRAME
+
+
+def word_limits(kind: str) -> tuple[int, int]:
+    """The fewest and most words a description may have (the prompts ask for less than the most)."""
+    return (60, 140) if kind == ITEM else (MIN_DESCRIPTION_WORDS, MAX_DESCRIPTION_WORDS)
 STATES = ("provisional", "fixed")
 SOURCES = ("generated", "session_zero", "narration")
 
@@ -129,6 +155,14 @@ class Look:
     def search_text(self, kind: str = PERSON) -> str:
         """The canonical text a similarity search is run on (docs/LOOKS.md 6 and docs/PLACES.md 4.3): a fixed order, so
         it is stable. It is derived, never stored. The format has a version, `SEARCH_TEXT_VERSION`."""
+        if kind == ITEM:
+            head = " ".join(str(self.tags.get(k, "")).strip() for k in ("form", "size")).split()
+            details = [str(self.tags.get(k) or "").strip() for k in ITEM_TEXT_TAGS]
+            features = self.tags.get("features")
+            return " | ".join(
+                p for p in (" ".join(head), self.summary.strip(), "; ".join(d for d in details if d),
+                            ", ".join(features) if isinstance(features, list) else "") if p
+            )  # fmt: skip
         if kind == PLACE:
             head = " ".join(str(self.tags.get(k, "")).strip() for k in PLACE_CONTROLLED_TAGS).split()
             details = []
@@ -161,7 +195,7 @@ def _uses_name(description: str, name: str, kind: str = PERSON) -> bool:
     text, words = description.lower(), name.strip().lower().split()
     if " ".join(words) in text or (kind == PERSON and len(words) >= 3 and " ".join(words[1:]) in text):
         return True
-    if kind == PLACE:
+    if kind in (PLACE, ITEM):
         own = [w.strip(".,'\"") for w in words if w.strip(".,'\"") not in _NAME_FILLER]
         return bool(own) and all(w in text for w in own)
     return False
@@ -171,7 +205,8 @@ def problems(look: Look, name: str, kind: str = PERSON) -> list[str]:
     """Everything wrong with a Look under the content rules (docs/LOOKS.md 3 and 5.3, docs/PLACES.md 4), or an empty
     list. `kind` is `PERSON` or `PLACE`: the tags and a few of the messages differ."""
     controlled, text_tags, list_tags = tag_sets(kind)
-    noun = "place" if kind == PLACE else "character"
+    noun = {PLACE: "place", ITEM: "item"}.get(kind, "character")
+    low, high = word_limits(kind)
     out: list[str] = []
     summary_words = _words(look.summary)
     if not look.summary.strip():
@@ -179,10 +214,8 @@ def problems(look: Look, name: str, kind: str = PERSON) -> list[str]:
     elif summary_words > MAX_SUMMARY_WORDS:
         out.append(f"'summary' has {summary_words} words; at most {MAX_SUMMARY_WORDS}")
     words = _words(look.description)
-    if not MIN_DESCRIPTION_WORDS <= words <= MAX_DESCRIPTION_WORDS:
-        out.append(
-            f"'description' has {words} words; it must have {MIN_DESCRIPTION_WORDS} to {MAX_DESCRIPTION_WORDS}"
-        )
+    if not low <= words <= high:
+        out.append(f"'description' has {words} words; it must have {low} to {high}")
     if name.strip() and not _uses_name(look.description, name, kind):
         out.append(f"'description' must use the {noun}'s name, {name!r}")
     unknown = sorted(set(look.tags) - set(controlled) - set(text_tags) - set(list_tags))
@@ -190,6 +223,8 @@ def problems(look: Look, name: str, kind: str = PERSON) -> list[str]:
         out.append(f"unknown tags: {', '.join(unknown)}")
     for tag, allowed in controlled.items():
         value = look.tags.get(tag)
+        if kind == ITEM and tag in ITEM_OPTIONAL_TAGS and (value is None or value not in allowed):
+            continue  # read as square by `frame_of`
         if value not in allowed:
             out.append(f"tag '{tag}' must be one of {', '.join(allowed)}; got {value!r}")
     for tag in text_tags:
