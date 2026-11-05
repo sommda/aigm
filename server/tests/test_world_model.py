@@ -337,3 +337,52 @@ def test_corrupt_worlds_are_rejected(w, mutate):
 def test_world_must_be_an_object():
     with pytest.raises(CorruptSave):
         World.from_dict([])
+
+
+# ---- the clock in minutes (docs/TIME.md 3) ------------------------------------------------------------------------
+
+
+def test_the_clock_counts_minutes():
+    t = WorldTime(1, 23, 50)
+    assert str(t) == "Day 1, 23:50" and t.total_minutes == 23 * 60 + 50 and t.total_hours == 23
+    assert t.plus_minutes(15) == WorldTime(2, 0, 5)
+    assert t.plus(1) == WorldTime(2, 0, 50)
+    assert WorldTime.from_minutes(t.total_minutes) == t
+    assert WorldTime(1, 8, 59) < WorldTime(1, 9, 0) < WorldTime(2, 0, 0)
+    for bad in (-1, True, 1.5):
+        with pytest.raises(WorldError):
+            t.plus_minutes(bad)  # type: ignore[arg-type]
+    for bad in (60, -1, True):
+        with pytest.raises(WorldError):
+            WorldTime(1, 8, bad)  # type: ignore[arg-type]
+
+
+def test_the_time_shown_is_rounded_to_five_minutes():
+    assert WorldTime(1, 9, 2).rounded(5) == WorldTime(1, 9, 0)
+    assert WorldTime(1, 9, 3).rounded(5) == WorldTime(1, 9, 5)
+    assert WorldTime(1, 23, 58).rounded(5) == WorldTime(2, 0, 0)
+
+
+def test_a_time_from_an_older_save_has_no_minute():
+    assert WorldTime.from_dict({"day": 3, "hour": 14}) == WorldTime(3, 14, 0)
+    assert WorldTime(3, 14, 20).to_dict() == {"day": 3, "hour": 14, "minute": 20}
+
+
+def test_the_clock_moves_by_minutes_and_remembers_what_the_gm_reported(w):
+    start = w.time
+    w.advance_minutes(45, reported=True)
+    w.advance_minutes(10)
+    assert w.time == start.plus_minutes(55) and w.reported_minutes == 45
+    assert w.settle_reported_minutes(100) == 55  # the narration covered 100; 45 were already counted
+    assert w.time == start.plus_minutes(110) and w.reported_minutes == 0
+
+
+def test_a_world_saved_with_reported_hours_still_loads(w):
+    data = w.to_dict()
+    del data["reported_minutes"]
+    data["reported_hours"] = 2
+    assert World.from_dict(data).reported_minutes == 120
+
+
+def test_a_scene_motive_lapses_after_two_hours_to_the_minute(w):
+    assert w.time.plus_minutes(119).total_minutes - w.time.total_minutes < 120

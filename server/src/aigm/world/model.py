@@ -63,7 +63,18 @@ MAX_ENTITY_FACTS = 40  # active facts per entity (counting facts where it is the
 MAX_ABOUT = 4
 MAX_NAME_CHARS = 80
 MAX_ALIASES = 8
+
+# Places and the ways between them (docs/TIME.md 5).
+SCALES = ("room", "site", "settlement", "region")
+BLOCK_KINDS = ("locked", "barred", "guarded", "collapsed", "flooded", "hidden", "other")
+ROUTE_SOURCES = ("seed", "plotter", "generated", "improvised", "play")
+MAX_ROUTE_MINUTES = 24 * 60 * 365
+MAX_ROUTE_HOW = 80
+MAX_BLOCK_TEXT = 120
+MAX_ROUTES_PER_PLACE = 12
 HOURS_PER_DAY = 24
+MINUTES_PER_HOUR = 60
+MINUTES_PER_DAY = HOURS_PER_DAY * MINUTES_PER_HOUR
 
 _FACT_ID = re.compile(r"^f\d+$")
 _MOTIVE_ID = re.compile(r"^m\d+$")
@@ -86,40 +97,71 @@ class WorldError(ValueError):
     """A change the world rules reject. The message is written to be shown to the model."""
 
 
+def duration_text(minutes: int) -> str:
+    """A length of in-world time in words: "45 minutes", "2 hours 30 minutes", "1 day 3 hours"."""
+    days, rest = divmod(minutes, MINUTES_PER_DAY)
+    hours, mins = divmod(rest, MINUTES_PER_HOUR)
+    parts = [(days, "day"), (hours, "hour"), (mins, "minute")]
+    words = [f"{n} {unit}{'' if n == 1 else 's'}" for n, unit in parts if n]
+    return " ".join(words[:2]) if words else "no time"
+
+
 @dataclass(frozen=True, order=True)
 class WorldTime:
-    """A moment on the in-world clock: day 1 is the first day of the adventure, hour is 0-23."""
+    """A moment on the in-world clock: day 1 is the first day of the adventure, hour is 0-23, minute 0-59."""
 
     day: int = 1
     hour: int = 8
+    minute: int = 0
 
     def __post_init__(self) -> None:
         if isinstance(self.day, bool) or not isinstance(self.day, int) or self.day < 1:
             raise WorldError(f"day must be an integer of at least 1, got {self.day!r}")
         if isinstance(self.hour, bool) or not isinstance(self.hour, int) or not 0 <= self.hour < HOURS_PER_DAY:
             raise WorldError(f"hour must be an integer from 0 to 23, got {self.hour!r}")
+        if isinstance(self.minute, bool) or not isinstance(self.minute, int) or not 0 <= self.minute < MINUTES_PER_HOUR:
+            raise WorldError(f"minute must be an integer from 0 to 59, got {self.minute!r}")
+
+    @property
+    def total_minutes(self) -> int:
+        return ((self.day - 1) * HOURS_PER_DAY + self.hour) * MINUTES_PER_HOUR + self.minute
 
     @property
     def total_hours(self) -> int:
-        return (self.day - 1) * HOURS_PER_DAY + self.hour
+        """Whole hours since the start of day 1 (a part hour does not count)."""
+        return self.total_minutes // MINUTES_PER_HOUR
+
+    @classmethod
+    def from_minutes(cls, total: int) -> "WorldTime":
+        day, rest = divmod(total, MINUTES_PER_DAY)
+        hour, minute = divmod(rest, MINUTES_PER_HOUR)
+        return cls(day + 1, hour, minute)
+
+    def plus_minutes(self, minutes: int) -> "WorldTime":
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 0:
+            raise WorldError(f"time can only move forward by whole minutes, got {minutes!r}")
+        return WorldTime.from_minutes(self.total_minutes + minutes)
 
     def plus(self, hours: int) -> "WorldTime":
         if isinstance(hours, bool) or not isinstance(hours, int) or hours < 0:
             raise WorldError(f"time can only move forward by whole hours, got {hours!r}")
-        day, hour = divmod(self.total_hours + hours, HOURS_PER_DAY)
-        return WorldTime(day + 1, hour)
+        return self.plus_minutes(hours * MINUTES_PER_HOUR)
+
+    def rounded(self, step: int = 5) -> "WorldTime":
+        """The nearest multiple of `step` minutes, for what the GM and the player are shown."""
+        return WorldTime.from_minutes(round(self.total_minutes / step) * step)
 
     def to_dict(self) -> dict[str, int]:
-        return {"day": self.day, "hour": self.hour}
+        return {"day": self.day, "hour": self.hour, "minute": self.minute}
 
     @classmethod
     def from_dict(cls, data: Any) -> "WorldTime":
         if not isinstance(data, dict):
             raise WorldError("time must be an object with day and hour")
-        return cls(data.get("day"), data.get("hour"))  # type: ignore[arg-type]
+        return cls(data.get("day"), data.get("hour"), data.get("minute", 0))  # type: ignore[arg-type]
 
     def __str__(self) -> str:
-        return f"Day {self.day}, {self.hour:02d}:00"
+        return f"Day {self.day}, {self.hour:02d}:{self.minute:02d}"
 
 
 @dataclass
@@ -190,6 +232,8 @@ class Entity:
     look: Look | None = None  # how a person or place appears (docs/LOOKS.md, docs/PLACES.md); npcs and locations
     portrait: Portrait | None = None  # their generated headshot (docs/PORTRAITS.md), likewise
     holding: Holding | None = None  # a key item's standing with the party (docs/KEY_ITEMS.md); items only
+    scale: str | None = None  # a place's size: room, site, settlement or region (docs/TIME.md 5.1); locations only
+    visited: bool = False  # the party has been to this place (docs/TIME.md 5.4.3); locations only
 
     def names(self) -> list[str]:
         return [self.name, *self.aliases]
@@ -201,6 +245,48 @@ class Entity:
             "look": self.look.to_dict() if self.look else None,
             "portrait": self.portrait.to_dict() if self.portrait else None,
             "holding": self.holding.to_dict() if self.holding else None,
+            "scale": self.scale, "visited": self.visited,
+        }  # fmt: skip
+
+
+@dataclass
+class Block:
+    """What stops the party on a route (docs/TIME.md 5.4.2). `opens_by` is a note for the GM alone."""
+
+    kind: str
+    text: str
+    opens_by: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {"kind": self.kind, "text": self.text, "opens_by": self.opens_by}
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> "Block":
+        if not isinstance(raw, dict) or raw.get("kind") not in BLOCK_KINDS or not isinstance(raw.get("text"), str):
+            raise WorldError("a block needs a kind and a text")
+        opens = raw.get("opens_by", "")
+        return cls(raw["kind"], raw["text"], opens if isinstance(opens, str) else "")
+
+
+@dataclass
+class Route:
+    """A way between two places, symmetric, with the minutes it takes (docs/TIME.md 5.2)."""
+
+    id: str
+    a: str
+    b: str
+    minutes: int
+    how: str = ""
+    source: str = "improvised"
+    block: Block | None = None
+
+    def other(self, place: str) -> str:
+        return self.b if place == self.a else self.a
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id, "a": self.a, "b": self.b, "minutes": self.minutes, "how": self.how, "source": self.source,
+            "block": self.block.to_dict() if self.block else None,
         }  # fmt: skip
 
 
@@ -301,10 +387,15 @@ class World:
         self.scene = Scene()
         self.processed_through = 0  # number of history messages the curator has digested
         self.version = 0  # bumped on every change; lets a background pass detect interference
-        self.reported_hours = 0  # hours the GM moved the clock itself (set_scene) since the last pass
+        self.reported_minutes = 0  # minutes the GM moved the clock itself (set_scene) since the last pass
+        self.time_log: list[dict[str, Any]] = []  # why the clock moved in the last two turns: {"turn", "minutes", "why"}
         self.corrections: list[dict[str, Any]] = []  # notes for the GM's next briefing: {"text", "turn"}
         self.digests: dict[int, Digest] = {}  # turn digests by the index of the turn's first message
-        self.next_id = {"f": 1, "e": 1, "m": 1}
+        self.next_id = {"f": 1, "e": 1, "m": 1, "r": 1}
+        self.routes: dict[str, Route] = {}
+        # The one place that contains every other (docs/TIME.md 5.1). A new world has one from its bootstrap, so any two
+        # places share an ancestor; a world made before this has none, and its places may lie in separate trees.
+        self.root: str | None = None
         self.learn_seq = 0  # last number given to a fact the player learned; only goes up
         self.entities: dict[str, Entity] = {}
         self.facts: dict[str, Fact] = {}
@@ -324,8 +415,11 @@ class World:
         self._facts_by_entity: dict[str, list[str]] = {}
         self._token_index: dict[str, set[str]] = {}  # token -> ids of active facts
         self._text_keys: dict[tuple[str, str], str] = {}  # (subject, normalized text) -> active fact id
+        self._routes_by_place: dict[str, list[str]] = {}
         for ent in self.entities.values():
             self._index_entity(ent)
+        for route in self.routes.values():
+            self._index_route(route)
         for fact in self.facts.values():
             self._index_fact(fact)
 
@@ -334,6 +428,10 @@ class World:
             self._by_name[normalize_name(name)] = ent.id
         if ent.parent:
             self._children.setdefault(ent.parent, []).append(ent.id)
+
+    def _index_route(self, route: Route) -> None:
+        for place in (route.a, route.b):
+            self._routes_by_place.setdefault(place, []).append(route.id)
 
     def _index_fact(self, fact: Fact) -> None:
         for eid in fact.about:
@@ -517,6 +615,106 @@ class World:
         self._by_name[normalize_name(alias)] = ent.id
         self._touch()
 
+    # ---- scales and routes (docs/TIME.md 5) --------------------------------------------
+
+    def set_scale(self, entity_id: str, scale: str) -> None:
+        ent = self._entity_or_error(entity_id)
+        if ent.kind != "location":
+            raise WorldError(f"only a place has a scale, and {ent.name} is a {ent.kind}")
+        if scale not in SCALES:
+            raise WorldError(f"scale must be one of {', '.join(SCALES)}, got {scale!r}")
+        if ent.scale != scale:
+            ent.scale = scale
+            self._touch()
+
+    def set_root(self, entity_id: str) -> None:
+        """Make a place the top of the world: it scales as a region, and every other place that had no parent is now
+        inside it. From then on a new place with no parent goes inside it (`default_parent`)."""
+        ent = self._entity_or_error(entity_id)
+        if ent.kind != "location" or ent.parent is not None:
+            raise WorldError(f"{ent.name} cannot be the root: it must be a place with nothing above it")
+        self.root = ent.id
+        if ent.scale is None:
+            ent.scale = "region"
+        for other in self.entities.values():
+            if other.kind == "location" and other.parent is None and other.id != ent.id:
+                self.set_parent(other.id, ent.id)
+        self._touch()
+
+    def default_parent(self, kind: str, parent: str | None) -> str | None:
+        """The parent a new entity gets: the one given, or the root for a place that was given none."""
+        return parent if parent is not None or kind != "location" else self.root
+
+    def set_parent(self, entity_id: str, parent: str) -> None:
+        """Move a place inside another (never inside itself or anything it contains)."""
+        ent = self._entity_or_error(entity_id)
+        new = self._entity_or_error(parent)
+        if ent.kind != "location" or new.kind != "location":
+            raise WorldError("only places can be inside other places")
+        if ent.id == new.id or ent.id in {p.id for p in self.parent_chain(new.id)}:
+            raise WorldError(f"{ent.name} cannot be inside {new.name}: that would make a loop")
+        if ent.parent == new.id:
+            return
+        if ent.parent in self._children and entity_id in self._children[ent.parent]:
+            self._children[ent.parent].remove(entity_id)
+        ent.parent = new.id
+        self._children.setdefault(new.id, []).append(entity_id)
+        self._touch()
+
+    def routes_of(self, place: str) -> list[Route]:
+        """The routes that start or end at a place, in the order they were recorded."""
+        return [self.routes[r] for r in self._routes_by_place.get(place, ())]
+
+    def find_route(self, a: str, b: str, how: str = "") -> Route | None:
+        """The route between two places with this description (case and spacing aside), if there is one."""
+        wanted = normalize_text(how)
+        for route in self.routes_of(a):
+            if route.other(a) == b and normalize_text(route.how) == wanted:
+                return route
+        return None
+
+    def set_route(
+        self, a: str, b: str, minutes: int, how: str = "", *, source: str = "improvised", block: "Block | None | str" = "keep"
+    ) -> tuple[Route, bool]:
+        """Record a way between two places, or update the one with the same description. `block` is a Block to set,
+        None to clear, or "keep" (the default) to leave an existing one alone. Returns the route and whether it is new."""
+        for end in (a, b):
+            ent = self._entity_or_error(end)
+            if ent.kind != "location":
+                raise WorldError(f"a route joins places, and {ent.name} is a {ent.kind}")
+        if a == b:
+            raise WorldError("a route needs two different places")
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or not 1 <= minutes <= MAX_ROUTE_MINUTES:
+            raise WorldError(f"a route takes a whole number of minutes from 1 to {MAX_ROUTE_MINUTES}")
+        how = " ".join(str(how or "").split())
+        if len(how) > MAX_ROUTE_HOW:
+            raise WorldError(f"`how` is {len(how)} characters; at most {MAX_ROUTE_HOW}")
+        if source not in ROUTE_SOURCES:
+            raise WorldError(f"route source must be one of {', '.join(ROUTE_SOURCES)}")
+        if isinstance(block, Block):
+            if block.kind not in BLOCK_KINDS:
+                raise WorldError(f"block kind must be one of {', '.join(BLOCK_KINDS)}")
+            block = Block(block.kind, " ".join(block.text.split()), " ".join(block.opens_by.split()))
+            if not 3 <= len(block.text) <= MAX_BLOCK_TEXT:
+                raise WorldError(f"a block's text must be 3 to {MAX_BLOCK_TEXT} characters")
+            if len(block.opens_by) > MAX_BLOCK_TEXT:
+                raise WorldError(f"`opens_by` is longer than {MAX_BLOCK_TEXT} characters")
+        existing = self.find_route(a, b, how)
+        if existing is not None:
+            existing.minutes = minutes
+            if block != "keep":
+                existing.block = block  # type: ignore[assignment]
+            self._touch()
+            return existing, False
+        for end in (a, b):
+            if len(self._routes_by_place.get(end, ())) >= MAX_ROUTES_PER_PLACE:
+                raise WorldError(f"{self.entities[end].name} already has {MAX_ROUTES_PER_PLACE} routes")
+        route = Route(self._new_id("r"), a, b, minutes, how, source, None if block == "keep" else block)  # type: ignore[arg-type]
+        self.routes[route.id] = route
+        self._index_route(route)
+        self._touch()
+        return route, True
+
     def set_look(self, entity_id: str, look: Look) -> Look:
         """Give a person their Look, or replace it (docs/LOOKS.md). The Look must pass the content rules."""
         ent = self._entity_or_error(entity_id)
@@ -655,6 +853,8 @@ class World:
             if eid != location and eid not in present_ids:
                 present_ids.append(eid)
         self.scene = Scene(location, present_ids)
+        if location is not None:
+            self.entities[location].visited = True
         for eid in present_ids:  # the player can see who is there, so a person has been met even with no facts yet
             if self.entities[eid].kind == "npc":
                 self.entities[eid].discovered = True
@@ -664,14 +864,30 @@ class World:
                     self.reveal(fact.id, turn)
         self._touch()
 
-    def advance_time(self, hours: int, *, reported: bool = False) -> WorldTime:
+    def advance_minutes(
+        self, minutes: int, *, reported: bool = False, turn: int | None = None, why: str | None = None
+    ) -> WorldTime:
         """Move the clock forward. `reported` marks time the GM declared itself, so the curator
-        does not count the same hours again when it reads the narration."""
-        self.time = self.time.plus(hours)
+        does not count the same minutes again when it reads the narration. With `turn` and `why` the passage is
+        logged, so the next briefing can tell the GM how long the turn took (docs/TIME.md 4.1)."""
+        self.time = self.time.plus_minutes(minutes)
         if reported:
-            self.reported_hours += hours
+            self.reported_minutes += minutes
+        if minutes and why and turn is not None:
+            self.time_log = [e for e in self.time_log if e["turn"] >= turn - 1]
+            self.time_log.append({"turn": turn, "minutes": minutes, "why": why})
         self._touch()
         return self.time
+
+    def time_spent(self, turn: int) -> list[dict[str, Any]]:
+        """The logged passages of time of one turn."""
+        return [e for e in self.time_log if e["turn"] == turn]
+
+    def advance_time(self, hours: int, *, reported: bool = False) -> WorldTime:
+        """`advance_minutes` for whole hours."""
+        if isinstance(hours, bool) or not isinstance(hours, int) or hours < 0:
+            raise WorldError(f"time can only move forward by whole hours, got {hours!r}")
+        return self.advance_minutes(hours * MINUTES_PER_HOUR, reported=reported)
 
     def start_clock(self, hour: int) -> WorldTime:
         """Set the time of day the adventure opens at (day 1). Only possible before anything is recorded."""
@@ -681,13 +897,13 @@ class World:
         self._touch()
         return self.time
 
-    def settle_reported_hours(self, narrated_hours: int) -> int:
-        """The curator read `narrated_hours` of elapsed time in the narration. Advance the clock
+    def settle_reported_minutes(self, narrated_minutes: int) -> int:
+        """The curator read `narrated_minutes` of elapsed time in the narration. Advance the clock
         by whatever the GM has not already reported, then start counting afresh."""
-        extra = max(0, narrated_hours - self.reported_hours)
-        self.reported_hours = 0
+        extra = max(0, narrated_minutes - self.reported_minutes)
+        self.reported_minutes = 0
         if extra:
-            self.advance_time(extra)
+            self.advance_minutes(extra)
         else:
             self._touch()
         return extra
@@ -710,6 +926,13 @@ class World:
         if when < self.time:
             raise WorldError(f"the clock cannot go back from {self.time} to {when}")
         self.time = when
+        self._touch()
+        return self.time
+
+    def reset_time(self, when: WorldTime) -> WorldTime:
+        """Set the clock to any moment, earlier ones too (playtest mode only: the story's clock never goes back)."""
+        self.time = when
+        self.time_log.clear()
         self._touch()
         return self.time
 
@@ -747,8 +970,8 @@ class World:
             return False
         if motive.scope == "underlying":
             return True
-        elapsed = self.time.total_hours - motive.set_at.total_hours
-        return motive.scene_location == self.scene.location and elapsed < SCENE_MOTIVE_HOURS
+        elapsed = self.time.total_minutes - motive.set_at.total_minutes
+        return motive.scene_location == self.scene.location and elapsed < SCENE_MOTIVE_HOURS * MINUTES_PER_HOUR
 
     def motive_state(self, motive: Motive) -> str:
         """The stored status, or "expired" for an active scene motive whose moment has passed."""
@@ -993,12 +1216,15 @@ class World:
             "scene": {"location": self.scene.location, "present": list(self.scene.present)},
             "processed_through": self.processed_through,
             "version": self.version,
-            "reported_hours": self.reported_hours,
+            "reported_minutes": self.reported_minutes,
+            "time_log": [dict(e) for e in self.time_log],
             "corrections": [dict(c) for c in self.corrections],
             "digests": [d.to_dict() for d in sorted(self.digests.values(), key=lambda d: d.start)],
             "next_id": dict(self.next_id),
             "learn_seq": self.learn_seq,
             "entities": [e.to_dict() for e in self.entities.values()],
+            "routes": [r.to_dict() for r in self.routes.values()],
+            "root": self.root,
             "facts": [f.to_dict() for f in self.facts.values()],
             "motives": [m.to_dict() for m in self.motives.values()],
         }
@@ -1027,10 +1253,17 @@ class World:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise WorldError(f"{label} must be a non-negative integer")
         world.processed_through, world.version = processed, version
-        reported = data.get("reported_hours", 0)
+        reported = data["reported_minutes"] if "reported_minutes" in data else data.get("reported_hours", 0) * MINUTES_PER_HOUR
         if isinstance(reported, bool) or not isinstance(reported, int) or reported < 0:
-            raise WorldError("reported_hours must be a non-negative integer")
-        world.reported_hours = reported
+            raise WorldError("reported_minutes must be a non-negative integer")
+        world.reported_minutes = reported
+        for entry in data.get("time_log", []):
+            if not (
+                isinstance(entry, dict) and isinstance(entry.get("turn"), int) and isinstance(entry.get("minutes"), int)
+                and isinstance(entry.get("why"), str)
+            ):
+                raise WorldError("time_log must be a list of objects with turn, minutes and why")
+            world.time_log.append({"turn": entry["turn"], "minutes": entry["minutes"], "why": entry["why"]})
         for note in data.get("corrections", []):
             if not isinstance(note, dict) or not isinstance(note["text"], str) or not isinstance(note["turn"], int):
                 raise WorldError("corrections must be objects with text and turn")
@@ -1062,6 +1295,12 @@ class World:
                     raise WorldError(f"entity {ent.id} has a bad portrait: {exc}") from None
             if raw.get("holding") is not None:  # saves from before key items have none
                 ent.holding = Holding.from_dict(raw["holding"])
+            if raw.get("scale") is not None:  # saves from before the clock counted minutes have none
+                if raw["scale"] not in SCALES or ent.kind != "location":
+                    raise WorldError(f"entity {ent.id} has a bad scale {raw['scale']!r}")
+                ent.scale = raw["scale"]
+            # Before the map existed nothing recorded where the party had been: a place it had been told about counts.
+            ent.visited = bool(raw["visited"]) if "visited" in raw else ent.kind == "location" and ent.discovered
             if ent.kind == "item" and ent.holding is None:
                 ent.holding = Holding()
             if ent.holding is not None and ent.kind != "item":
@@ -1137,9 +1376,21 @@ class World:
             ):
                 raise WorldError(f"motive {motive.id} has inconsistent superseded state")
 
+        for raw in data.get("routes", []):  # saves from before routes have none
+            route = _load_route(raw, world)
+            if route.id in world.routes:
+                raise WorldError(f"repeated route id {route.id!r}")
+            world.routes[route.id] = route
+        root = data.get("root")  # saves from before the world had a single top have none
+        if root is not None:
+            if root not in world.entities or world.entities[root].kind != "location" or world.entities[root].parent:
+                raise WorldError("root must be a place with nothing above it")
+            world.root = root
+        if world.scene.location in world.entities:
+            world.entities[world.scene.location].visited = True
         next_id = data["next_id"]
-        for prefix, ids in (("f", world.facts), ("e", world.entities), ("m", world.motives)):
-            n = next_id.get(prefix, 1) if prefix == "m" else next_id[prefix]
+        for prefix, ids in (("f", world.facts), ("e", world.entities), ("m", world.motives), ("r", world.routes)):
+            n = next_id.get(prefix, 1) if prefix in ("m", "r") else next_id[prefix]
             if isinstance(n, bool) or not isinstance(n, int) or n <= max((int(i[1:]) for i in ids), default=0):
                 raise WorldError(f"next_id.{prefix} must be above every existing id")
             world.next_id[prefix] = n
@@ -1148,6 +1399,22 @@ class World:
             raise WorldError("learn_seq must be at least every fact's learned_seq")
         world._reindex()
         return world
+
+
+def _load_route(raw: Any, world: "World") -> Route:
+    """One route from a save: structure and references are checked, the content caps are not."""
+    if not isinstance(raw, dict) or not re.match(r"^r\d+$", str(raw.get("id"))):
+        raise WorldError("a route needs an id like r001")
+    a, b, minutes = raw.get("a"), raw.get("b"), raw.get("minutes")
+    if a not in world.entities or b not in world.entities or a == b:
+        raise WorldError(f"route {raw['id']} must join two recorded places")
+    if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1:
+        raise WorldError(f"route {raw['id']} needs a positive number of minutes")
+    how, source = raw.get("how", ""), raw.get("source", "improvised")
+    if not isinstance(how, str) or source not in ROUTE_SOURCES:
+        raise WorldError(f"route {raw['id']} has a bad description or source")
+    block = Block.from_dict(raw["block"]) if raw.get("block") is not None else None
+    return Route(raw["id"], a, b, minutes, how, source, block)
 
 
 def _load_motive(raw: Any, world: "World") -> Motive:

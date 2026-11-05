@@ -48,7 +48,7 @@ def test_dump_is_grouped_by_entity_with_a_header_and_fixed_key_order(w):
     assert d["processed_through"] == 6 and d["counts"] == {"entities": 5, "facts": 4, "superseded": 1}
     assert d["corrections"] == ["The player was told X. Treat that as true."]
     mine = next(e for e in d["entities"] if e["name"] == "Harrow Mine")
-    assert list(mine) == ["name", "id", "kind", "in", "discovered", "facts", "superseded"]
+    assert list(mine) == ["name", "id", "kind", "in", "discovered", "visited", "facts", "superseded"]
     assert mine["in"] == ["Thornwood"] and mine["discovered"] is True
     assert [f.split("]")[0] for f in mine["facts"]] == ["[known|approach|f0001 d2h14", "[hidden|secret|f0002 d2h14 until d10h6", "[hidden|hazards|f0004 d2h14"]
     assert len(mine["superseded"]) == 1 and "flooded" in mine["superseded"][0]

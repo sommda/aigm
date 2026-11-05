@@ -5,6 +5,9 @@ from typing import Any
 from aigm.combat import ALLY, FOE, HEALTH_WORDS, MAX_COMBATANTS, MAX_CONDITION, MAX_CONDITIONS, MAX_COUNT, MAX_HEALTH, MAX_NAME, SIDES, Combat, Combatant
 from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
+from aigm.tools.timing import read_minutes, spend
+
+FIGHT_MINUTES = 10  # a fight takes more than its rounds (docs/TIME.md 6)
 
 SCHEMA: dict[str, Any] = {
     "name": "set_combat",
@@ -12,6 +15,10 @@ SCHEMA: dict[str, Any] = {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["start", "update", "end"]},
+            "minutes": {
+                "type": "integer",
+                "description": "With action end: how long the fight took in minutes. 10 if you leave it out.",
+            },
             "combatants": {
                 "type": "array",
                 "description": "For start: everyone in the fight except the party. For update: only the ones that change.",
@@ -78,9 +85,15 @@ def _row(raw: Any, problems: list[str]) -> dict[str, Any] | None:
 def set_combat(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
     action, rows, problems = tool_input.get("action"), tool_input.get("combatants"), []
     if action == "end":
+        minutes, problem = read_minutes(tool_input)
+        if problem:
+            return ToolOutcome(f"{problem[0].upper()}{problem[1:]}. Nothing changed.", is_error=True)
         had = state.combat is not None
         state.combat = None
-        return ToolOutcome("The fight is over." if had else "There was no fight recorded.")
+        if not had:
+            return ToolOutcome("There was no fight recorded.")
+        passed = spend(state, FIGHT_MINUTES if minutes is None else minutes, "the fight")
+        return ToolOutcome("The fight is over." + (f" {passed}" if passed else ""))
     if action not in ("start", "update"):
         return ToolOutcome("'action' must be start, update or end. Nothing changed.", is_error=True)
     if action == "update" and state.combat is None:

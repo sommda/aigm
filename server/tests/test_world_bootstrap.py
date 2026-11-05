@@ -159,7 +159,7 @@ def test_the_seeded_world_is_in_the_saved_game_and_the_notes_leave_the_prompt(tm
     client.put("/history/g/save")
     saved = json.loads((tmp_path / "g.json").read_text())
     world = saved["world"]
-    assert world["time"] == {"day": 1, "hour": 18} and world["processed_through"] == 3
+    assert world["time"] == {"day": 1, "hour": 18, "minute": 0} and world["processed_through"] == 3
     names_ = {e["name"] for e in world["entities"]}
     assert {"The Test Marches", "Rusty Flagon", "Innkeeper"} <= names_
     assert any("reports every guest to the baron" in f["text"] and f["disclosure"] == "hidden" for f in world["facts"])
@@ -281,3 +281,27 @@ async def test_model_bootstrap_request_and_parsing():
 
 def test_the_bootstrap_prompt_exists():
     assert "GM notes" in PromptLibrary().world_prompt("bootstrap")
+
+
+async def test_a_new_world_has_one_top_place_that_holds_every_other():
+    result = await run_bootstrap(campaign(), [{}, {}, {}], ScriptedCurator())
+    world = World()
+    apply_ops(world, result.ops)
+    places = [e for e in world.entities.values() if e.kind == "location"]
+    top = [e for e in places if e.parent is None]
+    assert [e.id for e in top] == [world.root] and world.entities[world.root].scale == "region"
+    from aigm.travel import shared_ancestor
+
+    assert all(shared_ancestor(world, a.id, b.id) for a in places for b in places)
+
+
+async def test_several_places_with_nothing_above_them_are_put_inside_a_top_place_made_from_the_setting():
+    class TwoTops(ScriptedCurator):
+        async def bootstrap(self, request):
+            return Extraction(entities=[EntityProposal("Ashby", "location"), EntityProposal("Harrow Mine", "location")])
+
+    result = await run_bootstrap(campaign(setting="Thornwood: a dark forest country."), [{}], TwoTops())
+    world = World()
+    apply_ops(world, result.ops)
+    root = world.entities[world.root]
+    assert root.name == "Thornwood" and {world.find("Ashby").parent, world.find("Harrow Mine").parent} == {root.id}

@@ -223,6 +223,13 @@ class PromptLibrary:
             guides[name.removesuffix(".md")] = entries
         return guides
 
+    def playtest_section(self) -> str:
+        """The addendum that turns the adventure GM into a test-setup assistant (docs/PLAYTEST.md)."""
+        path = self._files("system").get("playtest.md")
+        if path is None:
+            raise ValueError("No prompt file prompts/system/playtest.md")
+        return _clean(path.read_text(encoding="utf-8"))
+
     def tool_description(self, tool_name: str) -> str:
         path = self._files("tools").get(f"{tool_name}.md")
         if path is None:

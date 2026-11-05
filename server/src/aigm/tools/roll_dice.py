@@ -6,6 +6,7 @@ from aigm.models import DiceRoll, DiceTerm, DieRoll
 from aigm.roleplay import SOCIAL_SKILL
 from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
+from aigm.tools.timing import MINUTES_PROPERTY, read_minutes, spend
 
 MAX_EXPRESSION_LENGTH = 200
 MIN_NARRATION_CHARS = 10
@@ -34,6 +35,7 @@ SCHEMA: dict[str, Any] = {
                     "story, so do not repeat it in your reply."
                 ),
             },
+            "minutes": MINUTES_PROPERTY,
         },
         "required": ["expression", "narration"],
     },
@@ -110,6 +112,9 @@ def roll_dice(tool_use_id: str, tool_input: dict[str, Any], state: GameState | N
     narration = tool_input.get("narration")
     if not isinstance(narration, str) or len(narration.strip()) < MIN_NARRATION_CHARS:
         return _missing_narration()
+    minutes, minutes_problem = read_minutes(tool_input)
+    if minutes_problem:
+        return ToolOutcome(f"Nothing was rolled: {minutes_problem}.", is_error=True)
     expression = tool_input.get("expression")
     if not isinstance(expression, str) or not expression.strip():
         return _error(expression, "expression must be a non-empty string")
@@ -135,7 +140,8 @@ def roll_dice(tool_use_id: str, tool_input: dict[str, Any], state: GameState | N
         return _error(expression, str(exc).strip().splitlines()[0] if str(exc).strip() else "roll failed")
     except Exception as exc:  # d20/lark can raise unexpected errors on odd input
         return _error(expression, f"could not evaluate ({type(exc).__name__})")
-    return ToolOutcome(content=result.result, event=payload, say=narration.strip())
+    passed = spend(state, minutes, comment or "an action")
+    return ToolOutcome(content=result.result + (f" {passed}" if passed else ""), event=payload, say=narration.strip())
 
 
 ROLL_DICE = Tool(schema=SCHEMA, handler=roll_dice)

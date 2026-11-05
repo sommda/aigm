@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-KNOWN = {"new", "save", "load", "saves", "info", "delete", "help", "quit", "reconnect", "context", "thinking", "story", "compendium", "status", "sheet"}
+KNOWN = {"new", "save", "load", "saves", "info", "delete", "help", "quit", "reconnect", "context", "thinking", "story", "compendium", "status", "sheet", "playtest"}
 ALIASES = {"journal": "compendium", "c": "compendium", "s": "status", "character": "sheet"}
 
 

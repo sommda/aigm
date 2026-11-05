@@ -51,6 +51,18 @@ def motive_line(motive: Motive, state: str) -> str:
     return line
 
 
+def route_text(world: World, route: Any) -> str:
+    """`[r003 improvised] Hall <-> Cellar: 4 minutes, down the steps | locked: A locked oak door (opens by: the key)`."""
+    line = f"[{route.id} {route.source}] {world.entities[route.a].name} <-> {world.entities[route.b].name}: {route.minutes} minutes"
+    if route.how:
+        line += f", {route.how}"
+    if route.block:
+        line += f" | {route.block.kind}: {route.block.text}"
+        if route.block.opens_by:
+            line += f" (opens by: {route.block.opens_by})"
+    return line
+
+
 def dump_world(world: World, *, known_only: bool = False, session_id: str | None = None) -> dict[str, Any]:
     """The world as a dictionary with a fixed key order, grouped by entity, one fact per string."""
     scene = world.scene
@@ -82,6 +94,10 @@ def dump_world(world: World, *, known_only: bool = False, session_id: str | None
         if chain:
             entry["in"] = chain
         entry["discovered"] = ent.discovered
+        if ent.kind == "location":
+            entry["visited"] = ent.visited
+            if ent.scale:
+                entry["scale"] = ent.scale
         if ent.holding:
             entry["holding"] = {"status": ent.holding.status, "since": ent.holding.since,
                                 "history": [h.to_dict() for h in ent.holding.history]}
@@ -96,6 +112,8 @@ def dump_world(world: World, *, known_only: bool = False, session_id: str | None
             entry["motives"] = [motive_line(m, world.motive_state(m)) for m in motives]
         entities.append(entry)
     out["entities"] = entities
+    if world.routes and not known_only:  # the map the GM works from; the player has not been told it (docs/TIME.md 5)
+        out["routes"] = [route_text(world, r) for r in world.routes.values()]
     if world.digests and not known_only:
         out["digests"] = [f"turn {d.turn} (messages {d.start}-{d.end - 1}): {d.text}" for d in sorted(world.digests.values(), key=lambda d: d.start)]
     return out

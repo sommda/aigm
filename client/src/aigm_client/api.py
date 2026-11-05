@@ -91,6 +91,10 @@ class ApiClient:
         """Turn the model's thinking on or off for the server (debug servers only; anything else answers 404)."""
         return (await self._request("PUT", "/debug/thinking", json={"enabled": enabled}))["thinking"]
 
+    async def debug_playtest(self, enabled: bool = True) -> bool:
+        """Turn playtest mode on (or off) for the session (debug servers only; anything else answers 404)."""
+        return (await self._request("POST", "/debug/playtest", params=self._session(), json={"enabled": enabled}))["playtest"]
+
     async def compendium(self) -> dict[str, Any]:
         """Counts per category and the totals of unread entries (docs/COMPENDIUM.md)."""
         return await self._request("GET", "/compendium", params=self._session())

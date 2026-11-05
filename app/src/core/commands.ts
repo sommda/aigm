@@ -2,7 +2,7 @@
 
 const KNOWN = new Set([
   "new", "save", "load", "saves", "info", "delete", "help", "quit", "reconnect",
-  "context", "thinking", "story", "compendium", "status", "sheet",
+  "context", "thinking", "story", "compendium", "status", "sheet", "playtest",
 ]);
 const ALIASES: Record<string, string> = { journal: "compendium", c: "compendium", s: "status", character: "sheet" };
 

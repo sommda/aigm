@@ -214,7 +214,7 @@ def _scene_plan(arg: str) -> list[Step]:
         place, hours = arg, ""
     payload: dict[str, Any] = {"location": place.strip() or arg}
     if hours:
-        payload["elapsed_hours"] = int(hours)
+        payload["elapsed_minutes"] = int(hours) * 60
     return [Say("You move on. "), UseTool("set_scene", payload)]
 
 

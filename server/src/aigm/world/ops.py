@@ -57,6 +57,30 @@ class Reveal:
 
 
 @dataclass
+class SetScale:
+    place: str  # name or id
+    scale: str
+
+
+@dataclass
+class SetRoute:
+    """A way between two places and the minutes it takes (docs/TIME.md 5.2). Naming the same way again updates it."""
+
+    a: str  # name or id
+    b: str
+    minutes: int
+    how: str = ""
+    source: str = "generated"
+
+
+@dataclass
+class SetRoot:
+    """Make a place the top of the world: every place with no parent goes inside it (docs/TIME.md 5.1)."""
+
+    place: str  # name or id
+
+
+@dataclass
 class SetScene:
     location: str | None  # name or id
     present: tuple[str, ...] | None = None  # None: leave who is present alone, unless the place changed
@@ -65,9 +89,9 @@ class SetScene:
 
 @dataclass
 class SettleTime:
-    """The narration covered `hours` of in-world time, of which the GM may have reported some."""
+    """The narration covered `minutes` of in-world time, of which the GM may have reported some."""
 
-    hours: int
+    minutes: int
 
 
 @dataclass
@@ -169,7 +193,7 @@ class ReviseLook:
 
 
 Op = (
-    AddEntity | AddAlias | AddFact | Supersede | Reveal | SetScene | SettleTime | StartClock | Correct | MarkProcessed
+    AddEntity | AddAlias | AddFact | Supersede | Reveal | SetScene | SetScale | SetRoute | SetRoot | SettleTime | StartClock | Correct | MarkProcessed
     | AddDigest | AddMotive | ShiftMotive | ResolveMotive | DiscloseMotive | SetLook | ReviseLook | SetPortrait
     | SetHolding
 )
@@ -221,7 +245,30 @@ def _apply(world: World, op: Op) -> bool:
             parent_ent = world.resolve(op.parent)
             parent = parent_ent.id if parent_ent else None  # a vanished parent is not fatal
         aliases = [a for a in op.aliases if world.find(a) is None]
-        world.add_entity(op.name, op.kind, aliases=aliases, parent=parent)
+        world.add_entity(op.name, op.kind, aliases=aliases, parent=world.default_parent(op.kind, parent))
+        return True
+    if isinstance(op, SetScale):
+        ent = world.resolve(op.place)
+        if ent is None:
+            raise WorldError(f"unknown place {op.place!r}")
+        before = ent.scale
+        world.set_scale(ent.id, op.scale)
+        return ent.scale != before
+    if isinstance(op, SetRoute):
+        first, second = world.resolve(op.a), world.resolve(op.b)
+        if first is None or second is None:
+            raise WorldError(f"unknown place in route {op.a!r} to {op.b!r}")
+        if op.source in ("seed", "generated", "plotter") and any(
+            r.other(first.id) == second.id for r in world.routes_of(first.id)
+        ):
+            return False  # a builder states each way once; a second statement of it, from the other end, adds nothing
+        world.set_route(first.id, second.id, op.minutes, op.how, source=op.source)
+        return True
+    if isinstance(op, SetRoot):
+        ent = world.resolve(op.place)
+        if ent is None:
+            raise WorldError(f"unknown place {op.place!r}")
+        world.set_root(ent.id)
         return True
     if isinstance(op, AddAlias):
         ent = world.resolve(op.entity)
@@ -268,7 +315,7 @@ def _apply(world: World, op: Op) -> bool:
         world.set_scene(loc, ids, op.turn)
         return True
     if isinstance(op, SettleTime):
-        world.settle_reported_hours(op.hours)
+        world.settle_reported_minutes(op.minutes)
         return True
     if isinstance(op, StartClock):
         world.start_clock(op.hour)

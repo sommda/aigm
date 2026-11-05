@@ -150,3 +150,11 @@ def test_entering_the_adventure_in_test_mode_gives_a_described_place(client):
     body = client.get("/status").json()
     assert body["location"]["name"] == "Rusty Flagon" and body["location"]["overview"]
     assert body["items"] and body["table"]["rows"][0][3].startswith("Party") and body["table"]["rows"][0][1] == "12/12"
+
+
+def test_the_status_shows_the_time_to_the_nearest_five_minutes():
+    state, ids = harbor()
+    state.world.set_scene(ids["The Docks"], [], 1)
+    state.world.advance_minutes(13)  # 08:13
+    loc = build(state)["location"]
+    assert loc["time"] == "Day 1, 08:15" and loc["period"] == "morning"

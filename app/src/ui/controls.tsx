@@ -109,6 +109,7 @@ export function Portrait({
   resolve,
   maxWidth = 360,
   fitHeight = false,
+  maxHeight,
   subject,
 }: {
   portrait: unknown;
@@ -119,6 +120,8 @@ export function Portrait({
   maxWidth?: number;
   /** Also keep a landscape picture to about a third of the window's height, so what is under it stays in view. */
   fitHeight?: boolean;
+  /** A hard limit on how tall a landscape picture may be. */
+  maxHeight?: number;
   /** What the picture is of (the entry's kind): an object's placeholder shows its name, not initials. */
   subject?: string;
 }) {
@@ -131,7 +134,7 @@ export function Portrait({
   const landscape = shape === "landscape";
   // a person's portrait is a small square; a place's view is wide (3:2) and as large as the column allows; an
   // object's picture is the shape its description chose
-  const sized = frameFor({ shape, windowWidth: width, windowHeight: height, maxWidth, fitHeight });
+  const sized = frameFor({ shape, windowWidth: width, windowHeight: height, maxWidth, fitHeight, maxHeight });
   const frame = sized.fill ? { width: "100%" as const, maxWidth: sized.maxWidth, aspectRatio: sized.aspectRatio } : sized;
   const named = landscape || subject === "item";
   if (p.state === "ready" && p.url && !broken) {

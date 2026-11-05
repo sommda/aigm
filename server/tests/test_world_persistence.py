@@ -37,7 +37,7 @@ async def test_world_round_trips_through_a_save(repo):
     _, loaded, info = await repo.load("g")
     assert loaded.world == state.world and loaded.world.find("old mine").name == "Harrow Mine"
     assert loaded.world.processed_through == 2 and loaded.world.time == WorldTime(2, 14)
-    assert (info["entity_count"], info["fact_count"], info["world_time"]) == (2, 2, {"day": 2, "hour": 14})
+    assert (info["entity_count"], info["fact_count"], info["world_time"]) == (2, 2, {"day": 2, "hour": 14, "minute": 0})
 
 
 async def test_saves_are_pretty_printed_not_one_line(repo):
@@ -45,7 +45,7 @@ async def test_saves_are_pretty_printed_not_one_line(repo):
     text = (repo.dir / "g.json").read_text(encoding="utf-8")
     assert text.count("\n") > 50 and text.endswith("}\n")
     assert '\n    "facts": [' in text or '\n  "world": {' in text
-    assert json.loads(text)["version"] == 12
+    assert json.loads(text)["version"] == 13
 
 
 async def test_listing_includes_world_counts(repo):
@@ -102,7 +102,7 @@ def test_state_copy_deep_copies_the_world():
 def test_save_and_restore_over_http(client):
     client.put("/history/s0/save")
     info = client.get("/history/s0").json()
-    assert info["fact_count"] == 0 and info["world_time"] == {"day": 1, "hour": 8}
+    assert info["fact_count"] == 0 and info["world_time"] == {"day": 1, "hour": 8, "minute": 0}
 
 
 async def test_a_story_is_saved_and_loaded(repo):

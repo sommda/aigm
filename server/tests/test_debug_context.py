@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from aigm import cli
 from aigm.app import create_app
 from aigm.config import Settings
+from aigm.llm.loop import turn_number
 from aigm.session.state import GameState, Phase
 from aigm.world import World
 from aigm.world.ops import AddFact
@@ -137,7 +138,7 @@ def test_adventure_tree_is_in_request_order(debug):
 
     system = top[0]["children"]
     assert system[0]["id"] == "prompt/system/common/01_role.md" and all(c["kind"] == "prompt" for c in system)
-    assert [t["title"] for t in top[1]["children"]] == ["roll_dice", "recall", "establish", "key_item", "set_scene", "update_character", "set_combat", "set_motive", "social_check", "award"]
+    assert [t["title"] for t in top[1]["children"]] == ["roll_dice", "recall", "establish", "key_item", "set_scene", "pass_time", "update_character", "set_combat", "set_motive", "social_check", "award"]
     assert "Input schema:" in top[1]["children"][0]["text"]
 
     history = top[2]["children"]
@@ -176,7 +177,9 @@ def test_the_tree_is_exactly_the_request(debug):
     game = app.state.game
     system = [c["text"] for c in body["sections"][0]["children"]]
     staged = [*session.messages, {"role": "user", "content": [{"type": "text", "text": "I open the door"}]}]
-    request = game.describe(session.state.copy(), staged, "I open the door")
+    state = session.state.copy()
+    state.turn = turn_number(staged)
+    request = game.describe(state, staged, "I open the door")
     assert "\n\n".join(system) == request.system
     assert [t["title"] for t in body["sections"][1]["children"]] == [t["name"] for t in request.tools]
     briefing = find(body["sections"], "briefing")

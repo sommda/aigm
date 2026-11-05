@@ -36,6 +36,7 @@ Keys: Space/Enter = next page, PageUp/PageDown/arrows/wheel = scroll back,
 DEBUG_HELP = (
     "\nDebug server: /context (Ctrl+K) shows exactly what the model will be sent for your next message."
     "\n  /story  prints the whole story plan (spoilers)"
+    "\n  /playtest  the GM sets up the world and the party as you instruct, until you tell it to leave"
     "\n  /thinking [on|off]  (F6) turn the model's thinking on or off, to compare a move both ways"
     "\n  /compendium hidden  (or key 5 in the compendium) browses the facts and motives the player has not been told"
 )
@@ -340,6 +341,23 @@ class AigmApp(App):
                 s.add_system("Model thinking is now " + ("on." if self.model_thinking else "off."))
         self._kick()
 
+    async def _playtest_flow(self) -> None:
+        """Enter playtest mode: the GM then sets up the world and the party on request (debug servers only)."""
+        s = self.session
+        if not self.debug_server:
+            s.add_system("The server is not in debug mode (start it with --debug).", "yellow")
+        else:
+            try:
+                await self.api.debug_playtest()
+            except ApiError as e:
+                s.add_system(e.message, "red")
+            else:
+                s.add_system(
+                    "Playtest mode: tell the GM what to change in the world or the party. "
+                    "Tell it to exit playtest mode when you are done."
+                )
+        self._kick()
+
     async def _story_flow(self) -> None:
         """Print the whole story plan (debug servers only: it is all spoilers)."""
         s = self.session
@@ -502,6 +520,8 @@ class AigmApp(App):
                 await self._status_flow(" ".join(cmd.args))
             case "story":
                 await self._story_flow()
+            case "playtest":
+                await self._playtest_flow()
             case "thinking":
                 words = {"on": True, "off": False}
                 if cmd.arg is not None and cmd.arg.lower() not in words:

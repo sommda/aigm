@@ -1,0 +1,1 @@
+Set a party member's overall level directly, and optionally their XP and levels by class. No award rules apply. Follow it with `update_character` so the sheet shows the new level's hit points and features.

@@ -33,6 +33,7 @@ from aigm.world.curator import (
     LookRequest,
     ItemLookRequest,
     PlaceLookRequest,
+    RouteProposal,
     LookRevision,
     MotiveProposal,
     PlotProposal,
@@ -98,7 +99,9 @@ class ScriptedCurator:
                 elif name == "goal":
                     out.goal_revealed = True
                 elif name == "elapsed" and body.strip().isdigit():
-                    out.elapsed_hours += int(body.strip())
+                    out.elapsed_minutes += int(body.strip()) * 60  # hours, for brevity in tests
+                elif name == "minutes" and body.strip().isdigit():
+                    out.elapsed_minutes += int(body.strip())
         return out
 
     async def bootstrap(self, request: BootstrapRequest) -> Extraction:
@@ -385,7 +388,9 @@ class ScriptedCurator:
             )
         if ent.kind == "location" and request.tier == "full" and not ent.name.endswith("Cellar"):
             cellar = f"{ent.name} Cellar"
-            out.entities.append(EntityProposal(cellar, "location", parent=ent.name))
+            out.entities.append(
+                EntityProposal(cellar, "location", parent=ent.name, scale="room", routes=[RouteProposal(ent.name, 3, "down the cellar steps")])
+            )
             out.facts.append(
                 FactProposal(f"The {cellar} is damp and smells of old brine.", [cellar], "interior", "hidden")
             )

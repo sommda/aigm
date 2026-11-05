@@ -37,13 +37,14 @@ from aigm.world.curator import (
     LookRevision,
     QuestProposal,
     ReconcileResult,
+    RouteProposal,
     SheetRequest,
 )
 from aigm.looks import (
     CONTROLLED_TAGS, ITEM_CONTROLLED_TAGS, ITEM_LIST_TAGS, ITEM_TEXT_TAGS, LIST_TAGS, PLACE_CONTROLLED_TAGS, PLACE_LIST_TAGS, PLACE_TEXT_TAGS, TEXT_TAGS, Look,
 )  # fmt: skip
 from aigm.sheets import Sheet, clean
-from aigm.world.model import ASPECTS, CURATOR_KINDS, DISCLOSURES, MOTIVE_KINDS
+from aigm.world.model import ASPECTS, CURATOR_KINDS, DISCLOSURES, MOTIVE_KINDS, SCALES
 from aigm.world.render import (
     render_bootstrap,
     render_digest,
@@ -60,6 +61,7 @@ from aigm.world.render import (
 )
 
 log = logging.getLogger(__name__)
+MAX_PROPOSED_ROUTES = 8  # routes one proposed place may bring (docs/TIME.md 5.2)
 LABELS = ("new", "duplicate", "refines", "contradicts")
 
 
@@ -75,6 +77,12 @@ _STR = {"type": "string"}
 _STRS = {"type": "array", "items": _STR}
 _ASPECT = _nullable({"type": "string", "enum": sorted({a for v in ASPECTS.values() for a in v})})
 _ENTITY = _obj(name=_STR, kind={"type": "string", "enum": list(CURATOR_KINDS)}, aliases=_STRS, parent=_nullable(_STR))
+_ROUTE = _obj(to=_STR, minutes={"type": "integer"}, how=_STR)
+_PLACE_FIELDS = dict(scale=_nullable({"type": "string", "enum": list(SCALES)}), routes={"type": "array", "items": _ROUTE})
+# An entity of a world-building answer: a place also says how big it is and how to get to other places (docs/TIME.md 5).
+_BUILT_ENTITY = _obj(
+    name=_STR, kind={"type": "string", "enum": list(CURATOR_KINDS)}, aliases=_STRS, parent=_nullable(_STR), **_PLACE_FIELDS
+)
 
 _MOTIVE_REPORT = _obj(
     id=_STR,
@@ -104,7 +112,7 @@ EXTRACT_SCHEMA = _obj(
     reveals=_STRS,
     location=_nullable(_STR),
     present=_nullable(_STRS),
-    elapsed_hours={"type": "integer"},
+    elapsed_minutes={"type": "integer"},
     motive_reports={"type": "array", "items": _MOTIVE_REPORT},
 )
 STORY_EXTRACT_SCHEMA = _obj(
@@ -116,14 +124,14 @@ STORY_EXTRACT_SCHEMA = _obj(
     goal_revealed={"type": "boolean"},
 )  # the extract step of a story game: the same answer plus what happened to the quests
 BOOTSTRAP_SCHEMA = _obj(
-    entities={"type": "array", "items": _ENTITY},
+    entities={"type": "array", "items": _BUILT_ENTITY},
     facts=EXTRACT_SCHEMA["properties"]["facts"],
     location=_nullable(_STR),
     present=_nullable(_STRS),
     start_hour=_nullable({"type": "integer"}),
 )
 FAMILIARITY_SCHEMA = _obj(
-    entities={"type": "array", "items": _ENTITY},
+    entities={"type": "array", "items": _BUILT_ENTITY},
     facts={"type": "array", "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT, via=_STRS)},
 )
 SHEET_SCHEMA = _obj(
@@ -182,7 +190,7 @@ RECONCILE_SCHEMA = _obj(
     same_as={"type": "array", "items": _obj(name=_STR, entity_id=_STR)},
 )
 EXPAND_SCHEMA = _obj(
-    entities={"type": "array", "items": _ENTITY},
+    entities={"type": "array", "items": _BUILT_ENTITY},
     facts={
         "type": "array",
         "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT, replaces=_nullable(_STR)),
@@ -190,7 +198,8 @@ EXPAND_SCHEMA = _obj(
     motives={"type": "array", "items": _MOTIVE},
 )
 _PLOT_ENTITY = _obj(
-    name=_STR, kind={"type": "string", "enum": [*CURATOR_KINDS, "item"]}, aliases=_STRS, parent=_nullable(_STR)
+    name=_STR, kind={"type": "string", "enum": [*CURATOR_KINDS, "item"]}, aliases=_STRS, parent=_nullable(_STR),
+    **_PLACE_FIELDS,
 )
 PLOT_SCHEMA = _obj(
     goal_title=_STR,
@@ -233,9 +242,23 @@ def _entities(value: Any) -> list[EntityProposal]:
     out = []
     for raw in value if isinstance(value, list) else []:
         if isinstance(raw, dict) and isinstance(raw.get("name"), str) and isinstance(raw.get("kind"), str):
-            parent = raw.get("parent")
-            out.append(EntityProposal(raw["name"], raw["kind"], _strs(raw.get("aliases")), parent if isinstance(parent, str) else None))
+            parent, scale = raw.get("parent"), raw.get("scale")
+            out.append(
+                EntityProposal(
+                    raw["name"], raw["kind"], _strs(raw.get("aliases")), parent if isinstance(parent, str) else None,
+                    scale if scale in SCALES else None, _routes(raw.get("routes")),
+                )
+            )
     return out
+
+
+def _routes(value: Any) -> list[RouteProposal]:
+    out = []
+    for raw in value if isinstance(value, list) else []:
+        minutes = raw.get("minutes") if isinstance(raw, dict) else None
+        if isinstance(raw, dict) and isinstance(raw.get("to"), str) and isinstance(minutes, int) and not isinstance(minutes, bool) and minutes > 0:
+            out.append(RouteProposal(raw["to"], minutes, raw["how"] if isinstance(raw.get("how"), str) else ""))
+    return out[:MAX_PROPOSED_ROUTES]
 
 
 def _facts(value: Any, default_disclosure: str) -> list[FactProposal]:
@@ -326,7 +349,7 @@ class AnthropicCurator:
         expand_model: str = "claude-sonnet-5-5",
         effort: str = "low",
         expand_effort: str = "medium",
-        max_tokens: int = 8000,
+        max_tokens: int = 16000,
         client: Any = None,
     ) -> None:
         self.api_key = api_key
@@ -370,7 +393,7 @@ class AnthropicCurator:
         schema = STORY_EXTRACT_SCHEMA if request.quests or request.goal else EXTRACT_SCHEMA
         data = await self._ask("extract", self.model, self.effort, render_extract(request), schema)
         present = data.get("present")
-        elapsed = data.get("elapsed_hours")
+        elapsed = data.get("elapsed_minutes")
         reports = [
             (r["id"], r["status"], r["outcome"])
             for r in (data.get("quest_reports") if isinstance(data.get("quest_reports"), list) else [])
@@ -384,7 +407,7 @@ class AnthropicCurator:
             reveals=_strs(data.get("reveals")),
             location=data["location"] if isinstance(data.get("location"), str) else None,
             present=_strs(present) if isinstance(present, list) else None,
-            elapsed_hours=elapsed if isinstance(elapsed, int) and not isinstance(elapsed, bool) else 0,
+            elapsed_minutes=elapsed if isinstance(elapsed, int) and not isinstance(elapsed, bool) else 0,
             motive_reports=_motive_reports(data.get("motive_reports")),
         )
 

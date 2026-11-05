@@ -354,3 +354,28 @@ def test_a_call_that_names_the_place_says_nothing_of_the_kind(state):
 def test_a_question_or_an_action_in_place_gets_only_the_quiet_note(state, said):
     state.player_text = said
     assert "NOT" not in run(state, "set_scene", elapsed_hours=1).content
+
+
+# ---- set_scene counts minutes (docs/TIME.md 3) --------------------------------------------------------------------
+
+
+def test_set_scene_takes_minutes(state):
+    s = state
+    out = run(s, "set_scene", elapsed_minutes=45)
+    assert not out.is_error and s.world.time == WorldTime(1, 8, 45) and s.world.reported_minutes == 45
+    assert "Day 1, 08:45" in out.content
+
+
+def test_set_scene_still_takes_hours_and_not_both(state):
+    s = state
+    run(s, "set_scene", elapsed_hours=2)
+    assert s.world.time == WorldTime(1, 10, 0)
+    out = run(s, "set_scene", elapsed_hours=1, elapsed_minutes=30)
+    assert out.is_error and "not both" in out.content and s.world.time == WorldTime(1, 10, 0)
+
+
+@pytest.mark.parametrize("bad", [-1, 1.5, True, 43201, "10"])
+def test_set_scene_refuses_a_bad_number_of_minutes(state, bad):
+    s = state
+    out = run(s, "set_scene", elapsed_minutes=bad)
+    assert out.is_error and "elapsed_minutes" in out.content and s.world.time == WorldTime(1, 8, 0)

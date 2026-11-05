@@ -33,6 +33,7 @@ Keys: Enter sends, Shift+Enter adds a line, Esc cancels the current turn.`;
 export const DEBUG_HELP =
   "\nDebug server:" +
   "\n  /story  prints the whole story plan (spoilers)" +
+  "\n  /playtest  the GM sets up the world and the party as you instruct, until you tell it to leave" +
   "\n  /thinking [on|off]  turn the model's thinking on or off, to compare a move both ways" +
   "\n  /compendium hidden  browses the facts and motives the player has not been told" +
   "\n  (the context viewer is in the terminal client for now)";
@@ -234,6 +235,9 @@ export class GameController {
       case "story":
         await this.storyFlow();
         break;
+      case "playtest":
+        await this.playtestFlow();
+        break;
       case "thinking": {
         const words: Record<string, boolean> = { on: true, off: false };
         if (cmd.arg !== undefined && !(cmd.arg.toLowerCase() in words))
@@ -332,6 +336,22 @@ export class GameController {
     }
     try {
       this.session.addSystem(JSON.stringify(await this.api.debugStory(), null, 2));
+    } catch (e) {
+      this.session.addSystem(message(e), "red");
+    }
+  }
+
+  private async playtestFlow(): Promise<void> {
+    if (!this.debugServer) {
+      this.session.addSystem("The server is not in debug mode (start it with --debug).", "yellow");
+      return;
+    }
+    try {
+      await this.api.setPlaytest();
+      this.session.addSystem(
+        "Playtest mode: tell the GM what to change in the world or the party. " +
+          "Tell it to exit playtest mode when you are done.",
+      );
     } catch (e) {
       this.session.addSystem(message(e), "red");
     }

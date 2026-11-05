@@ -157,3 +157,23 @@ def hidden_entity(
     if found is None:
         raise NotFound(f"No hidden facts about {entity_id!r}")
     return {"session_id": session.id, **found}
+
+
+class PlaytestRequest(BaseModel):
+    enabled: bool = True
+
+
+@router.post("/playtest")
+def playtest(
+    body: PlaytestRequest, session: Annotated[Session, Depends(get_session)]
+) -> dict[str, Any]:
+    """Turns playtest mode on (docs/PLAYTEST.md): the GM sets up the world and the party on request until told to
+    leave. The GM leaves it with its own `end_playtest` tool; `enabled: false` is the way out if the GM will not."""
+    state = session.state
+    if state.phase is not Phase.ADVENTURE:
+        raise HTTPException(status_code=409, detail="Playtest mode needs a game in progress; finish Session 0 first")
+    if session.busy:
+        raise HTTPException(status_code=409, detail="A turn is in progress; try again in a moment")
+    state.playtest = body.enabled
+    log.info("playtest mode %s for session %s", "on" if body.enabled else "off", session.id)
+    return {"session_id": session.id, "playtest": state.playtest}

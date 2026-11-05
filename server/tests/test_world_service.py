@@ -250,8 +250,8 @@ def test_reported_hours_and_corrections_round_trip():
     w.advance_time(1)
     w.add_correction("note", 2)
     again = World.from_dict(w.to_dict())
-    assert again == w and again.reported_hours == 3 and again.corrections == [{"text": "note", "turn": 2}]
-    assert w.settle_reported_hours(5) == 2 and w.time == WorldTime(1, 14) and w.reported_hours == 0
+    assert again == w and again.reported_minutes == 180 and again.corrections == [{"text": "note", "turn": 2}]
+    assert w.settle_reported_minutes(300) == 120 and w.time == WorldTime(1, 14) and w.reported_minutes == 0
 
 
 # ---- over HTTP, in test mode --------------------------------------------------------------
@@ -274,7 +274,7 @@ def test_the_curator_runs_after_the_reply_and_expands_the_world(eager):
     eager.put("/history/c/save")
     info = eager.get("/history/c").json()
     assert info["entity_count"] >= 3 and info["fact_count"] >= 3
-    assert info["world_time"] == {"day": 1, "hour": 20}  # opens at 18:00, plus 2 hours
+    assert info["world_time"] == {"day": 1, "hour": 20, "minute": 0}  # opens at 18:00, plus 2 hours
     assert "Wren tends the bar" in reply_text(chat(eager, "recall Wren"))
     assert "Rusty Flagon" in reply_text(chat(eager, "recall Rusty Flagon"))
 

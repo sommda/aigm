@@ -7,7 +7,7 @@ counts as a page of narration) is enforced here."""
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -50,6 +50,9 @@ from aigm.world.ops import (
     SetScene,
     SettleTime,
     ShiftMotive,
+    SetRoot,
+    SetRoute,
+    SetScale,
     StartClock,
     Supersede,
     apply_ops,
@@ -395,6 +398,26 @@ def _story_reports(extraction: Extraction, story: Story) -> list[dict[str, Any]]
 
 # ---- bootstrap --------------------------------------------------------------------------
 
+
+def geography_ops(props: Iterable[EntityProposal], source: str) -> list[Op]:
+    """The scale and routes the world-builder gave its new places (docs/TIME.md 5.1 and 5.2), as ops to apply after the
+    places themselves are in. Ops that name something unknown or break a rule are skipped when applied."""
+    ops: list[Op] = []
+    for prop in props:
+        if prop.kind != "location":
+            continue
+        if prop.scale:
+            ops.append(SetScale(prop.name, prop.scale))
+        ops += [SetRoute(prop.name, r.to, r.minutes, r.how, source) for r in prop.routes]
+    return ops
+
+
+def _root_name(campaign: dict[str, Any], taken: dict[str, Any]) -> str:
+    """A name for the place that holds the whole world, from the setting's name (the words before a colon)."""
+    head = str(campaign.get("setting", "")).split(":", 1)[0].strip()
+    name = head if 2 <= len(head) <= 40 and ":" in str(campaign.get("setting", ""))[:60] else "The World"
+    return name if normalize_name(name) not in taken else f"The Lands of {name}"
+
 BOOTSTRAP_CONFIG = PassConfig(max_expand_entities=5, max_new_facts=60, max_new_entities=16)
 
 
@@ -462,8 +485,20 @@ async def run_bootstrap(
             e, n = by_name[normalize_name(e.parent)], n + 1
         return n
 
+    # One place holds all the others, so that any two places share an ancestor (docs/TIME.md 5.1): the single place the
+    # curator left with nothing above it, or one made from the setting's name when there are none or several.
+    tops = [
+        p for p in ex.entities
+        if p.kind == "location" and not (p.parent and normalize_name(p.parent) in by_name and p.parent != p.name)
+    ]
+    root = tops[0].name if len(tops) == 1 else _root_name(campaign, by_name)
+    if ex.entities and len(tops) != 1:
+        ops.append(AddEntity(root, "location"))
     for prop in sorted(ex.entities, key=depth):  # containers before the things inside them
         ops.append(AddEntity(prop.name, prop.kind, tuple(prop.aliases), prop.parent))
+    if ex.entities:
+        ops.append(SetRoot(root))
+    ops += geography_ops(ex.entities, "seed")
     for prop in ex.facts:
         kinds = [by_name[normalize_name(a)].kind if normalize_name(a) in by_name else None for a in prop.about]
         aspect = prop.aspect if kinds and kinds[0] in ASPECTS and prop.aspect in ASPECTS[kinds[0]] else None
@@ -601,7 +636,7 @@ def _familiar_ops(
         via = tuple(dict.fromkeys(names[normalize_name(v)] for v in fact.via if normalize_name(v) in names))
         ops.append(AddFact(fact.text.strip(), tuple(fact.about), aspect, "known", "background", 0, via))
         left["facts"] -= 1
-    return ops
+    return ops + geography_ops((p for k, p in by_name.items() if k in added), "seed")
 
 
 async def run_backfill(
@@ -712,7 +747,7 @@ def _clean_extraction(ex: Extraction, config: PassConfig, result: PassResult, st
     for fact in ex.facts:
         if fact.disclosure not in DISCLOSURES:
             fact.disclosure = "hidden"
-    ex.elapsed_hours = ex.elapsed_hours if isinstance(ex.elapsed_hours, int) and ex.elapsed_hours > 0 else 0
+    ex.elapsed_minutes = ex.elapsed_minutes if isinstance(ex.elapsed_minutes, int) and ex.elapsed_minutes > 0 else 0
     return ex
 
 
@@ -817,7 +852,7 @@ async def _plan_extraction(
         if loc:
             ops.append(SetScene(loc.name, tuple(ex.present)))
     ops += _motive_report_ops(world, ex, turn, result)
-    ops.append(SettleTime(ex.elapsed_hours))
+    ops.append(SettleTime(ex.elapsed_minutes))
     return ops
 
 
@@ -866,9 +901,11 @@ def _plan_expansion(
     entity_room: int,
     fact_room: int,
     result: PassResult,
+    source: str = "generated",
 ) -> list[Op]:
     """Turn the world-builder's answer into ops, keeping only what is allowed: new entities must be
-    connected to the existing world, everything is generated hidden, and the caps are respected."""
+    connected to the existing world, everything is generated hidden, and the caps are respected. `source` is what the
+    routes it brings are recorded as."""
     out = _clean_extraction(out, config, result)
     entity_cap = max(0, min(config.max_entities_per_call, entity_room))
     fact_cap = max(0, min(config.max_facts_per_call, fact_room))
@@ -905,7 +942,7 @@ def _plan_expansion(
         for key, prop in new.items():
             if key in connected:
                 continue
-            links = ([prop.parent] if prop.parent else []) + [
+            links = ([prop.parent] if prop.parent else []) + [r.to for r in prop.routes] + [
                 a for f in out.facts if any(normalize_name(x) == key for x in f.about) for a in f.about
             ]
             if any(known_name(n) or normalize_name(n) in connected for n in links if normalize_name(n) != key):
@@ -919,6 +956,7 @@ def _plan_expansion(
         if prop.kind != "location":
             parent = None  # only places contain things; a person's parent is just a link, which their facts keep
         ops.append(AddEntity(prop.name, prop.kind, tuple(prop.aliases), parent))
+    ops += geography_ops(new.values(), source)
 
     def kind_of(name: str) -> str | None:
         ent = world.find(name)

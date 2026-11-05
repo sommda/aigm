@@ -46,6 +46,11 @@ export class StatusModel {
     return this.tab.startsWith(CHARACTER_PREFIX) ? this.tab.slice(CHARACTER_PREFIX.length) : null;
   }
 
+  /** The place's page: loaded whatever tab is showing, since the status keeps the place in view (docs/LAYOUT.md 4). */
+  get place(): Json | undefined {
+    return this.pages[STATUS_TAB];
+  }
+
   get page(): Json | undefined {
     return this.pages[this.tab];
   }

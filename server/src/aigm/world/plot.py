@@ -122,7 +122,9 @@ def _add_to_world(
         else:
             facts.append(fact)
     additions = Extraction(entities=list(proposal.entities), facts=facts)
-    ops = _plan_expansion(snap, additions, turn, config, config.max_new_entities, config.max_new_facts, result)
+    ops = _plan_expansion(
+        snap, additions, turn, config, config.max_new_entities, config.max_new_facts, result, source="plotter"
+    )
     applied = apply_ops(snap, ops)
     result.ops += applied.ops
     result.notes += applied.skipped

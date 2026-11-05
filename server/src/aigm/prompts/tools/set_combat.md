@@ -2,7 +2,7 @@ Keep the player's view of a fight up to date. The status page shows a table of w
 
 - `action: "start"` when a fight begins. `combatants` lists everyone else in it: `name`, `side` (`foe` or `ally`), `count` for a group (a pack of four wolves is one entry with count 4), `health`, and `conditions` if any.
 - `action: "update"` when the fight changes. List only the combatants that change: a new `health` or `conditions`, a new `count` as a group is thinned out, a new entry (give its `side`), or `remove: true` for one that has fled or been cleared away.
-- `action: "end"` when the fight is over (everyone dead, fled, surrendered or talked down). Call it before your closing description.
+- `action: "end"` when the fight is over (everyone dead, fled, surrendered or talked down). Call it before your closing description. A fight takes 10 minutes of in-world time unless you give `minutes`.
 
 Health: a foe's `health` is one of `unhurt`, `scratched`, `bloodied`, `near death` or `down`, chosen from how hurt it looks to the characters. The player is never told a monster's hit points, so do not give numbers. An ally's `health` may be numbers such as "9/12".
 

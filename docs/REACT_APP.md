@@ -33,10 +33,10 @@ the server's `default` session while they use it, so use one at a time, or give 
 | Area | Built |
 |---|---|
 | Story | one large scrolling pane; streamed narration with formatting; dice rolls; system lines (saves, chapters, awards, errors); a Reasoning toggle for the model's thinking |
-| Input | a smaller multi-line pane at the bottom: Enter sends, Shift+Enter adds a line, Stop and Esc cancel a running turn; slash commands work at any time |
-| Tabs | **Status** (the place, then one tab per character) and **Compendium** (Locations, Characters, Other, and Hidden on a debug server), opened from the top bar |
-| Layout | an open tab takes the **upper half** of the story area and the story keeps the lower half; the player can keep playing with a tab open; the tab refreshes after each turn |
-| Compendium | tabs with counts and unread marks, a list and the entry beside it (stacked on a narrow screen), links between entries with Back, name filter (asked of the server), unread only, next unread, mark all read, read marks after a second of reading |
+| Input | a multi-line pane under the story, 228 px high: Enter sends, Shift+Enter adds a line, Stop and Esc cancel a running turn; slash commands work at any time |
+| Right pane | the **status** above (the place with its picture, then one row per party member with HP) and the **details** below (the place, or the character clicked, in full); the **Compendium** button replaces both with the Compendium (Locations, Characters, Other, and Hidden on a debug server) |
+| Layout | two panes under the top bar, the story and reply on the left and the right pane beside them ([LAYOUT.md](LAYOUT.md)); one column below 900 px, where the side pane can be hidden; the right pane refreshes after each turn and when the window regains focus |
+| Compendium | tabs with counts and unread marks, the list above the entry (stacked in the right pane), links between entries with Back, name filter (asked of the server), unread only, next unread, mark all read, read marks after a second of reading |
 | Game menu | Save, Load, New game dialogs (list of saves with preview, overwrite and discard confirmations, delete); `/save`, `/load`, `/new`, `/saves`, `/info`, `/delete` |
 | Session | Session 0 and the adventure exactly as in the terminal client; phase, ruleset, game name with `*` for unsaved, story chapter, and the compendium's unread count in the bar |
 | Debug servers | the Hidden tab, `/story`, `/thinking`, and the per-turn timing line |
@@ -77,8 +77,8 @@ Decisions worth knowing:
   shows formatting early. Here an inline style still open at the end of the text simply stays on to the end, and a
   half-received block or marker draws nothing. A test feeds every prefix of a sample reply to the parser.
 - **Updates are coalesced** (about 30 a second) so a fast stream does not redraw the whole story on every word.
-- **One panel at a time.** The Status and Compendium buttons act as tabs for the dock; each has its own inner tabs.
-  Opening one replaces the other, and closing the dock gives the story the whole height back.
+- **One right pane.** It shows the status and the details, or the Compendium over both; the Compendium button toggles
+  it and Esc closes it. See [LAYOUT.md](LAYOUT.md).
 
 ## 4. Tests
 
@@ -88,7 +88,7 @@ Run in `app/`; all three must pass.
 |---|---|
 | `npm test` | Jest: the SSE decoder and event parser, the markdown parser, the session, the API client against a fake transport (odd chunking, rejected and dropped streams, abort), the controller flows with a fake player, the compendium and status models and panels, and the status panel's watching of a portrait that is still being painted |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run e2e` | exports the web bundle, starts a scripted server (`aigm --test --debug`, in a throwaway save folder) and drives the page in Chrome with Playwright: streaming and formatting, Enter and Shift+Enter, the tabs sharing the screen (it measures that the dock and the story are about equal in height), save, load and new game against the real routes, slash commands, Esc cancelling, the story following new text, and a character's portrait appearing on their status tab (a real image that loads). Screenshots go to `e2e/shots/` |
+| `npm run e2e` | exports the web bundle, starts a scripted server (`aigm --test --debug`, in a throwaway save folder) and drives the page in Chrome with Playwright: streaming and formatting, Enter and Shift+Enter, the two panes (it measures the columns, the taller reply field, the status above the details, the Compendium's list above its detail and the one-column fallback), save, load and new game against the real routes, slash commands, Esc cancelling, the story following new text, and the place's picture and a character's portrait appearing in the side pane (real images that load). Screenshots go to `e2e/shots/` |
 
 ## 5. Known gaps and risks
 

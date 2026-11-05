@@ -48,13 +48,14 @@ def _location(world: World) -> dict[str, Any] | None:
     if loc_id is None or loc_id not in world.entities:
         return None
     ent = world.entities[loc_id]
+    shown = world.time.rounded(5)
     overview = _own(world, loc_id, "overview")
     return {
         **_ref(world, loc_id),
         "path": _path(world, ent),
         "overview": overview[-1] if overview else None,
-        "time": str(world.time),
-        "period": time_of_day(world.time.hour),
+        "time": str(shown),
+        "period": time_of_day(shown.hour),
     }
 
 

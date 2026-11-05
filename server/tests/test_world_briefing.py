@@ -201,7 +201,8 @@ def test_explicit_breakpoint_replaces_the_automatic_one(w):
 
 def test_adventure_prompt_describes_the_notes_and_time_precision():
     prompt = Game().system(adventure_state(World()))
-    assert "<world_notes>" in prompt and "GM only" in prompt and "say how much" in prompt
+    assert "<world_notes>" in prompt and "GM only" in prompt and "Declare each stretch once" in prompt
+    assert "never skip a journey in a line" in prompt and "`From here`" in prompt
 
 
 def test_the_status_overview_of_a_place_is_not_in_the_briefing():
@@ -214,3 +215,8 @@ def test_the_status_overview_of_a_place_is_not_in_the_briefing():
     w.set_scene(inn.id, [])
     text = build_briefing(w)
     assert "crossroads" in text and "Smoke hangs" not in text and "Wheels turn" not in text
+
+
+def test_the_briefing_shows_the_time_to_the_nearest_five_minutes(w):
+    w.set_time(WorldTime(3, 14, 58))
+    assert build_briefing(w).splitlines()[0] == "Time: Day 3, 15:00 (afternoon)"

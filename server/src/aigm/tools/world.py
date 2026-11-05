@@ -11,9 +11,13 @@ from aigm.tools.base import Tool, ToolOutcome
 from aigm import story as story_rules
 from aigm.story import addition_allowed
 from aigm.tools.story import STORY_PROPERTY, check_story_report
+from aigm.travel import PACES, paced, plan_move, way_text
 from aigm.world import DISCLOSURES, KINDS, Entity, Fact, World, WorldError
-from aigm.world.model import HOLDING_EVENTS, MAX_HOLDING_NOTE_WORDS
-from aigm.world.briefing import LABELS, motive_line
+from aigm.world.model import (
+    BLOCK_KINDS, HOLDING_EVENTS, MAX_BLOCK_TEXT, MAX_HOLDING_NOTE_WORDS, MAX_ROUTE_HOW, MAX_ROUTE_MINUTES, SCALES, Block,
+    duration_text,
+)
+from aigm.world.briefing import LABELS, motive_line, route_line
 from aigm.world.text import normalize_name
 
 ADVENTURE = frozenset({Phase.ADVENTURE})
@@ -21,11 +25,12 @@ RECALL_FACTS = 25  # facts listed for one entity
 RECALL_HITS = 8  # facts listed for a text query
 MAX_NEW_FACTS = 12
 MAX_NEW_ENTITIES = 6
-MAX_ELAPSED_HOURS = 24 * 30
+MAX_ELAPSED_MINUTES = 24 * 60 * 30
 MAX_LOOK_NOTE_WORDS = 40
 MAX_ITEM_EVENTS = 6
 MAX_NEW_ITEMS = 2  # key items created by one `establish` call (docs/KEY_ITEMS.md 5.1)
 MAX_ITEM_NOTE_WORDS = 30
+MAX_NEW_ROUTES = 8  # routes one entity may bring in an `establish` call (docs/TIME.md 5.2)
 
 
 def _fact_line(fact: Fact) -> str:
@@ -65,6 +70,12 @@ def _describe(world: World, ent: Entity) -> list[str]:
     kids = world.children(ent.id)
     if kids:
         lines.append(f"Contains: {_names(kids)}")
+    if ent.kind == "location":
+        if ent.scale:
+            lines[0] += f"; a {ent.scale}"
+        ways = world.routes_of(ent.id)
+        if ways:
+            lines.append("Ways from here: " + "; ".join(route_line(world, r, ent.id) for r in ways))
     if ent.look:
         lines.append(f"Look (what anyone can see; stay within it): {ent.look.summary} {ent.look.description}")
     facts = sorted(world.facts_about(ent.id), key=lambda f: (f.disclosure != "known", int(f.id[1:])))
@@ -138,6 +149,35 @@ ESTABLISH_SCHEMA: dict[str, Any] = {
                             "type": "string",
                             "description": f"For a person: the visible traits you are about to narrate, at most {MAX_LOOK_NOTE_WORDS} words ('tall, one-eyed, in a guard's tabard'). They become part of the person's recorded description. Required for a key item: what it is and looks like, as a phrase that completes 'It is ...', at most {MAX_ITEM_NOTE_WORDS} words ('a thick green-bound ledger with brass corners').",
                         },
+                        "scale": {
+                            "type": "string",
+                            "enum": list(SCALES),
+                            "description": "For a place: its size. room (a room, cave chamber, stall), site (a building, dungeon, ruin, camp), settlement (village, town, city) or region (forest, valley, coast).",
+                        },
+                        "routes": {
+                            "type": "array",
+                            "description": f"For a place: the ways to places already recorded (at most {MAX_NEW_ROUTES}), including its exits. Naming a way again updates it.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "to": {"type": "string", "description": "A recorded place, or one in this call."},
+                                    "minutes": {"type": "integer", "description": "How long the way takes on foot."},
+                                    "hours": {"type": "integer", "description": "The same, in whole hours (give minutes or hours)."},
+                                    "how": {"type": "string", "description": f"The way, in a few words ('down the cellar steps', 'over the Harrow Pass'), up to {MAX_ROUTE_HOW} characters. Tells two ways between the same places apart."},
+                                    "block": {
+                                        "type": ["object", "null"],
+                                        "description": "What stops the party on this way, or null to clear one that was there.",
+                                        "properties": {
+                                            "kind": {"type": "string", "enum": list(BLOCK_KINDS)},
+                                            "text": {"type": "string", "description": f"What the party meets ('a locked oak door'), up to {MAX_BLOCK_TEXT} characters."},
+                                            "opens_by": {"type": "string", "description": "For you alone: what would open it."},
+                                        },
+                                        "required": ["kind", "text"],
+                                    },
+                                },
+                                "required": ["to"],
+                            },
+                        },
                     },
                     "required": ["name", "kind"],
                 },
@@ -204,6 +244,62 @@ def _item_note(raw: dict[str, Any], name: str, out: dict[str, str]) -> None:
     out[name] = " ".join(note.split())
 
 
+def _read_block(raw: Any) -> Block | None:
+    if not isinstance(raw, dict):
+        raise WorldError("`block` must be an object with a kind and a text, or null to clear it")
+    opens = raw.get("opens_by", "")
+    return Block(str(raw.get("kind")), str(raw.get("text") or ""), opens if isinstance(opens, str) else "")
+
+
+def _geography(world: World, ent: Entity, raw: dict[str, Any], routed: list[str], ignored: list[str]) -> None:
+    """A place's `scale` and `routes` from an `establish` entity (docs/TIME.md 5.1 and 5.2). Raises WorldError."""
+    if raw.get("scale") is not None:
+        if not isinstance(raw["scale"], str):
+            raise WorldError(f"scale must be one of {', '.join(SCALES)}")
+        world.set_scale(ent.id, raw["scale"])
+    ways = raw.get("routes")
+    if ways is None:
+        return
+    if not isinstance(ways, list) or not all(isinstance(w, dict) for w in ways):
+        raise WorldError("`routes` must be a list of objects with `to` and `minutes` or `hours`")
+    if len(ways) > MAX_NEW_ROUTES:
+        raise WorldError(f"at most {MAX_NEW_ROUTES} routes per place per call")
+    for way in ways:
+        other = world.resolve(way["to"]) if isinstance(way.get("to"), str) else None
+        if other is None:
+            raise WorldError(f"route to {way.get('to')!r}: that place is not recorded; add it under `entities` first")
+        minutes, hours = way.get("minutes"), way.get("hours")
+        if minutes is not None and hours is not None:
+            raise WorldError(f"route to {other.name}: give `minutes` or `hours`, not both")
+        if minutes is None and hours is None:
+            raise WorldError(f"route to {other.name}: say how long it takes, with `minutes` or `hours`")
+        if hours is not None:
+            if isinstance(hours, bool) or not isinstance(hours, int):
+                raise WorldError(f"route to {other.name}: `hours` must be a whole number")
+            minutes = hours * 60
+        block: Block | None | str = "keep"
+        if "block" in way:
+            block = None if way["block"] is None else _read_block(way["block"])
+        try:
+            route, _ = world.set_route(ent.id, other.id, minutes, way.get("how") or "", block=block)
+        except WorldError as exc:
+            raise WorldError(f"route to {other.name}: {exc}") from None
+        routed.append(f"{ent.name} to {other.name} ({duration_text(route.minutes)}{', blocked' if route.block else ''})")
+
+
+def _off_the_map(before: World, world: World, places: list[Entity]) -> list[str]:
+    """New places that neither have a route nor lie inside the place the party is in (docs/TIME.md 5.2)."""
+    here = world.scene.location
+    out: list[str] = []
+    for ent in places:
+        if before.find(ent.name) is not None or world.routes_of(ent.id):
+            continue  # not new in this call, or already joined to the map
+        inside = ent.id == here or here in {p.id for p in world.parent_chain(ent.id)}
+        if not inside and ent.name not in out:
+            out.append(ent.name)
+    return out
+
+
 def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
     entities, facts, reveals = (_as_list(tool_input.get(k)) for k in ("entities", "facts", "reveal"))
     if not (entities or facts or reveals):
@@ -212,6 +308,7 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
         return ToolOutcome(
             f"Too much at once: at most {MAX_NEW_ENTITIES} entities and {MAX_NEW_FACTS} facts per call.", is_error=True
         )
+    before = state.world
     world = state.world.copy()  # all or nothing: only replaces the real world if everything is accepted
     problems: list[str] = []
     done: list[str] = []
@@ -220,6 +317,7 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     hints: dict[str, str] = {}  # person's name -> look_notes, kept only if the whole call is accepted
     appearance: dict[str, str] = {}  # key item's name -> what it looks like, recorded as a hidden fact below
     items_made: list[str] = []
+    placed: list[str] = []  # new places given no `parent`, put inside the world's top place
     new_items = sum(1 for r in entities if isinstance(r, dict) and r.get("kind") == "item" and world.find(str(r.get("name"))) is None)
     if new_items > MAX_NEW_ITEMS:
         problems.append(f"at most {MAX_NEW_ITEMS} new key items per call: only quest objects are key items")
@@ -240,6 +338,11 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
             if existing:
                 if existing.kind != kind:
                     raise WorldError(f"already recorded as a {existing.kind} (id {existing.id}), not a {kind}")
+                if kind == "location" and raw.get("parent") and existing.parent in (None, world.root):
+                    new_parent = world.resolve(str(raw["parent"]))  # a place put in the top by default can be moved
+                    if new_parent is None:
+                        raise WorldError(f"parent {raw['parent']!r} is not recorded")
+                    world.set_parent(existing.id, new_parent.id)
                 for other in names:
                     if world.find(other) is None:
                         world.add_alias(existing.id, other)  # a new name for something recorded, not a second entity
@@ -256,11 +359,15 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
                 if parent_ent is None:
                     raise WorldError(f"parent {raw['parent']!r} is not recorded")
                 parent = parent_ent.id
+            auto_placed = kind == "location" and parent is None and world.root is not None
+            parent = world.default_parent(kind, parent)
             allowed, why = addition_allowed(state.story, world, kind, parent)
             if not allowed:
                 raise WorldError(f"{why}. This is the road to the goal: use what is already recorded")
             ent = world.add_entity(name, kind, aliases=aliases, parent=parent)
             done.append(f"{ent.name} ({ent.id})")
+            if auto_placed:
+                placed.append(ent.name)
             if kind == "npc":
                 _look_note(raw, ent.name, hints, ignored)
             elif kind == "item":
@@ -270,6 +377,23 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
                 ignored.append(f"`look_notes` of {name!r} (only people have a look)")
         except WorldError as exc:
             problems.append(f"{label}: {exc}")
+    routed: list[str] = []
+    made_places = [world.find(str(r.get("name"))) for r in entities if isinstance(r, dict) and r.get("kind") == "location"]
+    for raw in entities:
+        if not isinstance(raw, dict):
+            continue
+        ent = world.find(str(raw.get("name")))
+        if ent is None:
+            continue
+        if ent.kind != "location":
+            for key in ("scale", "routes"):
+                if raw.get(key) is not None:
+                    ignored.append(f"`{key}` of {ent.name!r} (only places have one)")
+            continue
+        try:
+            _geography(world, ent, raw, routed, ignored)
+        except WorldError as exc:
+            problems.append(f"entity {ent.name!r}: {exc}")
     recorded: list[str] = []
     skipped: list[str] = []
     for name, note in appearance.items():  # until the party has the item, how it looks is the GM's alone
@@ -334,6 +458,19 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
         parts.append("now known to the player: " + ", ".join(revealed))
     if skipped:
         parts.append("skipped (already recorded): " + "; ".join(skipped))
+    if placed:
+        parts.append(
+            "placed directly in " + world.entities[world.root].name + ": " + ", ".join(placed)
+            + ". If any lies inside a town, a building or another place, name it again with `parent` to move it there"
+        )
+    if routed:
+        parts.append("routes: " + ", ".join(routed))
+    unmapped = _off_the_map(before, world, [p for p in made_places if p is not None])
+    if unmapped:
+        parts.append(
+            "not on the map yet: " + ", ".join(unmapped) + ". Give each `routes` to a recorded place (how long it takes "
+            "and how you get there), so travel can take the time it should"
+        )
     if reused:
         parts.append("not added again: " + "; ".join(reused))
     if ignored:
@@ -357,9 +494,26 @@ SET_SCENE_SCHEMA: dict[str, Any] = {
                 "items": {"type": "string"},
                 "description": "Recorded people or groups with the party now (replaces the previous list). Omit to keep it, unless the location changed, which clears it.",
             },
-            "elapsed_hours": {
+            "elapsed_minutes": {
                 "type": "integer",
-                "description": "Whole in-world hours that have passed since your last reply, if any (0 if none).",
+                "description": "Whole in-world minutes that have passed since your last reply, if any (0 if none).",
+            },
+            "pace": {
+                "type": "string",
+                "enum": list(PACES),
+                "description": "How the party travels. normal (the default) is on foot. fast (mounted, a coach, a boat) halves the time and instant (teleportation, a portal) takes none; both need `how`.",
+            },
+            "how": {
+                "type": "string",
+                "description": "With pace fast or instant: the means the story has given the party, in a few words ('Mira's horses', 'the teleportation circle').",
+            },
+            "via": {
+                "type": "string",
+                "description": "When the party has more than one way to the place and has chosen: a place on the way or words from its description ('the servants' passages'). The result lists the ways when you need to ask.",
+            },
+            "guide": {
+                "type": "string",
+                "description": "A recorded person with the party who knows the way, so the party can go somewhere it has not been through places it has not seen.",
             },
         },
     },
@@ -385,10 +539,81 @@ def _unmoved_note(state: GameState, where: str) -> str:
     return f" The place did not change (still {where}). If the party has moved on, pass `location`."
 
 
+def _learn_route(world: World, a: str, b: str, minutes: int) -> None:
+    """The GM took longer than the estimate between two places with no recorded way: keep it, so the way back and the
+    next trip take the same time (docs/TIME.md 5.5). Never changes a route that is already recorded."""
+    if world.find_route(a, b) is None:
+        try:
+            world.set_route(a, b, min(minutes, MAX_ROUTE_MINUTES), source="play")
+        except WorldError:
+            pass  # a place with a dozen routes already: nothing is lost
+
+
+def _move_party(
+    world: World, origin: str, dest: str, *, pace: str, via: str | None, guided: bool, declared: int
+) -> tuple[ToolOutcome | None, str, int, str, list[str]]:
+    """Walk the party from `origin` towards `dest` (docs/TIME.md 5.4). Returns a refusal (or None), where the party ends,
+    the minutes to spend, a note for the GM and the places passed on the way."""
+    if pace == "instant":
+        return None, dest, declared, "", []
+    names = world.entities
+    start, end = names[origin].name, names[dest].name
+    move = plan_move(world, origin, dest, via=via, guided=guided)
+    if move.kind == "choose":
+        listing = "\n".join(f"- {way_text(world, w)}: about {duration_text(w.minutes)}" for w in move.options)
+        return (
+            ToolOutcome(
+                f"Scene not changed: there is more than one way from {start} to {end}:\n{listing}\n"
+                "Unless the player's own words, or what you have already narrated, chose one, ask which they take, in the "
+                "story's voice (describe the ways, do not number them or say 'route'), and end your turn. Then call "
+                "`set_scene` again with `via` naming a place on the way or words from its description.",
+                is_error=True,
+            ),
+            origin, 0, "", [],
+        )
+    if move.kind == "none":
+        return (
+            ToolOutcome(
+                f"Scene not changed: the party can find no way from {start} to {end}. Narrate that they cannot get there "
+                "from here, and let the player try something else.",
+                is_error=True,
+            ),
+            origin, 0, "", [],
+        )
+    needed = paced(move.minutes, pace)
+    suffix = " at this pace" if pace != "normal" else ""
+    if move.reason == "unexplored":
+        ahead = names[move.next_place].name if move.next_place else end
+        note = (
+            f" The party stops at {names[move.stop].name}: it is new to them, and they have not yet seen the way on to "
+            f"{ahead}. Narrate the journey as far as {names[move.stop].name} (about {duration_text(needed)}{suffix}) and no "
+            f"further; they have to explore from there, and can set out for {end} again afterwards."
+        )
+    elif move.reason == "blocked" and move.blocker is not None:
+        opens = f" (for you alone, it opens by: {move.blocker.block.opens_by})" if move.blocker.block.opens_by else ""
+        note = (
+            f" The party is stopped at {names[move.stop].name} on the way to {end}: {move.blocker.block.text}{opens}. "
+            "Narrate reaching it and no further; the way on waits until it is dealt with (a key, a lockpicking attempt, "
+            "force, or another way round)."
+        )
+    else:
+        note = ""
+        if needed > declared:
+            note = (
+                f" The way from {start} to {end} takes about {duration_text(needed)}{suffix}"
+                + ("; the clock is moved to match." if declared else ".")
+            )
+        if pace == "normal" and move.kind == "estimate" and declared > move.minutes:
+            _learn_route(world, origin, dest, declared)
+    complete = move.reason is None
+    return None, move.stop, (max(needed, declared) if complete else needed), note, move.passed
+
+
 def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
     world = state.world.copy()
     problems: list[str] = []
-    loc_ref, present_in, hours = tool_input.get("location"), tool_input.get("present"), tool_input.get("elapsed_hours")
+    loc_ref, present_in = tool_input.get("location"), tool_input.get("present")
+    minutes, hours = tool_input.get("elapsed_minutes"), tool_input.get("elapsed_hours")  # hours: an older spelling
     location = world.scene.location
     if loc_ref is not None:
         ent = world.resolve(loc_ref) if isinstance(loc_ref, str) else None
@@ -409,19 +634,59 @@ def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
                 present.append(ent.id)
     elif location != world.scene.location:
         present = []  # moved without saying who is there: do not carry people along by accident
-    if hours is not None:
-        if isinstance(hours, bool) or not isinstance(hours, int) or not 0 <= hours <= MAX_ELAPSED_HOURS:
-            problems.append(f"elapsed_hours must be a whole number from 0 to {MAX_ELAPSED_HOURS}")
+    if minutes is not None and hours is not None:
+        problems.append("give `elapsed_minutes` or `elapsed_hours`, not both")
+    elif hours is not None:
+        if isinstance(hours, bool) or not isinstance(hours, int) or hours < 0:
+            problems.append("elapsed_hours must be a whole number of hours")
+        else:
+            minutes = hours * 60
+    if minutes is not None and not problems:
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes <= MAX_ELAPSED_MINUTES:
+            problems.append(f"elapsed_minutes must be a whole number from 0 to {MAX_ELAPSED_MINUTES}")
+    pace, how = tool_input.get("pace", "normal"), tool_input.get("how")
+    via, guide = tool_input.get("via"), tool_input.get("guide")
+    if via is not None and not isinstance(via, str):
+        problems.append("`via` must be text")
+    guide_ent = None
+    if guide is not None:
+        guide_ent = world.resolve(guide) if isinstance(guide, str) else None
+        if guide_ent is None or guide_ent.id not in present:
+            problems.append(f"`guide` {guide!r} must be a recorded person who is with the party now (see `present`)")
+    if pace not in PACES:
+        problems.append(f"pace must be one of {', '.join(PACES)}")
+    elif pace != "normal" and not (isinstance(how, str) and len(how.strip()) >= 3):
+        problems.append(f"`pace` {pace} needs `how`: the means the story has given the party (a horse, a teleportation circle)")
     new_story, story_notes = None, []
     if "story" in tool_input:
         new_story, story_problems, story_notes = check_story_report(tool_input["story"], state)
         problems += story_problems
     if problems:
         return ToolOutcome("Scene not changed:\n- " + "\n- ".join(problems), is_error=True)
+    origin = state.world.scene.location
+    moved = location is not None and origin is not None and location != origin
+    declared = minutes or 0
+    travel_note = ""
     try:
+        spent, passed = declared, []
+        if moved:
+            refusal, final, spent, travel_note, passed = _move_party(
+                world, origin, location, pace=pace, via=via, guided=guide_ent is not None, declared=declared
+            )
+            if refusal is not None:
+                return refusal
+            if final != location:  # stopped short: the people at the destination are not here
+                location, present = final, []
         world.set_scene(location, present, state.turn)
-        if hours:
-            world.advance_time(hours, reported=True)
+        if guide_ent is not None:
+            for place in passed:  # led through, so the party has now been there
+                world.entities[place].visited = True
+        if spent:
+            name = world.entities[location].name if moved else ""
+            world.advance_minutes(
+                spent, reported=True, turn=state.turn,
+                why=f"the way to {name}" + (f" ({how.strip()})" if pace != "normal" else "") if moved else "time passing",
+            )
     except WorldError as exc:
         return ToolOutcome(f"Scene not changed: {exc}", is_error=True)
     if location != state.world.scene.location:
@@ -432,7 +697,10 @@ def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     where = world.entities[location].name if location else "not set"
     unmoved = _unmoved_note(state, where) if loc_ref is None and location else ""
     here = _names([world.entities[e] for e in world.scene.present]) or "nobody recorded"
-    return ToolOutcome(f"Scene: {where}. With the party: {here}. Time: {world.time}." + unmoved + "".join(f" {n}" for n in story_notes))
+    return ToolOutcome(
+        f"Scene: {where}. With the party: {here}. Time: {world.time}." + travel_note + unmoved
+        + "".join(f" {n}" for n in story_notes)
+    )
 
 
 # ---- key_item ---------------------------------------------------------------------------

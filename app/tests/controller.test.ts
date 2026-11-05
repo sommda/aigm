@@ -212,6 +212,15 @@ describe("slash commands", () => {
     expect(t).toContain("Unknown command: /nope. Type /help.");
     expect(t).toContain("Usage: /info NAME");
   });
+  test("/playtest turns playtest mode on at a debug server", async () => {
+    let body: unknown;
+    const { c, s } = setup({ "POST /debug/playtest": (b) => ((body = b), { status: 200, body: { playtest: true } }) });
+    await c.startup();
+    await c.submit("/playtest");
+    expect(body).toEqual({ enabled: true });
+    expect(texts(s).pop()).toMatch(/Playtest mode/);
+  });
+
   test("debug commands need a debug server", async () => {
     const { c, s } = setup({ "GET /health": () => ({ status: 200, body: {} }) });
     await c.startup();

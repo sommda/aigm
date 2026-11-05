@@ -14,6 +14,7 @@ from aigm.roleplay import EFFECTS, QUALITIES
 from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
 from aigm.tools.roll_dice import MIN_NARRATION_CHARS, build_roll_payload
+from aigm.tools.timing import MINUTES_PROPERTY, read_minutes, spend
 from aigm.world.model import Motive
 
 ADVENTURE = frozenset({Phase.ADVENTURE})
@@ -62,6 +63,7 @@ SCHEMA: dict[str, Any] = {
                 "description": "The narration the player reads just before the dice appear: what the character says "
                 "and does and what is at stake, in the story's voice. Do not repeat it in your reply.",
             },
+            "minutes": MINUTES_PROPERTY,
         },
         "required": ["character", "skill", "target", "spoken", "quality", "modifier", "narration"],
     },
@@ -130,6 +132,9 @@ def social_check(tool_use_id: str, tool_input: dict[str, Any], state: GameState)
         return _refuse("`skill` must be the skill's name.")
     if quality not in QUALITIES:
         return _refuse(f"`quality` must be one of {', '.join(QUALITIES)}.")
+    minutes, minutes_problem = read_minutes(tool_input)
+    if minutes_problem:
+        return _refuse(f"{minutes_problem}.")
     style = rulesets.get(state.ruleset).social_style
     modifier, dc = tool_input.get("modifier"), tool_input.get("dc")
     if not _whole(modifier):
@@ -184,6 +189,9 @@ def social_check(tool_use_id: str, tool_input: dict[str, Any], state: GameState)
         + (f"; where the words touched what they want, show it as a tell ({tells})" if tells else "")
         + ". Never state their motive or the DC."
     )
+    passed = spend(state, minutes, f"talking to {target.name}")
+    if passed:
+        lines.append(passed)
     return ToolOutcome(" ".join(lines), event=payload, say=narration.strip())
 
 

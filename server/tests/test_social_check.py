@@ -319,3 +319,11 @@ def test_persuade_in_test_mode_asks_for_words_and_then_rolls(client):
     assert "`social_check`" in text and "Persuasion for Test Hero on Wren" in text and "The words earned advantage." in text
     again = reply_text(chat(client, "persuade Wren Please lend us the back room, for the captain owes me a favour"))
     assert "Persuasion for Test Hero" in again  # a new message is a new try
+
+
+def test_a_social_check_with_minutes_moves_the_clock(state):
+    bad = check(state, minutes=-5)
+    assert bad.is_error and "minutes" in bad.content and state.world.time == WorldTime(1, 8, 0)
+    out = check(state, minutes=60)
+    assert not out.is_error and state.world.time == WorldTime(1, 9, 0) and "1 hour pass" in out.content
+    assert state.world.time_log[-1]["why"] == "talking to Harlan Voss"

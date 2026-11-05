@@ -256,7 +256,7 @@ async def test_extract_request_and_parsing():
         "entities": [{"name": "Wren", "kind": "npc", "aliases": ["the barmaid"], "parent": None}],
         "facts": [{"text": "Wren pours drinks at the Rusty Flagon.", "about": ["Wren"], "aspect": "role",
                    "disclosure": "known", "evidence": "Wren waves."}],
-        "reveals": ["f0002"], "location": "Rusty Flagon", "present": ["Wren"], "elapsed_hours": 2,
+        "reveals": ["f0002"], "location": "Rusty Flagon", "present": ["Wren"], "elapsed_minutes": 120,
     }  # fmt: skip
     cur, calls = curator(reply)
     ex = await cur.extract(extract_request())
@@ -269,7 +269,7 @@ async def test_extract_request_and_parsing():
     assert params["messages"][0]["content"].endswith("GM: Wren waves.")
     assert ex.entities == [EntityProposal("Wren", "npc", ["the barmaid"], None)]
     assert ex.facts[0] == FactProposal("Wren pours drinks at the Rusty Flagon.", ["Wren"], "role", "known", "Wren waves.", None)
-    assert (ex.reveals, ex.location, ex.present, ex.elapsed_hours) == (["f0002"], "Rusty Flagon", ["Wren"], 2)
+    assert (ex.reveals, ex.location, ex.present, ex.elapsed_minutes) == (["f0002"], "Rusty Flagon", ["Wren"], 120)
 
 
 async def test_digest_request_and_parsing():
@@ -289,10 +289,10 @@ async def test_digest_request_and_parsing():
 
 async def test_extract_parsing_is_defensive():
     cur, _ = curator({"entities": "x", "facts": [{"text": 5}, {"text": "A fact.", "about": ["A"], "disclosure": "weird"}],
-                      "reveals": [1, "f1"], "location": 3, "present": None, "elapsed_hours": True})  # fmt: skip
+                      "reveals": [1, "f1"], "location": 3, "present": None, "elapsed_minutes": True})  # fmt: skip
     ex = await cur.extract(extract_request())
     assert ex.entities == [] and ex.reveals == ["f1"] and ex.location is None and ex.present is None
-    assert ex.elapsed_hours == 0 and [f.disclosure for f in ex.facts] == ["hidden"]
+    assert ex.elapsed_minutes == 0 and [f.disclosure for f in ex.facts] == ["hidden"]
 
 
 async def test_reconcile_parsing(graph):
@@ -323,7 +323,7 @@ async def test_expand_uses_the_stronger_model_and_forces_hidden_defaults(graph):
 
 
 async def test_models_and_efforts_are_configurable():
-    cur, calls = curator({"entities": [], "facts": [], "reveals": [], "location": None, "present": None, "elapsed_hours": 0},
+    cur, calls = curator({"entities": [], "facts": [], "reveals": [], "location": None, "present": None, "elapsed_minutes": 0},
                          model="claude-sonnet-5-5", effort="medium")  # fmt: skip
     await cur.extract(extract_request())
     assert calls.calls[0]["model"] == "claude-sonnet-5-5" and calls.calls[0]["output_config"]["effort"] == "medium"
@@ -356,7 +356,7 @@ async def test_a_full_pass_with_the_model_curator(graph):
     extract = {"entities": [{"name": "Fenn", "kind": "npc", "aliases": [], "parent": None}],
                "facts": [{"text": "Fenn trades furs in Ashby.", "about": ["Fenn", "Ashby"], "aspect": None,
                           "disclosure": "known", "evidence": ""}],
-               "reveals": [], "location": None, "present": None, "elapsed_hours": 1}  # fmt: skip
+               "reveals": [], "location": None, "present": None, "elapsed_minutes": 60}  # fmt: skip
     reconcile = {"labels": [{"index": 0, "label": "new", "existing_id": None, "with_proposal": None}], "same_as": []}
     expand = {"entities": [], "facts": [{"text": "The Rusty Flagon was built by a retired sea captain.", "about": ["Rusty Flagon"],
                                          "aspect": "history", "replaces": None}]}  # fmt: skip
@@ -405,7 +405,7 @@ async def test_the_steps_that_only_write_to_a_format_run_with_thinking_off_and_t
     from aigm.world.curator import LookRequest, PlaceLookRequest
 
     assert NO_THINKING == {"describe", "describe_place", "describe_item"}
-    reasoning = {"entities": [], "facts": [], "reveals": [], "location": None, "present": None, "elapsed_hours": 0}
+    reasoning = {"entities": [], "facts": [], "reveals": [], "location": None, "present": None, "elapsed_minutes": 0}
     cur, calls = curator({"looks": []}, {"looks": []}, reasoning)
     await cur.look(LookRequest([], "s", "r"))
     await cur.place_look(PlaceLookRequest([], "s", "r"))

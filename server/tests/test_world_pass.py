@@ -246,13 +246,13 @@ async def test_lookalike_entities_are_put_to_the_curator_as_questions(world):
 
 async def test_hours_the_gm_already_reported_are_not_counted_twice(world):
     world.advance_time(2, reported=True)
-    result = await run_pass(world, convo("x"), FakeCurator(Extraction(elapsed_hours=5)))
+    result = await run_pass(world, convo("x"), FakeCurator(Extraction(elapsed_minutes=300)))
     live = world.copy()
     apply_ops(live, result.ops)
-    assert live.time == WorldTime(1, 8 + 2 + 3) and live.reported_hours == 0
+    assert live.time == WorldTime(1, 8 + 2 + 3) and live.reported_minutes == 0
     # narration that covered less than the GM reported adds nothing
     live2 = world.copy()
-    apply_ops(live2, (await run_pass(world, convo("x"), FakeCurator(Extraction(elapsed_hours=1)))).ops)
+    apply_ops(live2, (await run_pass(world, convo("x"), FakeCurator(Extraction(elapsed_minutes=60)))).ops)
     assert live2.time == WorldTime(1, 10)
 
 

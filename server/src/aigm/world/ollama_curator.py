@@ -23,7 +23,7 @@ class OllamaCurator(AnthropicCurator):
         host: str = "http://localhost:11434",
         num_ctx: int = 32768,
         keep_alive: str | None = None,
-        max_tokens: int = 8000,
+        max_tokens: int = 16000,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         super().__init__(

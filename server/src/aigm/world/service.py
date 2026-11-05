@@ -60,6 +60,8 @@ class CuratorService:
         if session.state.phase is not Phase.ADVENTURE or session.curating or session.busy:
             return False
         pages = self.pages(session)
+        if session.state.pass_now and pages > 0:  # playtest mode just ended (docs/PLAYTEST.md)
+            return True
         first = session.state.world.processed_through == SEED_MESSAGES
         if pages >= (min(FIRST_PASS_PAGES, self.every_pages) if first else self.every_pages):
             return True
@@ -77,7 +79,7 @@ class CuratorService:
             return False
         generation = session.generation
         session.curating = True
-        session.state.pass_requested = False
+        session.state.pass_requested = session.state.pass_now = False
         try:
             result = await run_pass(
                 session.state.world,

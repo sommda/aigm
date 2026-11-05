@@ -3,13 +3,11 @@ import { GameController } from "../core/controller";
 import { Button, Spinner } from "./controls";
 import { color, font, space } from "./theme";
 
-export type Panel = "status" | "compendium" | null;
-
 /** The top bar: controls to open the tabs and the game menu, and the status of the game on the right. */
 export function NavBar({
   game,
-  panel,
-  onPanel,
+  compendiumOpen,
+  onCompendium,
   showReasoning,
   onToggleReasoning,
   onSave,
@@ -17,8 +15,8 @@ export function NavBar({
   onNew,
 }: {
   game: GameController;
-  panel: Panel;
-  onPanel: (p: Panel) => void;
+  compendiumOpen: boolean;
+  onCompendium: () => void;
   showReasoning: boolean;
   onToggleReasoning: () => void;
   onSave: () => void;
@@ -40,14 +38,11 @@ export function NavBar({
     <View style={styles.bar}>
       <View style={styles.row}>
         <Text style={styles.title}>AIGM</Text>
-        {game.hasStatus ? (
-          <Button label="Status" active={panel === "status"} onPress={() => onPanel(panel === "status" ? null : "status")} testID="nav-status" />
-        ) : null}
         {game.hasCompendium ? (
           <Button
             label={unread ? `Compendium ✦${unread}` : "Compendium"}
-            active={panel === "compendium"}
-            onPress={() => onPanel(panel === "compendium" ? null : "compendium")}
+            active={compendiumOpen}
+            onPress={onCompendium}
             testID="nav-compendium"
           />
         ) : null}

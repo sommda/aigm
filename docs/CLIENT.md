@@ -242,6 +242,7 @@ when it is given.
 | `/story` | `GET /debug/story` | Debug servers only: prints the whole story plan (spoilers) into the transcript. |
 | `/context` | `GET /debug/context` | Debug servers only: opens the context viewer (same as `Ctrl+K`). See below. |
 | `/thinking [on\|off]` | `PUT /debug/thinking` | Debug servers only: turns the model's thinking on or off, or flips it (same as `F6`). The status line shows `DEBUG (no thinking)` while it is off. |
+| `/playtest` | `POST /debug/playtest` | Debug servers only: the GM sets up the world and the party as you instruct, until you tell it to leave (PLAYTEST.md). |
 | `/status` (`/s`) | `GET /status` | Opens the status page (same as `F7`). See below. |
 | `/sheet [NAME]` | `GET /characters...` | Opens the status page on a character's tab (the first character without a name; a start of the name will do). |
 | `/compendium [TAB\|NAME]` (`/journal`, `/c`) | `GET /compendium...` | Opens the compendium (same as `Ctrl+G`), on a tab (`locations`, `characters`, `other`) or on the entry with that name. See below. |

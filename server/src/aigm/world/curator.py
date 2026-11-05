@@ -13,11 +13,22 @@ from aigm.world.model import Entity, Fact, Motive, WorldTime
 
 
 @dataclass
+class RouteProposal:
+    """A way from the proposed place to another, on foot (docs/TIME.md 5.2)."""
+
+    to: str  # name of a place already recorded, or another one in the same answer
+    minutes: int
+    how: str = ""
+
+
+@dataclass
 class EntityProposal:
     name: str
     kind: str
     aliases: list[str] = field(default_factory=list)
     parent: str | None = None  # name
+    scale: str | None = None  # a place's size: room, site, settlement or region (docs/TIME.md 5.1)
+    routes: list[RouteProposal] = field(default_factory=list)  # a place's ways to other places
 
 
 @dataclass
@@ -64,7 +75,7 @@ class Extraction:
     reveals: list[str] = field(default_factory=list)  # ids of hidden facts the narration just made known
     location: str | None = None  # where the party now is (name)
     present: list[str] | None = None  # who is with them (names); None: not mentioned
-    elapsed_hours: int = 0  # in-world time the narration covered
+    elapsed_minutes: int = 0  # in-world time the narration covered
     start_hour: int | None = None  # bootstrap only: the hour of day (0-23) the opening situation implies
     quest_reports: list[tuple[str, str, str]] = field(default_factory=list)  # (quest id, status, outcome) seen in play
     goal_revealed: bool = False  # the narration told the player what the final goal is

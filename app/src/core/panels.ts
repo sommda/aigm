@@ -63,15 +63,23 @@ export class StatusPanel extends Notifier {
     this.pollTimer = null;
   }
 
-  /** While the open page's picture (a character's portrait, or the view of the party's place) is still being painted,
-   * look again every few seconds, for a few minutes. */
+  /** While a picture on show (a character's portrait, or the view of the party's place) is still being painted, look
+   * again every few seconds, for a few minutes. */
   private watch(): void {
     this.stop();
-    const page = this.model.page as { portrait?: { state?: string }; location?: { portrait?: { state?: string } } } | undefined;
-    const portrait = this.model.character ? page?.portrait : page?.location?.portrait;
-    if (portrait?.state === "pending" && this.polls < PORTRAIT_POLLS) {
+    if ((this.placePending || this.characterPending) && this.polls < PORTRAIT_POLLS) {
       this.pollTimer = setTimeout(() => void this.poll(), PORTRAIT_POLL_MS);
     }
+  }
+
+  private get placePending(): boolean {
+    const place = this.model.place as { location?: { portrait?: { state?: string } } } | undefined;
+    return place?.location?.portrait?.state === "pending";
+  }
+
+  private get characterPending(): boolean {
+    const page = this.model.character ? (this.model.page as { portrait?: { state?: string } } | undefined) : undefined;
+    return page?.portrait?.state === "pending";
   }
 
   private async poll(): Promise<void> {
@@ -80,8 +88,11 @@ export class StatusPanel extends Notifier {
     const tab = m.tab;
     const name = m.character;
     try {
-      const page = name ? await this.api.character(name) : await this.api.status();
-      if (m.tab === tab) m.load(tab, page);
+      if (this.placePending) m.load(STATUS_TAB, await this.api.status());
+      if (name && this.characterPending) {
+        const page = await this.api.character(name);
+        if (m.tab === tab) m.load(tab, page);
+      }
     } catch {
       // the next look will tell; a failed poll is not shown
     }
@@ -89,7 +100,7 @@ export class StatusPanel extends Notifier {
     this.watch();
   }
 
-  /** Ask for the party (the tabs) and for the page that is showing. */
+  /** Ask for the party, the place (always: it is on show next to whatever else is) and the selected character. */
   async load(): Promise<void> {
     const m = this.model;
     this.polls = 0;
@@ -103,9 +114,9 @@ export class StatusPanel extends Notifier {
         m.tab = m.findTab(this.startCharacter) ?? first;
         this.startCharacter = undefined;
       }
-      const tab = m.tab;
       const name = m.character;
-      m.load(tab, name ? await this.api.character(name) : await this.api.status());
+      m.load(STATUS_TAB, await this.api.status());
+      if (name) m.load(m.tab, await this.api.character(name));
       this.error = "";
     } catch (e) {
       this.error = unavailable(e, "status page");
@@ -113,6 +124,30 @@ export class StatusPanel extends Notifier {
     this.loading = false;
     this.changed();
     this.watch();
+  }
+
+  /** Show the place in the details again (a character who left the party is dropped by `loadRoster`). */
+  async showPlace(): Promise<void> {
+    await this.switchTo(STATUS_TAB);
+  }
+
+  /** Forget everything shown (a new game, or Session 0 where there is no party yet). */
+  reset(): void {
+    this.stop();
+    this.model = new StatusModel();
+    this.error = "";
+    this.loading = false;
+    this.changed();
+  }
+
+  /** Return the right pane to the status: the place in the details, or the named character ("" is the first). */
+  async open(character?: string): Promise<void> {
+    if (character === undefined) {
+      this.model.tab = STATUS_TAB;
+    } else {
+      this.startCharacter = character;
+    }
+    await this.load();
   }
 
   async switchTo(tab: string): Promise<void> {

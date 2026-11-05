@@ -169,7 +169,16 @@ function HiddenDetail({ d }: { d: Json }) {
 }
 
 /** What the player has learned about the world: tabs, a list and the entry under the cursor. */
-export function CompendiumView({ panel }: { panel: CompendiumPanel }) {
+export function CompendiumView({
+  panel,
+  stacked = false,
+  detailOnly = false,
+}: {
+  panel: CompendiumPanel;
+  stacked?: boolean;
+  /** Only the entry the panel was opened on, with its links and Back: the details pane showing a person. */
+  detailOnly?: boolean;
+}) {
   useStore(panel);
   const [width, setWidth] = useState(1000);
   const [showDetail, setShowDetail] = useState(false);
@@ -183,7 +192,7 @@ export function CompendiumView({ panel }: { panel: CompendiumPanel }) {
   }, [panel]);
 
   const m = panel.model;
-  const wide = width >= WIDE;
+  const wide = !stacked && width >= WIDE;
   const tabs = m.tabs.map((id) => {
     const unread = id === HIDDEN ? 0 : m.unreadCount(id);
     return { id, title: `${TITLES[id]} (${m.counts[id].count})`, badge: unread ? `✦${unread}` : undefined };
@@ -196,7 +205,7 @@ export function CompendiumView({ panel }: { panel: CompendiumPanel }) {
   };
 
   const list = (
-    <ScrollView style={wide ? styles.list : { flex: 1 }} testID="compendium-list">
+    <ScrollView style={wide ? styles.list : stacked ? styles.stackedList : { flex: 1 }} testID="compendium-list">
       {m.entries.length === 0 ? (
         <Text style={[styles.dim, { padding: space.md }]}>{m.query || m.unseenOnly ? "No entries match." : "Nothing is known yet."}</Text>
       ) : (
@@ -218,7 +227,7 @@ export function CompendiumView({ panel }: { panel: CompendiumPanel }) {
   );
   const detail = (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: space.lg }}>
-      {!wide ? (
+      {!wide && !stacked && !detailOnly ? (
         <View style={{ flexDirection: "row", gap: space.sm, marginBottom: space.sm }}>
           <Button label="‹ List" onPress={() => setShowDetail(false)} testID="back-to-list" />
           {m.trail.length ? <Button label="Back" onPress={() => void panel.back()} /> : null}
@@ -231,6 +240,16 @@ export function CompendiumView({ panel }: { panel: CompendiumPanel }) {
       <Detail panel={panel} />
     </ScrollView>
   );
+
+  if (detailOnly) {
+    return (
+      <View style={styles.wrap} testID="compendium-view">
+        {panel.error ? <Text style={{ color: color.red, padding: space.md }}>{panel.error}</Text> : null}
+        {panel.notice ? <Text style={{ color: color.yellow, padding: space.md }}>{panel.notice}</Text> : null}
+        {detail}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrap} onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width)} testID="compendium-view">
@@ -253,6 +272,11 @@ export function CompendiumView({ panel }: { panel: CompendiumPanel }) {
       {panel.notice ? <Text style={{ color: color.yellow, paddingHorizontal: space.md }}>{panel.notice}</Text> : null}
       {wide ? (
         <View style={{ flex: 1, flexDirection: "row" }}>
+          {list}
+          {detail}
+        </View>
+      ) : stacked ? (
+        <View style={{ flex: 1 }}>
           {list}
           {detail}
         </View>
@@ -280,6 +304,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     backgroundColor: color.bg,
   },
+  stackedList: { flex: 1, borderBottomWidth: 1, borderBottomColor: color.border },
   list: { width: 300, borderRightWidth: 1, borderRightColor: color.border },
   row: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: space.md, paddingVertical: 6 },
   rowOn: { backgroundColor: color.panelAlt },

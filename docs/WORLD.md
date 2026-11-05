@@ -124,10 +124,10 @@ turns:
 
 ```jsonc
 {
-  "time": { "day": 1, "hour": 8 },                              // the in-world clock (see below)
+  "time": { "day": 1, "hour": 8, "minute": 0 },                  // the in-world clock (see below)
   "scene": { "location": "e012", "present": ["e020", "e021"] },   // where the party is, who is with them
   "processed_through": 37,        // number of history messages the curator has digested
-  "reported_hours": 0,            // hours the GM moved the clock itself since the last pass (see 4.5)
+  "reported_minutes": 0,          // minutes the GM moved the clock itself since the last pass (see 4.5)
   "corrections": [],              // notes for the next briefing: {"text", "turn"} (see 6.4)
   "next_id": { "f": 43, "e": 22 },
   "facts": [ ... ], "entities": [ ... ]
@@ -143,7 +143,7 @@ the GM can also report it through `set_scene` (6.3). Every fact is stamped with 
 to the GM as one line of the briefing so narration (light, weather, shops open) agrees with it, and that is *all* v1
 does with it. The clock, the stamps and the reserved `from_time`/`until_time` fields exist so that later work (places
 that change, factions that move, timed events) needs no migration. The clock never goes backward and only moves forward
-by whole hours or more, to keep it from drifting on small remarks.
+by whole minutes (the clock has a `minute` field, docs/TIME.md), to keep it from drifting on small remarks.
 
 ### 2.5 Storage
 
@@ -342,9 +342,9 @@ floats free.
   opportunity retries the same messages. Repeated failure only costs freshness, never the correctness of existing canon.
 - **Save** snapshots the committed world and `processed_through`, so a game saved mid-pass restores cleanly and catches
   up after the next turn.
-- **Clock accounting.** `set_scene` hours advance the clock at once and are tallied in `reported_hours`. When a pass
-  reads the narration it reports how many hours it covered; the clock moves only by the part the GM has not already
-  reported, and the tally resets, so time is never counted twice.
+- **Clock accounting.** `set_scene` minutes advance the clock at once and are tallied in `reported_minutes`. When a
+  pass reads the narration it reports how many minutes it covered; the clock moves only by the part the GM has not
+  already reported, and the tally resets, so time is never counted twice.
 - **Corrections** (6.4) are stored in the world and shown in exactly one briefing: the turn that displays them clears
   them when it commits, so a failed turn does not lose them.
 - **Rules enforced by the server whatever the curator is** (`world/passes.py`): a clash with a `known` fact is rejected
@@ -554,11 +554,17 @@ fine, and are small).
     **Contradictions of known facts are not detected here**: that needs a model and is the curator's job (4.3, rule 1,
     with the correction note in 6.4).
   - Facts are `source: improvised`, stamped with the turn and the world time.
-- `set_scene({ "location", "present", "elapsed_hours" })` lets the GM declare where the party now is, who is with them,
-  and how much in-world time passed (0 to 720 whole hours; the clock moves forward). Places and people must already be
-  recorded. Moving to a new location without giving `present` clears the list, so people are not carried along by
-  accident. It is optional, since the curator also derives both; its value is that the very next briefing is right even
-  if the curator has not run yet.
+  - `set_scene` walks the party along the routes: it asks which way when there are several, stops at the first place
+    the party has not been to and at a block, and takes a `guide` through unseen places (docs/TIME.md 5.4).
+  - A place given no `parent` goes inside the world's one top place (`World.root`, made by the bootstrap), so every
+    place shares an ancestor with every other (docs/TIME.md 5.1).
+  - A place may also carry a `scale` and `routes` (the ways to other places, with a time, a description and an
+    optional block), which make the map the travel rules work on (docs/TIME.md 5).
+- `set_scene({ "location", "present", "elapsed_minutes" })` lets the GM declare where the party now is, who is with
+  them, and how much in-world time passed (0 to 43200 whole minutes; the clock moves forward). Places and people must
+  already be recorded. Moving to a new location without giving `present` clears the list, so people are not carried
+  along by accident. It is optional, since the curator also derives both; its value is that the very next briefing is
+  right even if the curator has not run yet.
 
 These two are cheap, structured, and keep the curator's job to catching what the GM did not record.
 

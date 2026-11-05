@@ -1,8 +1,7 @@
-import { useEffect, useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Json } from "../core/events";
 import { StatusPanel } from "../core/panels";
-import { Button, Heading, LookBlock, Portrait, TabBar } from "./controls";
+import { Heading, LookBlock, Portrait } from "./controls";
 import { color, font, selectable, space } from "./theme";
 import { useStore } from "./useStore";
 
@@ -41,25 +40,13 @@ function Table({ columns, rows }: { columns: string[]; rows: string[][] }) {
   );
 }
 
-function Place({ page, resolve }: { page: Json; resolve: (path: string) => string }) {
+export function Place({ page }: { page: Json }) {
   const loc = page.location as Json | undefined;
   const table = (page.table as Json | undefined) ?? {};
   if (!loc) return <Text style={styles.dim}>The party's location has not been recorded yet.</Text>;
-  const path = arr(loc.path).map((p) => String(p.name));
-  const where = path.length ? "in " + [...path].reverse().join(", ") : "";
-  const when = loc.time ? `${loc.time} · ${loc.period}` : "";
-  const sub = [where, when].filter(Boolean).join("  ·  ");
-  const look = loc.look as Json | null | undefined;
   return (
     <View>
-      {loc.portrait ? (
-        <View style={{ marginBottom: space.md }}>
-          <Portrait portrait={loc.portrait} name={String(loc.name)} alt={look ? String(look.summary ?? "") : undefined} resolve={resolve} maxWidth={720} fitHeight />
-        </View>
-      ) : null}
-      <Text style={[styles.name, selectable]}>{String(loc.name)}</Text>
-      {sub ? <Text style={styles.dim}>{sub}</Text> : null}
-      {loc.overview ? <Text style={[styles.body, { marginTop: space.sm }, selectable]}>{String(loc.overview)}</Text> : null}
+      {loc.overview ? <Text style={[styles.body, selectable]}>{String(loc.overview)}</Text> : null}
       <LookBlock look={loc.look} title="View" />
       {arr(page.here).length ? <Heading>Here</Heading> : null}
       {arr(page.here).map((e, i) => (
@@ -79,9 +66,9 @@ function Place({ page, resolve }: { page: Json; resolve: (path: string) => strin
       {arr(page.exits).map((e, i) => (
         <Named key={i} name={String(e.name)} text={e.route as string | undefined} />
       ))}
-      {arr(table.rows).length || (table.rows as unknown[] | undefined)?.length ? (
+      {page.combat && (table.rows as unknown[] | undefined)?.length ? (
         <>
-          <Heading>{page.combat ? "The fight" : "Everyone here"}</Heading>
+          <Heading>The fight</Heading>
           <Table columns={(table.columns as string[]) ?? []} rows={(table.rows as string[][]) ?? []} />
         </>
       ) : null}
@@ -89,7 +76,7 @@ function Place({ page, resolve }: { page: Json; resolve: (path: string) => strin
   );
 }
 
-function Sheet({ page, resolve }: { page: Json; resolve: (path: string) => string }) {
+export function Sheet({ page, resolve }: { page: Json; resolve: (path: string) => string }) {
   const look = page.look as Json | null | undefined;
   return (
     <View>
@@ -131,43 +118,28 @@ function Sheet({ page, resolve }: { page: Json; resolve: (path: string) => strin
   );
 }
 
-/** Where the party is, who is there and how everyone is doing. A tab for the place and one for each character. */
-export function StatusView({ panel }: { panel: StatusPanel }) {
+/** The bottom of the right pane (docs/LAYOUT.md 5): the place, or the character chosen in the status, in full. */
+export function Details({ panel }: { panel: StatusPanel }) {
   useStore(panel);
-  useEffect(() => {
-    void panel.load();
-    return () => panel.stop();
-  }, [panel]);
   const m = panel.model;
-  const tabs = useMemo(() => m.tabs.map(([id, title]) => ({ id, title })), [m.tabs]);
   const page = m.page;
   return (
-    <View style={styles.wrap} testID="status-view">
-      <View style={styles.head}>
-        <View style={{ flex: 1 }}>
-          <TabBar tabs={tabs} current={m.tab} onSelect={(id) => void panel.switchTo(id)} />
-        </View>
-        <Button label="Refresh" onPress={() => void panel.load()} testID="status-refresh" />
-      </View>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body_}>
-        {panel.error ? (
-          <Text style={{ color: color.red }}>{panel.error}</Text>
-        ) : !page ? (
-          <Text style={styles.dim}>{panel.loading ? "Loading…" : ""}</Text>
-        ) : m.character ? (
-          <Sheet page={page} resolve={(p) => panel.imageUrl(p)} />
-        ) : (
-          <Place page={page} resolve={(p) => panel.imageUrl(p)} />
-        )}
-      </ScrollView>
-    </View>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body_} testID="details">
+      {panel.error ? null : !page ? (
+        <Text style={styles.dim}>{panel.loading ? "Loading…" : ""}</Text>
+      ) : m.character ? (
+        <Sheet page={page} resolve={(p) => panel.imageUrl(p)} />
+      ) : (
+        <Place page={page} />
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { flex: 1 },
   head: { flexDirection: "row", alignItems: "center", paddingRight: space.sm, gap: space.sm },
-  body_: { padding: space.lg, maxWidth: 860, width: "100%", alignSelf: "center" },
+  body_: { padding: space.md },
   sheetHead: { flexDirection: "row", alignItems: "flex-start", gap: space.md, flexWrap: "wrap" },
   name: { color: color.text, fontFamily: font.story, fontSize: 22, fontWeight: "700" },
   body: { color: color.text, fontFamily: font.story, fontSize: 15, lineHeight: 22 },

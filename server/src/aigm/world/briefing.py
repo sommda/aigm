@@ -4,7 +4,7 @@ Built from the world state by fixed rules, in priority order, within a size budg
 6.1). It includes hidden facts, labeled so the GM can tell what the player has not been told."""
 
 from aigm.looks import Look
-from aigm.world.model import SCENE_MOTIVE_HOURS, Entity, Fact, Motive, World
+from aigm.world.model import SCENE_MOTIVE_HOURS, Entity, Fact, Motive, Route, World, duration_text
 
 CHARS_PER_TOKEN = 4  # rough; the budget is a guide, not a hard limit
 LABELS = {
@@ -75,7 +75,15 @@ def build_briefing(
     if world.is_empty:
         return ""
     out = _Budget(budget_tokens * CHARS_PER_TOKEN)
-    out.add(f"Time: {world.time} ({time_of_day(world.time.hour)})", force=True)
+    now = world.time.rounded(5)
+    out.add(f"Time: {now} ({time_of_day(now.hour)})", force=True)
+    spent = world.time_spent(turn - 1) if turn > 1 else []
+    if spent:  # how long the last turn took, for the narration to feel (docs/TIME.md 4.1)
+        total = sum(e["minutes"] for e in spent)
+        why = "; ".join(dict.fromkeys(e["why"] for e in spent))
+        out.add(f"Last turn took {duration_text(total)} ({why}).", force=True)
+    elif turn > 1:  # nothing was counted: a prompt for the GM to check the story against the clock
+        out.add("Last turn put nothing on the clock. If the story spent time, `pass_time` it now.", force=True)
 
     shown: set[str] = set()  # entities covered in the sections above the free-form ones
     loc = world.entity(world.scene.location) if world.scene.location else None
@@ -83,6 +91,9 @@ def build_briefing(
         shown.add(loc.id)
         chain = " in ".join(p.name for p in world.parent_chain(loc.id))
         out.add(f"Location: {loc.name}" + (f" (in {chain})" if chain else ""), force=True)
+        ways = world.routes_of(loc.id)
+        if ways:  # the ways out, with every block and every place not yet visited (docs/TIME.md 7)
+            out.add("From here: " + "; ".join(route_line(world, r, loc.id) for r in ways), force=True)
         if loc.look:  # how the place appears: the narration must not contradict it (docs/PLACES.md 7)
             out.add(f"  Looks: {loc.look.summary}", force=True)
         for fact in _by_disclosure(_without_overview(world.facts_about(loc.id)))[:LOCATION_FACTS]:
@@ -176,6 +187,21 @@ def item_lines(world: World, turn: int = 0) -> list[tuple[str, bool]]:
         out += [("Key items not yet in play (GM only; call key_item when the party learns of one or gets it):", False)]
         out += [(line, False) for line in reserve]
     return out
+
+
+def route_line(world: World, route: Route, here: str, *, secrets: bool = True) -> str:
+    """One way out of a place for the GM: `the cellar, 4 minutes down the steps (locked oak door; not yet visited)`."""
+    there = world.entities[route.other(here)]
+    notes = []
+    if route.block:
+        note = route.block.text
+        if secrets and route.block.opens_by:
+            note += f"; opens by: {route.block.opens_by}"
+        notes.append(f"{route.block.kind}: {note}" if route.block.kind != "other" else note)
+    if there.kind == "location" and not there.visited:
+        notes.append("not yet visited")
+    how = f" {route.how}" if route.how else ""
+    return f"{there.name}, {duration_text(route.minutes)}{how}" + (f" ({'; '.join(notes)})" if notes else "")
 
 
 def look_line(look: Look) -> str:

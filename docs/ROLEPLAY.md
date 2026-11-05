@@ -286,7 +286,7 @@ and say that it cannot be changed. The curator's extract pass is not offered `ab
 A scene motive records the location and the world time when it was set. It becomes `expired` automatically when:
 
 - `set_scene` moves the party to another location (the old scene is over),
-- two or more in-world hours pass since it was set (the clock only moves in whole hours, WORLD.md 2.4), or
+- two or more in-world hours pass since it was set (the clock counts minutes, WORLD.md 2.4), or
 - it is resolved by play (`satisfied` or `frustrated`).
 
 (`absolute` motives are underlying, so none of this applies to them.) Expiry is computed when the briefing is built,

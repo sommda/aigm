@@ -305,3 +305,41 @@ describe("CompendiumPanel", () => {
     expect(p.model.unreadCount()).toBe(0);
   });
 });
+
+describe("StatusPanel for the side pane", () => {
+  test("the place stays loaded while a character is selected, and loads with them", async () => {
+    const t = server();
+    const p = new StatusPanel(apiWith(t), "kit");
+    await p.load();
+    expect(p.model.character).toBe("Kit Harrow");
+    expect(p.model.place).toMatchObject({ location: { name: "The Rusty Flagon" } });
+    expect(p.model.page).toMatchObject({ hp: "10/10" });
+    await p.showPlace();
+    expect(p.model.page).toBe(p.model.place);
+  });
+
+  test("a character who left the party falls back to the place", async () => {
+    let party = [{ name: "Kit Harrow" }];
+    const t = server({ "GET /characters": () => ({ status: 200, body: { characters: party } }) });
+    const p = new StatusPanel(apiWith(t), "kit");
+    await p.load();
+    party = [];
+    await p.load();
+    expect(p.model.character).toBeNull();
+    expect(p.model.page).toMatchObject({ location: { name: "The Rusty Flagon" } });
+  });
+
+  test("a place picture still being painted is watched while a character is shown", async () => {
+    jest.useFakeTimers();
+    let n = 0;
+    const t = server({
+      "GET /status": () => ({ status: 200, body: { location: { name: "Flagon", portrait: { state: n++ < 1 ? "pending" : "ready" } } } }),
+    });
+    const p = new StatusPanel(apiWith(t), "kit");
+    await p.load();
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(p.model.place).toMatchObject({ location: { portrait: { state: "ready" } } });
+    p.stop();
+    jest.useRealTimers();
+  });
+});

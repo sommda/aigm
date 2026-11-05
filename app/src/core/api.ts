@@ -106,6 +106,9 @@ export class ApiClient {
   debugHiddenEntity(id: string) {
     return this.request("GET", `/debug/hidden/${encodeURIComponent(id)}`, this.session());
   }
+  async setPlaytest(enabled = true): Promise<boolean> {
+    return (await this.request("POST", "/debug/playtest", this.session(), { enabled })).playtest === true;
+  }
   async setThinking(enabled: boolean): Promise<boolean> {
     return (await this.request("PUT", "/debug/thinking", {}, { enabled })).thinking === true;
   }

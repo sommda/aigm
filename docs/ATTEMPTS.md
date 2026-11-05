@@ -217,6 +217,9 @@ There is no `attempt` tool. `roll_dice` and `social_check` take an optional `att
 - Optional: `closes` (true or false) to override the type's policy; `reopens_if`; `after_minutes` for a closure with a
   clock; `scope` (`character` or `anyone`); and `changed`, the new approach or circumstance that reopens a closed
   attempt (6.2).
+- `opens`: the blocked way this attempt is meant to open, as `{"from": "the hall", "to": "the cellar"}` or the route's
+  `how` (TIME.md 5.4.2). On a **success** the server clears that route's block, so the next move walks through it. On a
+  failure the block stands and the attempt is recorded as usual, with the blocked way as its target (`about`).
 - `minutes`: as in TIME.md 4. If it is left out, an attempt takes its type's `minutes`, so a roll marked as an attempt
   never takes no time at all. A GM-given figure is used as given, but never less than one minute.
 

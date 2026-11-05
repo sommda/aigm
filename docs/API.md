@@ -67,6 +67,7 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | POST   | `/debug/backfill`             | Record what the characters know (**debug mode only**)| JSON       |
 | GET    | `/debug/thinking`             | Whether model thinking is on (**debug mode only**)   | JSON       |
 | PUT    | `/debug/thinking`             | Turn model thinking on or off (**debug mode only**)  | JSON       |
+| POST   | `/debug/playtest`             | Turn playtest mode on or off (**debug mode only**; PLAYTEST.md) | JSON |
 
 Terminology:
 
@@ -522,15 +523,15 @@ array in the same format as `/chat/history`.
   "model": "claude-sonnet-5-5",
   "entity_count": 12,
   "fact_count": 61,
-  "world_time": { "day": 3, "hour": 14 },
+  "world_time": { "day": 3, "hour": 14, "minute": 20 },
   "last_message_preview": "A **17** -- your blade bites deep!"
 }
 ```
 
 `entity_count`, `fact_count` (active facts) and `world_time` summarize the saved world (zero and day 1, 08:00 for saves
-with no world); the same three fields appear in each entry of `GET /history`. `last_message_preview` is the first ~200
-characters of the final assistant text (omitted if none). Errors: `400` invalid name; `404` no such history; `422` file
-corrupt.
+with no world; `minute` is 0 in a save made before the clock counted minutes); the same three fields appear in each
+entry of `GET /history`. `last_message_preview` is the first ~200 characters of the final assistant text (omitted if
+none). Errors: `400` invalid name; `404` no such history; `422` file corrupt.
 
 ---
 
@@ -620,7 +621,7 @@ asks for it when the screen opens or is refreshed; it is never pushed.
     "id": "e002", "name": "The Docks",
     "path": [{ "id": "e001", "name": "Port Veyra" }],
     "overview": "Gulls wheel over wet planks and tarred rope.",
-    "time": "Day 1, 18:00", "period": "evening",
+    "time": "Day 1, 18:05", "period": "evening",
     "look": { "summary": "A stone quay under grey cloud.", "description": "The Docks run along a quay of ..." },
     "portrait": { "state": "ready", "style": "modern", "shape": "landscape",
                   "url": "/portraits/p_91c0e3a2f7b45d18.webp?session_id=default" }
@@ -1011,7 +1012,8 @@ and history.
     "type": "object",
     "properties": {
       "expression": { "type": "string", "description": "A dice expression supported by the Python d20 library." },
-      "narration": { "type": "string", "description": "Narration shown to the player just before the dice." }
+      "narration": { "type": "string", "description": "Narration shown to the player just before the dice." },
+      "minutes": { "type": "integer", "description": "Minutes the action being tested takes (optional)." }
     },
     "required": ["expression", "narration"]
   }
@@ -1032,10 +1034,28 @@ and history.
   `Invalid dice expression '2x20': <d20 error text>. Expected syntax like '1d20+5' or '4d6kh3'.` with `is_error: true`.
   The model sees this and may retry. No `dice_roll` event. The narration was already shown, so the error says so and
   asks the retry not to repeat it.
+- `minutes` (optional, 0 to 1440): the in-world time the tested action takes (docs/TIME.md 4). In the adventure it moves
+  the clock on the turn's working copy and the result ends with "10 minutes pass. It is now Day 1, 08:10."; a bad
+  value refuses the roll. `social_check` takes it too. A roll without it passes no time.
 - Guardrails: expression length limit (200 chars) and d20's own roll-count limits; violations are reported as the same
   error form.
 
 ---
+
+## Tool: `pass_time`
+
+Adventure only (docs/TIME.md 4.2). The GM lets in-world time pass when no roll records it, or when a roll's result
+forces more of it.
+
+| Input | Meaning |
+| --- | --- |
+| `minutes` (required) | Whole minutes, 1 to 1440. Longer stretches are `elapsed_minutes` on `set_scene` |
+| `reason` (required) | One line (3 to 120 characters) on what the time was spent on |
+
+It moves the clock on the turn's working copy, so a failed turn passes no time, and it is counted as reported time so
+the curator does not add it again. The result gives the new time. The next turn's world notes say how long the last turn
+took and why ("Last turn took 30 minutes (lockpicking; a patient watch)."). Time is declared once, in the tool that fits
+it: a roll's `minutes`, this tool, or `set_scene`'s `elapsed_minutes` for the road, a wait or a rest.
 
 ## Tool: `set_ruleset`
 
@@ -1116,6 +1136,7 @@ numbers come from the sheets, so a party member in `combatants` is refused.
 | Input | Meaning |
 | --- | --- |
 | `action` (required) | `start` replaces any fight with the given combatants. `update` merges into the fight (400-style error if none). `end` clears it |
+| `minutes` | With `end`: how long the fight took. 10 if it is left out, since a fight takes more than its rounds |
 | `combatants` | Each has `name`, `side` (`foe` or `ally`), `count` (a group is one entry), `health`, `conditions`, and for `update` `remove: true`. A new name in an `update` needs a `side` |
 
 A foe's `health` must be one of `unhurt`, `scratched`, `bloodied`, `near death`, `down`: the player is never told a

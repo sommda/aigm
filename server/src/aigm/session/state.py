@@ -103,6 +103,10 @@ class GameState:
     art_style: str | None = None
     # Each party member's portrait record, by name, like `looks` (docs/PORTRAITS.md 6.2).
     portraits: dict[str, Portrait] = field(default_factory=dict)
+    # Playtest mode (docs/PLAYTEST.md): a debug-server aid in which the GM sets up the world and the party on request.
+    playtest: bool = False
+    # Set when playtest mode ends: run a curator pass at once, however little has built up. Not saved.
+    pass_now: bool = field(default=False, compare=False)
 
     @property
     def party_names(self) -> list[str]:
@@ -161,6 +165,8 @@ class GameState:
             looks={n: lk.copy() for n, lk in self.looks.items()},
             art_style=self.art_style,
             portraits={n: p.copy() for n, p in self.portraits.items()},
+            playtest=self.playtest,
+            pass_now=self.pass_now,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -178,6 +184,7 @@ class GameState:
             "looks": {n: lk.to_dict() for n, lk in self.looks.items()},
             "art_style": self.art_style,
             "portraits": {n: p.to_dict() for n, p in self.portraits.items()},
+            **({"playtest": True} if self.playtest else {}),
         }
 
     @classmethod
@@ -217,4 +224,5 @@ class GameState:
                    sheets=read_sheets(data.get("sheets")),  # none before version 8
                    combat=read_combat(data.get("combat")),  # none before version 9
                    looks=read_looks(data.get("looks")),  # none before version 10
-                   art_style=art_style, portraits=read_portraits(data.get("portraits")))  # none before version 11
+                   art_style=art_style, portraits=read_portraits(data.get("portraits")),  # none before version 11
+                   playtest=data.get("playtest") is True and phase is Phase.ADVENTURE)

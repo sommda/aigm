@@ -60,6 +60,13 @@ class RequestDescription:
         return [*self.history[:-1], {**last, "content": content}]
 
 
+# Prompt files left out in playtest mode: they make the GM stay in character and steer the story (docs/PLAYTEST.md).
+PLAYTEST_DROPPED = (
+    "adventure/01_role.md", "adventure/03_style.md", "adventure/04b_progress.md", "adventure/05_roleplay.md",
+    "story/01_story.md", "03_roleplay.md",
+)  # fmt: skip
+
+
 class Game:
     """Per-phase prompts and tools. Prompt files are read once, at construction."""
 
@@ -82,12 +89,20 @@ class Game:
             for rs in RULESETS
             for structured in (False, True)
         }
-        self._tools = {(phase, s): tool_schemas(self.prompts, phase, s, art_styles) for phase in Phase for s in (False, True)}
+        self._tools = {
+            (phase, s, t): tool_schemas(self.prompts, phase, s, art_styles, t)
+            for phase in Phase
+            for s in (False, True)
+            for t in (False, True)
+        }
+        self._playtest = PromptPart("system/playtest.md", self.prompts.playtest_section())
 
     def system_parts(self, state: GameState) -> tuple[PromptPart, ...]:
         parts = self._system[state.phase, state.ruleset, state.story is not None]
         if state.phase is Phase.SESSION_ZERO and self.art_styles:
             parts = (*parts, PromptPart("templates/art_style.md", self.prompts.art_section(state.ruleset)))
+        if state.playtest:  # the GM's role, style and story steering are suspended; the tool guidance stays
+            parts = (self._playtest, *(p for p in parts if not p.source.endswith(PLAYTEST_DROPPED)))
         if state.phase is Phase.ADVENTURE and state.world.is_empty:
             # Normally the private notes live in the world as hidden facts. Without a world (curator
             # off, or an older save) the GM still needs them.
@@ -160,7 +175,7 @@ class Game:
         ]
 
     def tools(self, state: GameState) -> list[dict[str, Any]]:
-        return self._tools[state.phase, state.story is not None]
+        return self._tools[state.phase, state.story is not None, state.playtest]
 
     def dispatch(self, state: GameState, name: str, tool_use_id: str, tool_input: dict[str, Any]) -> ToolOutcome:
         return dispatch(name, tool_use_id, tool_input, state)

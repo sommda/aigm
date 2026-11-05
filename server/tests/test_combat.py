@@ -14,6 +14,7 @@ from aigm.game import Game
 from aigm.session.state import GameState, Phase
 from aigm.sheets import Section, Sheet
 from aigm.tools import dispatch, tool_schemas
+from aigm.world import WorldTime
 from tests.conftest import chat
 
 
@@ -40,7 +41,9 @@ def test_a_fight_starts_updates_and_ends():
     assert not out.is_error and (wolf.health, wolf.count, wolf.conditions) == ("bloodied", 3, ["prone"])
     call(state, action="update", combatants=[{"name": "Wolf", "remove": True}, {"name": "Bandit", "side": "foe"}])
     assert [c.name for c in state.combat.combatants] == ["Mira", "Bandit"]
-    assert call(state, action="end").content == "The fight is over." and state.combat is None
+    out = call(state, action="end")
+    assert out.content.startswith("The fight is over.") and state.combat is None
+    assert state.world.time == WorldTime(1, 8, 10)  # a fight takes ten minutes unless the GM says otherwise
 
 
 def test_foes_show_words_not_numbers():

@@ -17,15 +17,19 @@ export interface FrameInput {
   maxWidth: number;
   /** Also keep a landscape picture to about a third of the window's height, so what is under it stays in view. */
   fitHeight: boolean;
+  /** A hard limit on the height of a landscape picture (the status section says how tall it may be). */
+  maxHeight?: number;
 }
 
 /** A landscape picture fills its column up to a width and keeps 3:2; the others have a fixed size. */
 export type Frame = { fill: true; maxWidth: number; aspectRatio: number } | { fill: false; width: number; height: number };
 
-export function frameFor({ shape, windowWidth, windowHeight, maxWidth, fitHeight }: FrameInput): Frame {
+export function frameFor({ shape, windowWidth, windowHeight, maxWidth, fitHeight, maxHeight }: FrameInput): Frame {
   const small = windowWidth < 600;
   if (shape === "landscape") {
-    return { fill: true, maxWidth: fitHeight ? Math.min(maxWidth, Math.round(windowHeight * 0.3 * 1.5)) : maxWidth, aspectRatio: 3 / 2 };
+    let wide = fitHeight ? Math.min(maxWidth, Math.round(windowHeight * 0.3 * 1.5)) : maxWidth;
+    if (maxHeight !== undefined) wide = Math.min(wide, Math.max(60, Math.round(maxHeight * 1.5)));
+    return { fill: true, maxWidth: wide, aspectRatio: 3 / 2 };
   }
   if (shape === "portrait") return small ? { fill: false, width: 160, height: 240 } : { fill: false, width: 240, height: 360 };
   return small ? { fill: false, width: 120, height: 120 } : { fill: false, width: 160, height: 160 };
