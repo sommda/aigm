@@ -85,12 +85,15 @@ def _visible(world: World, entity_id: str) -> bool:
     ent = world.entities.get(entity_id)
     if ent is not None and ent.kind == "item":  # a key item shows from the moment the party learns of it (KEY_ITEMS.md 4.3)
         return ent.holding is not None and ent.holding.status in VISIBLE_HOLDINGS
+    if ent is not None and world.is_party(ent):  # the player characters are not part of the world they explore
+        return False
     return ent is not None and ent.discovered and (bool(known_facts(world, entity_id)) or _look_only(ent))
 
 
 def _look_only(entity: Entity) -> bool:
-    """A person who has been met but about whom nothing is known yet still has an entry: their description."""
-    return entity.kind == "npc" and entity.look is not None
+    """A person who has been met but about whom nothing is known yet still has an entry: their description. So has a
+    place the party has stood in, before the curator has recorded anything about it."""
+    return (entity.kind == "npc" and entity.look is not None) or (entity.kind == "location" and entity.visited)
 
 
 def _look(entity: Entity) -> dict[str, str] | None:
@@ -144,6 +147,8 @@ def _aspect_label(aspect: str | None) -> str | None:
 def _summary(entity: Entity, facts: list[Fact]) -> str:
     if not facts and entity.look:
         return entity.look.summary
+    if not facts:
+        return ""  # a place the party has only just entered: the entry is its name until something is learned
     own = [f for f in facts if f.subject == entity.id] or facts
     aspects = ITEM_SUMMARY_ASPECTS if entity.kind == "item" else SUMMARY_ASPECTS
     pick = next((f for a in aspects for f in own if f.aspect == a), own[0])

@@ -81,6 +81,55 @@ def test_too_many_rolls():
 
 
 def test_registry():
-    assert [s["name"] for s in tool_schemas()] == ["roll_dice", "recall", "establish", "key_item", "set_scene", "pass_time", "update_character", "set_combat", "set_motive", "social_check", "award"]
+    assert [s["name"] for s in tool_schemas()] == ["roll_dice", "recall", "establish", "key_item", "set_scene", "pass_time", "update_character", "set_combat", "set_motive", "social_check", "award", "defeat"]
     assert not dispatch("roll_dice", "t", {"expression": "1d6", "narration": "The die spins."}).is_error
     assert dispatch("nope", "t", {}).is_error
+
+
+# ---- difficulty (docs/ATTEMPTS.md 6.1) ----------------------------------------------------------------------
+
+import d20 as _d20
+
+_REAL_ROLL = _d20.roll
+
+
+def _fix_total(monkeypatch, total):
+    """Make every roll come to this total, whatever the expression."""
+    monkeypatch.setattr(_d20, "roll", lambda expr, **kw: _REAL_ROLL(str(total)))
+
+
+def _roll(expression, **extra):
+    from aigm.tools import dispatch
+
+    return dispatch("roll_dice", "t1", {"expression": expression, "narration": "The lock resists her picks.", **extra})
+
+
+def test_a_dc_gives_a_verdict_for_the_gm(monkeypatch):
+    _fix_total(monkeypatch, 14)
+    out = _roll("1d20+3", dc=18)
+    assert "Failure by 4 (DC 18)." in out.content and not out.is_error
+    assert "Success by 1 (DC 13)." in _roll("1d20+3", dc=13).content
+    assert "exactly the DC" in _roll("1d20+3", dc=14).content
+
+
+def test_roll_under_succeeds_at_or_below_the_dc(monkeypatch):
+    _fix_total(monkeypatch, 14)
+    assert "Success by 3 (DC 17 (roll under))." in _roll("1d20", dc=17, dc_mode="under").content
+    assert "Failure by 4 (DC 10 (roll under))." in _roll("1d20", dc=10, dc_mode="under").content
+
+
+def test_no_dc_no_verdict_and_bad_dcs_are_refused_before_rolling():
+    assert "DC" not in _roll("1d20+3").content
+    for bad in ({"dc": 0}, {"dc": 101}, {"dc": 3.5}, {"dc": True}, {"dc": 10, "dc_mode": "sideways"}, {"dc_mode": "under"}):
+        out = _roll("1d20", **bad)
+        assert out.is_error and "Nothing was rolled" in out.content and out.event is None
+
+
+def test_the_verdict_comes_before_the_time_that_passed(monkeypatch):
+    from aigm.session.state import GameState, Phase
+    from aigm.tools import dispatch
+
+    _fix_total(monkeypatch, 20)
+    state = GameState(Phase.ADVENTURE, {"setting": "x"})
+    out = dispatch("roll_dice", "t1", {"expression": "1d20", "narration": "She works the lock.", "dc": 15, "minutes": 10}, state)
+    assert "Success by 5 (DC 15). 10 minutes pass." in out.content

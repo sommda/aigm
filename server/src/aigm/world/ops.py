@@ -85,6 +85,8 @@ class SetScene:
     location: str | None  # name or id
     present: tuple[str, ...] | None = None  # None: leave who is present alone, unless the place changed
     turn: int = 0
+    guard: bool = False  # a curator pass's reading of the scene: stale if the party has moved since `origin`
+    origin: str | None = None  # the scene's location id when the pass took its snapshot
 
 
 @dataclass
@@ -300,6 +302,8 @@ def _apply(world: World, op: Op) -> bool:
     if isinstance(op, Reveal):
         return world.reveal(op.fact_id, op.turn)
     if isinstance(op, SetScene):
+        if op.guard and world.scene.location != op.origin:
+            raise WorldError("the party moved while the pass ran; the GM's scene stands")
         loc = None
         if op.location is not None:
             ent = world.resolve(op.location)

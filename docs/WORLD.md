@@ -457,10 +457,17 @@ compute gaps:
 | faction | `goals`, `leaders`, `resources`, `methods`, `rivals`, `presence` (where they operate), `history` |
 | concept | `nature`, `origin`, `who_believes_it`, `effects` |
 
-`overview` and `items` are what the status page shows (STATUS.md 5). A fact with one of them about the place the party
-is in is `known` from the moment it exists, and those about any other place become known when the party arrives
-(`set_scene` reveals them), so the description is stored before it is needed and shown with no model call. The GM's
-briefing leaves `overview` out, so the GM narrates the scene itself rather than echoing it.
+`overview` and `items` are what the status page shows (STATUS.md 5). An `overview` fact about the place the party is in
+is `known` from the moment it exists, and those about any other place become known when the party arrives (`set_scene`
+reveals them), so the description is stored before it is needed and shown with no model call. The GM's briefing leaves
+`overview` out, so the GM narrates the scene itself rather than echoing it.
+
+`items` is not revealed on arrival. It holds what is truly there (a +1 longsword, two potions of healing), so the party
+has seen it only when the narration shows it, and knows what it is only when the narration says so. The GM lists the
+fact's id under `reveal` when it has told the party the whole of it. When the party sees an object without knowing its
+nature, the GM (or the extractor, from the narration) records a separate `known` `items` fact in what they can tell
+("two stoppered vials") and leaves the true fact hidden. When they learn more, a new fact `replaces` the earlier one
+(`establish`), or the true fact is revealed.
 
 A fact's `aspect` is set by the extractor/expander. Coverage is the set of aspects with at least one active fact. The
 checklists are guidance, not quotas: an unremarkable cottage may need three.

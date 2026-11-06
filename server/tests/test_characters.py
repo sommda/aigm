@@ -85,7 +85,7 @@ def test_an_old_save_has_no_sheets_and_a_bad_one_is_refused():
 
 
 def test_the_format_is_eight():
-    assert FORMAT_VERSION == 13
+    assert FORMAT_VERSION == 15
 
 
 # ---- the sheet step -------------------------------------------------------------------------
@@ -230,3 +230,34 @@ def test_the_debug_route_writes_sheets_for_an_old_game(tmp_path):
     state.sheets.clear()
     body = client.post("/debug/sheets").json()
     assert body["written"] == state.party_names and state.sheets
+
+
+def test_the_headline_shows_each_classs_current_level():
+    from aigm import characters
+    from aigm.session.state import Hero
+    from aigm.session.state import GameState, Phase
+
+    state = GameState(Phase.ADVENTURE, {"party": [{"name": "Toby"}], "level": 1})
+    state.sheets["Toby"] = clean({**SHEET, "headline": "Human Fighter 1 / Rogue 1"})
+    assert characters.headline_of(state, "Toby") == "Human Fighter 1 / Rogue 1"  # no classes recorded: as written
+    state.heroes["Toby"] = Hero(3, 0, {"fighter": 2, "Rogue": 1})
+    assert characters.headline_of(state, "Toby") == "Human Fighter 2 / Rogue 1"
+    assert characters.roster(state)[0]["headline"] == "Human Fighter 2 / Rogue 1"
+    assert characters.detail(state, "Toby")["headline"] == "Human Fighter 2 / Rogue 1"
+    assert "Toby: Human Fighter 2 / Rogue 1" in characters.sheet_notes(state)
+    state.heroes["Toby"] = Hero(4, 0, {"Wizard": 1})  # a class the headline does not name is not invented
+    assert characters.headline_of(state, "Toby") == "Human Fighter 1 / Rogue 1"
+    assert state.sheets["Toby"].headline == "Human Fighter 1 / Rogue 1"  # the stored text is untouched
+
+
+def test_a_headline_that_spells_out_level_is_written_in_the_same_form_as_the_others():
+    from aigm import characters
+    from aigm.session.state import GameState, Hero, Phase
+
+    state = GameState(Phase.ADVENTURE, {"party": [{"name": "Brannoc"}], "level": 1})
+    state.heroes["Brannoc"] = Hero(2, 650, {"Fighter": 2})
+    for written in ("Human Fighter, level 1", "Human Fighter level 1", "Human Fighter 1", "Human Fighter, Lvl. 1"):
+        state.sheets["Brannoc"] = clean({**SHEET, "headline": written})
+        assert characters.headline_of(state, "Brannoc") == "Human Fighter 2", written
+    state.sheets["Brannoc"] = clean({**SHEET, "headline": "Human Fighter 1 (Champion)"})
+    assert characters.headline_of(state, "Brannoc") == "Human Fighter 2 (Champion)"

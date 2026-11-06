@@ -299,6 +299,22 @@ class DigestRequest:
 
 
 @dataclass
+class DeadlineProposal:
+    day: int
+    hour: int
+    cue: str = ""
+    fixed: bool = False
+
+
+@dataclass
+class DoomProposal:
+    when: str
+    chapters: list[int] = field(default_factory=list)
+    deadline: DeadlineProposal | None = None
+    ending: str = ""  # an ending's title (or id)
+
+
+@dataclass
 class QuestProposal:
     key: str  # the plotter's own label; the server numbers the milestones itself
     chapter: int
@@ -311,6 +327,9 @@ class QuestProposal:
     entities: list[str] = field(default_factory=list)  # names
     finds: str = ""  # the name of the key item the quest is about finding (docs/KEY_ITEMS.md 6.1)
     needs: list[str] = field(default_factory=list)  # names of key items the party must have had before it is offered
+    fails_if: list[str] = field(default_factory=list)  # the ways the quest is lost (docs/STAKES.md 2)
+    deadline: DeadlineProposal | None = None
+    ending: str = ""  # the ending's title (or id) that follows if the quest fails where failure ends the game
 
 
 @dataclass
@@ -339,6 +358,10 @@ class PlotProposal:
     endings: list[EndingProposal] = field(default_factory=list)
     entities: list[EntityProposal] = field(default_factory=list)
     facts: list[FactProposal] = field(default_factory=list)
+    # A repair names the cost of the failure it mends, for when the GM did not (docs/STAKES.md 6).
+    cost: str = ""
+    cost_kind: str = ""
+    dooms: list[DoomProposal] = field(default_factory=list)
 
 
 @dataclass
@@ -356,6 +379,8 @@ class PlotRequest:
     scales: tuple[str, ...]  # quest sizes that fit this length
     feedback: list[str] = field(default_factory=list)  # why a first attempt was rejected, on the retry
     story_so_far: str = ""  # a later chapter is being planned: the plan and what happened (docs/STORY.md 5)
+    now: str = ""  # the in-world time, so deadlines can be set in the future
+    repair: str = ""  # a quest has failed: what happened and what the repair must do (docs/STORY.md 8.2, STAKES.md 5)
 
 
 class Curator(Protocol):

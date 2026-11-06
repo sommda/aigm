@@ -15,7 +15,7 @@ from aigm.session.state import GameState
 from aigm.story import public_summary
 
 log = logging.getLogger(__name__)
-FORMAT_VERSION = 13  # 1: messages only (read as mid-adventure); 2: adds game state; 3: adds the world; 4: adds the story; 5: adds the party's level and XP; 6: adds the compendium's reading state and when facts were learned; 7: adds whom a starting fact is known by; 8: adds the character sheets; 9: adds the fight in progress; 10: adds the characters' looks; 11: adds the art style and the characters' portraits; 12: adds key items (the holding of an item entity); 13: the world clock counts minutes, and places have a scale, a visited mark and routes
+FORMAT_VERSION = 15  # 1: messages only (read as mid-adventure); 2: adds game state; 3: adds the world; 4: adds the story; 5: adds the party's level and XP; 6: adds the compendium's reading state and when facts were learned; 7: adds whom a starting fact is known by; 8: adds the character sheets; 9: adds the fight in progress; 10: adds the characters' looks; 11: adds the art style and the characters' portraits; 12: adds key items (the holding of an item entity); 13: the world clock counts minutes, and places have a scale, a visited mark and routes; 14: adds failed attempts (World.attempts); 15: adds stakes (milestone deadlines and fails_if, dooms, costs, wipes, a character's fate)
 READABLE_VERSIONS = frozenset(range(1, FORMAT_VERSION + 1))
 
 

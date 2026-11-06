@@ -108,6 +108,11 @@ class GameState:
     # Set when playtest mode ends: run a curator pass at once, however little has built up. Not saved.
     pass_now: bool = field(default=False, compare=False)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__setattr__(self, name, value)
+        if name in ("campaign", "world") and "world" in self.__dict__ and "campaign" in self.__dict__:
+            self.world.set_party(self.party_names)  # the world is told who the player characters are
+
     @property
     def party_names(self) -> list[str]:
         party = (self.campaign or {}).get("party")

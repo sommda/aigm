@@ -5,9 +5,10 @@ keeps the numbers and lines; what a change means in the ruleset is the GM's busi
 
 from typing import Any
 
-from aigm.characters import hp_text
+from aigm import story as story_rules
+from aigm.characters import hp_text, living
 from aigm.session.state import GameState, Phase
-from aigm.sheets import MAX_CONDITION, MAX_CONDITIONS, MAX_HP, MAX_LINE, MAX_LINES, MAX_SECTIONS, MAX_TITLE, Section
+from aigm.sheets import REMAINS, MAX_CONDITION, MAX_CONDITIONS, MAX_HP, MAX_LINE, MAX_LINES, MAX_SECTIONS, MAX_TITLE, Section
 from aigm.tools.base import Tool, ToolOutcome
 
 SCHEMA: dict[str, Any] = {
@@ -32,6 +33,19 @@ SCHEMA: dict[str, Any] = {
                 "items": {"type": "string"},
                 "description": "Conditions the character no longer has.",
             },
+            "fate": {
+                "type": "string",
+                "enum": ["dead", "revived"],
+                "description": "dead: the character has died. revived: a dead character is brought back (needs cost).",
+            },
+            "remains": {
+                "type": "string",
+                "enum": list(REMAINS),
+                "description": "Where a dead character's body is: carried, left, buried or lost. The player decides.",
+            },
+            "cost": {"type": "string", "description": "With fate revived: one sentence on what bringing them back cost."},
+            "cost_kind": {"type": "string", "enum": list(story_rules.COST_KINDS)},
+            "cost_hours": {"type": "integer", "description": "With cost_kind time: the whole hours it took."},
             "section": {
                 "type": "object",
                 "description": "A section of the sheet to replace, or to add if there is none with that title.",
@@ -64,6 +78,55 @@ def _strings(value: Any, key: str, problems: list[str]) -> list[str]:
     return [" ".join(v.split())[:MAX_CONDITION] for v in value if v.strip()]
 
 
+def _die(state: GameState, name: str, sheet: Any) -> tuple[bool, str]:
+    """Mark the sheet dead. Returns (this was the last living member and the game is lost, a problem)."""
+    if sheet.fate == "dead":
+        return False, f"{name} is already dead"
+    others = [n for n in living(state) if n != name]
+    story = state.story
+    if not others:
+        if story is not None and story.chapter == story_rules.CHAPTERS[-1] and not story.concluded:
+            ends_game = True
+        else:
+            return False, (
+                f"{name} is the last of the party standing: the party is not wiped out by one death here. "
+                "Use `defeat` for a total defeat (the party is captured, left for dead or routed), and leave this one alive"
+            )
+    else:
+        ends_game = False
+    sheet.fate, sheet.remains = "dead", None
+    sheet.died_turn, sheet.died_at = state.turn, state.world.time.to_dict()
+    if sheet.hp is not None:
+        sheet.hp = 0
+    return ends_game, ""
+
+
+def _revive(state: GameState, name: str, sheet: Any, tool_input: dict[str, Any]) -> tuple[tuple[str, str, int] | None, str]:
+    """Bring a dead sheet back. Returns the cost to record (kind, text, hours) in a story game, and a problem."""
+    story = state.story
+    if sheet.fate != "dead":
+        return None, f"{name} is not dead"
+    if sheet.remains == "lost":
+        return None, f"{name}'s remains are lost: there is nothing to bring back"
+    if story is not None and (story.fall is not None or story.concluded):
+        return None, "the story is already lost: bringing someone back does not undo that"
+    cost = None
+    if story is not None:
+        kinds = story_rules.failure_response(story).cost_kinds
+        if story.chapter == 2:
+            kinds = tuple(k for k in kinds if k != "time")  # a real cost, not time alone
+        text, kind, hours = tool_input.get("cost"), tool_input.get("cost_kind"), tool_input.get("cost_hours") or 0
+        if not isinstance(text, str) or not text.strip() or kind not in kinds:
+            return None, f"bringing someone back is never free: give `cost` (one sentence) and a `cost_kind` of {', '.join(kinds)}"
+        if kind == "time" and not (_int(hours) and 1 <= hours <= story_rules.MAX_COST_HOURS[story.chapter]):
+            return None, "a time cost needs `cost_hours`, a whole number of hours"
+        cost = (kind, text, hours if kind == "time" else 0)
+    sheet.fate = sheet.remains = sheet.died_turn = sheet.died_at = None
+    if sheet.hp == 0 and sheet.max_hp:
+        sheet.hp = 1
+    return cost, ""
+
+
 def update_character(tool_use_id: str, tool_input: dict[str, Any], state: GameState) -> ToolOutcome:
     name = state.find_hero(str(tool_input.get("name", "")))
     if name is None:
@@ -76,6 +139,15 @@ def update_character(tool_use_id: str, tool_input: dict[str, Any], state: GameSt
             is_error=True,
         )
     sheet, problems, notes = old.copy(), [], []
+    fate, remains = tool_input.get("fate"), tool_input.get("remains")
+    if fate not in (None, "dead", "revived"):
+        problems.append("'fate' must be dead or revived")
+    if remains is not None and remains not in REMAINS:
+        problems.append(f"'remains' must be one of: {', '.join(REMAINS)}")
+    if sheet.fate == "dead" and fate != "revived" and any(
+        tool_input.get(k) is not None for k in ("hp", "hp_delta", "max_hp", "conditions_add", "conditions_remove", "section")
+    ):
+        problems.append(f"{name} is dead: bring them back first (fate revived), or change only their remains")
 
     hp, delta, new_max = tool_input.get("hp"), tool_input.get("hp_delta"), tool_input.get("max_hp")
     if hp is not None and delta is not None:
@@ -135,11 +207,45 @@ def update_character(tool_use_id: str, tool_input: dict[str, Any], state: GameSt
                     problems.append(f"a sheet can have at most {MAX_SECTIONS} sections; replace one")
                 else:
                     sheet.sections.append(Section(title, lines))
-    if all(tool_input.get(k) is None for k in ("hp", "hp_delta", "max_hp", "conditions_add", "conditions_remove", "section")):
-        problems.append("nothing to change: give hp, hp_delta, max_hp, conditions_add, conditions_remove or section")
+    if all(tool_input.get(k) is None for k in ("hp", "hp_delta", "max_hp", "conditions_add", "conditions_remove", "section", "fate", "remains")):
+        problems.append("nothing to change: give hp, hp_delta, max_hp, conditions_add, conditions_remove, section, fate or remains")
+    story = state.story
+    revive_cost: tuple[str, str, int] | None = None
+    ends_game = False
+    if not problems and fate == "dead":
+        ends_game, why = _die(state, name, sheet)
+        if why:
+            problems.append(why)
+    if not problems and fate == "revived":
+        revive_cost, why = _revive(state, name, sheet, tool_input)
+        if why:
+            problems.append(why)
+    if not problems and remains is not None:
+        if sheet.fate != "dead":
+            problems.append(f"{name} is not dead, so there are no remains to settle")
+        elif fate == "revived":
+            problems.append("a character brought back has no remains")
+        else:
+            sheet.remains = remains
     if problems:
         return ToolOutcome(f"{name}'s sheet was not changed:\n- " + "\n- ".join(problems), is_error=True)
     state.sheets[name] = sheet
+    if story is not None and fate in ("dead", "revived"):
+        word = "fell" if fate == "dead" else "was brought back"
+        story.choices = [*story.choices, {"turn": state.turn, "milestone": "", "note": f"{name} {word} ({state.world.time})."}][
+            -story_rules.MAX_CHOICES :
+        ]
+    if revive_cost is not None and story is not None:
+        kind, text, hours = revive_cost
+        story_rules.record_cost(story, state.turn, "", kind, text, hours)
+        if hours:
+            state.world.advance_minutes(hours * 60, reported=True, turn=state.turn, why=f"bringing {name} back: {text}")
+            notes.append(f"The clock moves on {hours} hours; narrate what filled them.")
+    if ends_game and story is not None:
+        story_rules.lose(story, state.turn, f"the last of the party, {name}, has fallen")
+        notes.append("That was the last of the party: the story is lost. Finish the scene, then play out its ending.")
+    elif fate == "dead":
+        notes.append(f"{name} is dead. Put the choice of what to do with the body to the player (remains).")
     now = [f"HP {hp_text(sheet.hp, sheet.max_hp)}" if hp_text(sheet.hp, sheet.max_hp) else "", f"conditions: {', '.join(sheet.conditions) or 'none'}"]
     return ToolOutcome(f"{name}: {'; '.join(x for x in now if x)}." + "".join(f" {n}" for n in notes))
 

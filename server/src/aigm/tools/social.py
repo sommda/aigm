@@ -9,9 +9,10 @@ from typing import Any
 
 import d20
 
-from aigm import roleplay, rulesets
+from aigm import attempts, roleplay, rulesets
 from aigm.roleplay import EFFECTS, QUALITIES
 from aigm.session.state import GameState, Phase
+from aigm.tools.attempt import closed_result, read_attempt, settle, start_try
 from aigm.tools.base import Tool, ToolOutcome
 from aigm.tools.roll_dice import MIN_NARRATION_CHARS, build_roll_payload
 from aigm.tools.timing import MINUTES_PROPERTY, read_minutes, spend
@@ -64,6 +65,23 @@ SCHEMA: dict[str, Any] = {
                 "and does and what is at stake, in the story's voice. Do not repeat it in your reply.",
             },
             "minutes": MINUTES_PROPERTY,
+            "failure": {
+                "type": "string",
+                "description": "Up to 25 words completing \"...and failed; ___\": what failing costs or shows, "
+                "decided before you roll (the person is offended, the guard calls for help).",
+            },
+            "attempt": {
+                "type": "object",
+                "description": "Optional: shape what a failure leaves behind. The attempt itself is implied.",
+                "properties": {
+                    "task": {"type": "string", "description": "Two to twelve words: \"win over the steward\"."},
+                    "closes": {"type": "boolean", "description": "Override: close (or keep open) on failure."},
+                    "reopens_if": {"type": "string", "description": "GM only: what would reopen it."},
+                    "after_minutes": {"type": "integer", "description": "A closure that lifts by itself after this long."},
+                    "scope": {"type": "string", "enum": list(attempts.SCOPES)},
+                    "changed": {"type": "string", "description": "What is new since the person closed to this."},
+                },
+            },
         },
         "required": ["character", "skill", "target", "spoken", "quality", "modifier", "narration"],
     },
@@ -82,6 +100,17 @@ NO_WORDS = (
 
 def _whole(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _margin(style: str, dc: int | None, total: float, natural: int | None, reaction_fail: int | None) -> float:
+    """Zero or more for a success, below zero for a failure, by the ruleset's own reading (docs/ATTEMPTS.md 6.3): a
+    reaction total at or below the ruleset's failing figure, a Pathfinder 2e failure or critical failure, or the total
+    under the DC."""
+    if dc is None:
+        return total - (reaction_fail if reaction_fail is not None else 5) - 1
+    if style == "circumstance":
+        return -1 if roleplay.degree(total, dc, natural, True) in ("failure", "critical failure") else 0
+    return total - dc
 
 
 def _natural(payload: Any) -> int | None:
@@ -135,7 +164,8 @@ def social_check(tool_use_id: str, tool_input: dict[str, Any], state: GameState)
     minutes, minutes_problem = read_minutes(tool_input)
     if minutes_problem:
         return _refuse(f"{minutes_problem}.")
-    style = rulesets.get(state.ruleset).social_style
+    rules = rulesets.get(state.ruleset)
+    style = rules.social_style
     modifier, dc = tool_input.get("modifier"), tool_input.get("dc")
     if not _whole(modifier):
         return _refuse("`modifier` must be a whole number.")
@@ -164,6 +194,25 @@ def social_check(tool_use_id: str, tool_input: dict[str, Any], state: GameState)
         state.social_done.discard((state.turn, target.id))
         return _refuse("every call needs a `narration` (at least a sentence) shown to the player just before the dice.")
 
+    extras = tool_input.get("attempt")
+    extras = extras if isinstance(extras, dict) else {}
+    failure = tool_input.get("failure")
+    attempt_plan, problems = read_attempt(
+        {
+            **{k: v for k, v in extras.items() if k not in ("who", "kind", "about", "opens", "failure")},
+            "who": character, "kind": "social", "about": target.id,
+            "task": extras.get("task") or f"use {skill.strip().lower()} on {target.name}",
+            "failure": failure if isinstance(failure, str) and failure.strip() else f"{target.name} was not moved",
+        },
+        state, minutes, social=True,
+    )  # fmt: skip
+    if attempt_plan is None:
+        state.social_done.discard((state.turn, target.id))
+        return _refuse("; ".join(problems) + ".")
+    earlier, shut = start_try(state, attempt_plan)
+    if shut and earlier is not None:
+        return ToolOutcome(closed_result(earlier, narration), say=narration.strip())
+
     boon = roleplay.boon_for(quality, effect)
     plan = roleplay.plan_roll(style, boon, modifier, dc if _whole(dc) else None)
     label = skill.strip().lower()
@@ -189,9 +238,11 @@ def social_check(tool_use_id: str, tool_input: dict[str, Any], state: GameState)
         + (f"; where the words touched what they want, show it as a tell ({tells})" if tells else "")
         + ". Never state their motive or the DC."
     )
-    passed = spend(state, minutes, f"talking to {target.name}")
+    passed = spend(state, attempt_plan.minutes, f"talking to {target.name}")
     if passed:
         lines.append(passed)
+    margin = _margin(style, plan.dc, total, _natural(payload), rules.reaction_fail)
+    lines.append(settle(state, attempt_plan, earlier, margin))
     return ToolOutcome(" ".join(lines), event=payload, say=narration.strip())
 
 

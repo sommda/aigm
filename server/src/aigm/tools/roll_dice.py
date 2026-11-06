@@ -2,10 +2,12 @@ from typing import Any
 
 import d20
 
+from aigm import attempts
 from aigm.models import DiceRoll, DiceTerm, DieRoll
 from aigm.roleplay import SOCIAL_SKILL
 from aigm.session.state import GameState, Phase
 from aigm.tools.base import Tool, ToolOutcome
+from aigm.tools.attempt import attempts_active, closed_result, read_attempt, settle, start_try
 from aigm.tools.timing import MINUTES_PROPERTY, read_minutes, spend
 
 MAX_EXPRESSION_LENGTH = 200
@@ -36,6 +38,45 @@ SCHEMA: dict[str, Any] = {
                 ),
             },
             "minutes": MINUTES_PROPERTY,
+            "dc": {
+                "type": "integer",
+                "description": (
+                    "The number the roll must meet or beat, fixed before you roll, when the roll has a difficulty. "
+                    "The result then says whether it succeeded or failed and by how much. Never tell the player."
+                ),
+            },
+            "attempt": {
+                "type": "object",
+                "description": (
+                    "What this roll is for, when it tests a task that can fail and be tried again or closed: pick a "
+                    "lock, climb a cliff, search a room. Needs `dc`. Leave it out of rolls that are not tasks (damage, "
+                    "initiative, attribute values, random tables, attacks)."
+                ),
+                "properties": {
+                    "who": {"type": "string", "description": "The party member who tries."},
+                    "kind": {"type": "string", "enum": [k for k in attempts.KINDS if k != "social"]},
+                    "task": {"type": "string", "description": "Two to twelve words: \"pick the vault lock\"."},
+                    "about": {"type": "string", "description": "What it concerns (an entity). Default: the party's place."},
+                    "failure": {
+                        "type": "string",
+                        "description": "Up to 25 words completing \"...and failed; ___\": what failing costs or shows.",
+                    },
+                    "closes": {"type": "boolean", "description": "Override the kind's rule: close (or keep open) on failure."},
+                    "reopens_if": {"type": "string", "description": "GM only: what would reopen it if it closes."},
+                    "after_minutes": {"type": "integer", "description": "A closure that lifts by itself after this long."},
+                    "scope": {"type": "string", "enum": list(attempts.SCOPES)},
+                    "changed": {"type": "string", "description": "What is new since a closed attempt, to roll it again."},
+                    "opens": {
+                        "description": "The blocked way a success opens: {from, to} places, or the words of a way out of here.",
+                    },
+                },
+                "required": ["who", "kind", "task", "failure"],
+            },
+            "dc_mode": {
+                "type": "string",
+                "enum": list(attempts.DC_MODES),
+                "description": "`under` when the roll succeeds at or below the dc (roll-under checks). Default `over`.",
+            },
         },
         "required": ["expression", "narration"],
     },
@@ -115,6 +156,9 @@ def roll_dice(tool_use_id: str, tool_input: dict[str, Any], state: GameState | N
     minutes, minutes_problem = read_minutes(tool_input)
     if minutes_problem:
         return ToolOutcome(f"Nothing was rolled: {minutes_problem}.", is_error=True)
+    dc, dc_mode, dc_problem = attempts.read_dc(tool_input)
+    if dc_problem:
+        return ToolOutcome(f"Nothing was rolled: {dc_problem}.", is_error=True)
     expression = tool_input.get("expression")
     if not isinstance(expression, str) or not expression.strip():
         return _error(expression, "expression must be a non-empty string")
@@ -133,6 +177,31 @@ def roll_dice(tool_use_id: str, tool_input: dict[str, Any], state: GameState | N
             "this error to the player.",
             is_error=True,
         )
+    plan, earlier = None, None
+    if dc is not None and tool_input.get("attempt") is None and attempts_active(state):
+        kind = attempts.task_kind(comment)
+        if kind is not None:
+            return ToolOutcome(
+                f"Nothing was rolled: this roll tests a task (it looks like a `{kind}`) but has no `attempt`, so a failure "
+                "would leave no record and nothing to stop a retry. Call it again with `attempt` (who, kind, task, "
+                "failure: what failing costs), or, if it is not a task someone could fail at and retry, leave out the "
+                "`dc` and read the total yourself. Do not mention this to the player.",
+                is_error=True,
+            )
+    if tool_input.get("attempt") is not None and attempts_active(state):
+        assert state is not None
+        if dc is None:
+            return ToolOutcome(
+                "Nothing was rolled: an `attempt` needs a `dc`. Decide the difficulty first (roll the opposition and use "
+                "its total, or the passive figure for the task) and call again. Do not mention this to the player.",
+                is_error=True,
+            )
+        plan, problems = read_attempt(tool_input["attempt"], state, minutes)
+        if plan is None:
+            return ToolOutcome(f"Nothing was rolled: {'; '.join(problems)}.", is_error=True)
+        earlier, shut = start_try(state, plan)
+        if shut and earlier is not None:
+            return ToolOutcome(closed_result(earlier, narration), say=narration.strip())
     try:
         result = d20.roll(dice_part)
         payload = build_roll_payload(tool_use_id, expression, result, comment)
@@ -140,8 +209,11 @@ def roll_dice(tool_use_id: str, tool_input: dict[str, Any], state: GameState | N
         return _error(expression, str(exc).strip().splitlines()[0] if str(exc).strip() else "roll failed")
     except Exception as exc:  # d20/lark can raise unexpected errors on odd input
         return _error(expression, f"could not evaluate ({type(exc).__name__})")
-    passed = spend(state, minutes, comment or "an action")
-    return ToolOutcome(content=result.result + (f" {passed}" if passed else ""), event=payload, say=narration.strip())
+    passed = spend(state, plan.minutes if plan else minutes, plan.task if plan else comment or "an action")
+    verdict = attempts.verdict_text(result.total, dc, dc_mode) if dc is not None else ""
+    recorded = settle(state, plan, earlier, attempts.margin(result.total, dc, dc_mode)) if plan and dc is not None else ""
+    content = " ".join(part for part in (result.result, verdict, passed, recorded) if part)
+    return ToolOutcome(content=content, event=payload, say=narration.strip())
 
 
 ROLL_DICE = Tool(schema=SCHEMA, handler=roll_dice)

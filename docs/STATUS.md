@@ -159,6 +159,8 @@ All of it is read from the world and the new records; nothing is generated at re
 3. **Key items.** Known facts on this place with aspect `items` (added to the location aspects: notable objects
    lying here, such as "a barred cargo hatch" or "a ship's bell with no clapper"). No item entities in v1
    (decision 4).
+   Only what the party has seen: an `items` fact is not revealed on arrival (WORLD.md 5.3). It is shown once the
+   narration has shown it, in the terms the party knows ("two stoppered vials" until they learn they are potions).
 4. **Ways out.** The places linked to this one that the party has discovered (`neighbors()`), each with its
    `connections` or `approach` fact when known, so "the Customs House, a short walk up Dock Street".
 5. **Table.** One row per party member, NPC present and, in combat, foe and ally.

@@ -426,8 +426,12 @@ stored in history). Implementations:
   - `stop_reason: "refusal"` becomes a non-retryable `LLMError`; SDK exceptions map to `LLMError` with `retryable` set
     for rate limits, connection failures and 5xx. Missing credentials give a clear "set ANTHROPIC_API_KEY" error. The
     SDK client is created lazily, so the server starts (and `/health` works) without a key.
-  - The loop also rejects malformed completions before they reach history: an empty response, or a `tool_use` block with
-    a stop reason other than `tool_use` (e.g. `max_tokens` mid tool call), both become retryable errors.
+  - The loop also rejects malformed completions before they reach history: an empty response, a stream that ends with
+    no final message, an unreadable tool call, or a `tool_use` block with a stop reason other than `tool_use` or
+    `end_turn` (e.g. `max_tokens` mid tool call). It asks the model again, up to twice a turn, if none of that reply
+    has reached the player yet (a retry would repeat what they read); otherwise the turn fails with a retryable error
+    and is rolled back. A `tool_use` block that comes with `end_turn` is run as a tool call: the tool reports unusable
+    input and the model corrects it.
   - **Ollama** (`AIGM_PROVIDER=ollama`, `llm/ollama_client.py`): the same `LLMClient` over Ollama's native streaming
     `POST /api/chat`. History stays in Anthropic block format and is translated per request (tool results become
     `tool` messages named after their call, thinking blocks are dropped). Ollama sends a tool call whole, so it

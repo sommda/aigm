@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from aigm.characters import look_notes, sheet_notes
+from aigm.characters import fallen_notes, is_dead, look_notes, sheet_notes
 from aigm.combat import notes as combat_notes
 from aigm.history import HistoryPolicy, Reduction, reduce_history
 from aigm.prompts import PromptLibrary, PromptPart
@@ -11,6 +11,7 @@ from aigm.rulesets import RULESETS
 from aigm.session.state import GameState, Phase
 from aigm.tools import dispatch, tool_schemas
 from aigm.tools.base import ToolOutcome
+from aigm import story as story_rules
 from aigm.story import NUDGE_TURNS, briefing_block
 from aigm.world.briefing import build_briefing
 
@@ -63,7 +64,7 @@ class RequestDescription:
 # Prompt files left out in playtest mode: they make the GM stay in character and steer the story (docs/PLAYTEST.md).
 PLAYTEST_DROPPED = (
     "adventure/01_role.md", "adventure/03_style.md", "adventure/04b_progress.md", "adventure/05_roleplay.md",
-    "story/01_story.md", "03_roleplay.md",
+    "story/01_story.md", "03_roleplay.md", "04_attempts.md", "04c_attempts.md",
 )  # fmt: skip
 
 
@@ -130,15 +131,17 @@ class Game:
     def _standing(state: GameState, name: str) -> str:
         h = state.hero(name)
         classes = f" ({', '.join(f'{c} {v}' for c, v in h.classes.items())})" if h.classes else ""
-        return f"{name} level {h.level}{classes}" + (f", {h.xp} XP" if h.xp else "")
+        return f"{name} level {h.level}{classes}" + (f", {h.xp} XP" if h.xp else "") + (" (dead)" if is_dead(state, name) else "")
 
     def briefing(self, state: GameState, user_text: str, gm_text: str) -> str:
         """The world notes for this request (empty outside the adventure or while the world is empty)."""
         if state.phase is not Phase.ADVENTURE:
             return ""
+        quest_places = [e for m in story_rules.active(state.story) for e in m.entities] if state.story else []
         notes = build_briefing(
-            state.world, user_text=user_text, gm_text=gm_text, budget_tokens=self.briefing_tokens, turn=state.turn
-        )
+            state.world, user_text=user_text, gm_text=gm_text, budget_tokens=self.briefing_tokens, turn=state.turn,
+            focus=quest_places,
+        )  # fmt: skip
         if state.story is not None:
             block = briefing_block(state.story, state.world, state.turn, self.story_nudge_turns)
             notes = f"{block}\n\n{notes}" if block and notes else block or notes
@@ -152,6 +155,9 @@ class Game:
         if looks:  # how the characters appear: narration must not contradict it (docs/LOOKS.md 9)
             block = f"How the party looks (stay within this; add detail freely, contradict nothing):\n{looks}"
             notes = f"{notes}\n\n{block}" if notes else block
+        fallen = fallen_notes(state)
+        if fallen:
+            notes = f"{notes}\n\n{fallen}" if notes else fallen
         sheets = sheet_notes(state)
         if sheets:  # kept apart from the world notes: it is the GM's copy of what the player sees (docs/STATUS.md 3.3)
             notes = f"{notes}\n\nCharacter sheets (change them with update_character):\n{sheets}" if notes else (

@@ -82,10 +82,13 @@ async def catch_up(app: Any, session: Session, generation: int) -> None:
             if session.generation != generation:
                 return
             progressed = False
+            if portraits is not None:
+                progressed |= await portraits.here_first(service, session)
             if service is not None:
                 progressed |= await service.run_looks_if_due(session)
                 progressed |= await service.run_place_looks_if_due(session)
                 progressed |= await service.run_item_looks_if_due(session)
+                progressed |= await service.run_place_looks_if_due(session, ahead=True)
             if portraits is not None:
                 progressed |= await portraits.run_if_due(session)
             if not progressed:

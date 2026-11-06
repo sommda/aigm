@@ -26,6 +26,10 @@ class Section:
     lines: list[str] = field(default_factory=list)
 
 
+FATES = ("dead",)  # a living character has no fate
+REMAINS = ("carried", "left", "buried", "lost")
+
+
 @dataclass
 class Sheet:
     headline: str = ""  # e.g. "Human Rogue 3"
@@ -33,20 +37,29 @@ class Sheet:
     max_hp: int | None = None
     conditions: list[str] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
+    # What became of the character (docs/STAKES.md 7.2): `fate` is None (alive) or "dead", with the remains and when.
+    fate: str | None = None
+    remains: str | None = None  # carried, left, buried or lost; None while the death is unresolved
+    died_turn: int | None = None
+    died_at: dict[str, int] | None = None  # a WorldTime as a dict
 
     def copy(self) -> "Sheet":
         return Sheet(
-            self.headline, self.hp, self.max_hp, list(self.conditions), [Section(s.title, list(s.lines)) for s in self.sections]
+            self.headline, self.hp, self.max_hp, list(self.conditions), [Section(s.title, list(s.lines)) for s in self.sections],
+            self.fate, self.remains, self.died_turn, dict(self.died_at) if self.died_at else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "headline": self.headline,
             "hp": self.hp,
             "max_hp": self.max_hp,
             "conditions": list(self.conditions),
             "sections": [{"title": s.title, "lines": list(s.lines)} for s in self.sections],
         }
+        if self.fate:  # a living character's sheet has no fate keys
+            out.update(fate=self.fate, remains=self.remains, died_turn=self.died_turn, died_at=self.died_at)
+        return out
 
 
 def _text(value: Any, limit: int) -> str:
@@ -78,7 +91,14 @@ def clean(raw: Any) -> Sheet:
     elif hp is None:
         hp = max_hp
     conditions = [t for t in (_text(c, MAX_CONDITION) for c in raw.get("conditions") if isinstance(raw.get("conditions"), list)) if t]
-    return Sheet(_text(raw.get("headline"), MAX_HEADLINE), hp, max_hp, list(dict.fromkeys(conditions))[:MAX_CONDITIONS], sections[:MAX_SECTIONS])
+    fate = raw.get("fate") if raw.get("fate") in FATES else None
+    remains = raw.get("remains") if fate and raw.get("remains") in REMAINS else None
+    died_turn = _count(raw.get("died_turn"), 0) if fate else None
+    died_at = raw.get("died_at") if fate and isinstance(raw.get("died_at"), dict) else None
+    return Sheet(
+        _text(raw.get("headline"), MAX_HEADLINE), hp, max_hp, list(dict.fromkeys(conditions))[:MAX_CONDITIONS],
+        sections[:MAX_SECTIONS], fate, remains, died_turn, died_at,
+    )  # fmt: skip
 
 
 def read_sheets(raw: Any) -> dict[str, Sheet]:

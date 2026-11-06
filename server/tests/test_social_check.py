@@ -318,7 +318,8 @@ def test_persuade_in_test_mode_asks_for_words_and_then_rolls(client):
     text = reply_text(ev)
     assert "`social_check`" in text and "Persuasion for Test Hero on Wren" in text and "The words earned advantage." in text
     again = reply_text(chat(client, "persuade Wren Please lend us the back room, for the captain owes me a favour"))
-    assert "Persuasion for Test Hero" in again  # a new message is a new try
+    # a new message is a new try, unless the first failed: the same words are then a closed attempt (ATTEMPTS.md 6.3)
+    assert "Persuasion for Test Hero" in again or ("No roll." in again and "is closed" in again)
 
 
 def test_a_social_check_with_minutes_moves_the_clock(state):

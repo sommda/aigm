@@ -5,6 +5,7 @@ invention quality matters, uses `expand_model`. Answers are constrained to a JSO
 `output_config.format`, since the newest models reject a forced tool call. Anything unusable raises
 `CuratorError`, which makes the pass fail harmlessly and retry later."""
 
+import re
 import json
 import logging
 from typing import Any
@@ -30,6 +31,8 @@ from aigm.world.curator import (
     PlaceLookRequest,
     MotiveProposal,
     MotiveReport,
+    DeadlineProposal,
+    DoomProposal,
     PlotProposal,
     PlotRequest,
     ReconcileRequest,
@@ -201,6 +204,9 @@ _PLOT_ENTITY = _obj(
     name=_STR, kind={"type": "string", "enum": [*CURATOR_KINDS, "item"]}, aliases=_STRS, parent=_nullable(_STR),
     **_PLACE_FIELDS,
 )
+# A deadline is one string, "DAY HOUR fixed|soft CUE" (empty: none), and a doom's chapters another ("2", "3", "2,3"):
+# nested objects and arrays here made the grammar too large for strict output.
+_DEADLINE = dict(deadline=_STR)
 PLOT_SCHEMA = _obj(
     goal_title=_STR,
     goal_summary=_STR,
@@ -224,14 +230,33 @@ PLOT_SCHEMA = _obj(
             entities=_STRS,
             finds=_STR,
             needs=_STRS,
+            fails_if=_STRS,
+            ending=_STR,
+            **_DEADLINE,
         ),
     },
+    dooms={"type": "array", "items": _obj(when=_STR, chapters=_STR, ending=_STR, **_DEADLINE)},
     endings={"type": "array", "items": _obj(title=_STR, when=_STR)},
     entities={"type": "array", "items": _PLOT_ENTITY},
     facts={"type": "array", "items": _obj(text=_STR, about=_STRS, aspect=_ASPECT)},
+    cost=_STR,
+    cost_kind=_STR,
 )
 DIGEST_SCHEMA = _obj(digests={"type": "array", "items": _obj(turn={"type": "integer"}, text=_STR)})
 JUDGE_SCHEMA = _obj(violations={"type": "array", "items": _obj(index={"type": "integer"}, reason=_STR)})
+
+
+_DEADLINE_TEXT = re.compile(r"^\s*(?:day\s*)?(\d+)\D+?(\d{1,2})(?::\d\d)?\s*[,;]?\s*(fixed|soft)\b\W*(.*)$", re.I | re.S)
+
+
+def _deadline(value: Any) -> DeadlineProposal | None:
+    """The `deadline` string of a quest or doom, "6 18 fixed the second sun slides toward the Spire" (None: no
+    deadline, or one that cannot be read)."""
+    text = value.get("deadline") if isinstance(value, dict) else None
+    match = _DEADLINE_TEXT.match(text) if isinstance(text, str) else None
+    if match is None or int(match.group(1)) < 1:
+        return None
+    return DeadlineProposal(int(match.group(1)), int(match.group(2)), match.group(4).strip(), match.group(3).lower() == "fixed")
 
 
 def _strs(value: Any) -> list[str]:
@@ -511,12 +536,22 @@ class AnthropicCurator:
                     text(q.get("key")), whole(q.get("chapter")) or 0, text(q.get("title")), text(q.get("brief")),
                     text(q.get("scale")), text(q.get("gives")), _strs(q.get("requires")), q.get("required") is not False,
                     _strs(q.get("entities")), text(q.get("finds")), _strs(q.get("needs")),
+                    _strs(q.get("fails_if")), _deadline(q), text(q.get("ending")),
                 )
                 for q in items("quests")
             ],
             endings=[EndingProposal(text(e.get("title")), text(e.get("when"))) for e in items("endings")],
             entities=_entities(data.get("entities")),
             facts=_facts(data.get("facts"), "hidden"),
+            dooms=[
+                DoomProposal(
+                    text(d.get("when")), [int(c) for c in re.findall(r"[123]", text(d.get("chapters")))],
+                    _deadline(d), text(d.get("ending")),
+                )
+                for d in items("dooms")
+            ],
+            cost=text(data.get("cost")),
+            cost_kind=text(data.get("cost_kind")),
         )  # fmt: skip
 
     async def judge_independence(self, texts: list[str]) -> list[int]:

@@ -8,6 +8,8 @@ You are the continuity editor of a tabletop role-playing game's knowledge base. 
 - `contradicts`: cannot be true together with an existing fact. Give that fact's id as `existing_id`. If it instead clashes with an earlier proposal in this batch, give that proposal's number as `with_proposal` and leave `existing_id` null.
 - `new`: unrelated to everything shown.
 
+A proposal that says less than an existing fact (the party saw "two vials", the fact says they are potions of healing) is `refines`, never `duplicate`: the player has not learned the rest.
+
 Judge only the meaning. A different level of detail is `refines`, not `contradicts`; a changed circumstance the text marks as a change ("the bridge was destroyed last night") is `new`, not `contradicts`. Only use `contradicts` when both statements cannot hold. When unsure between `refines` and `contradicts`, choose `refines`.
 
 ## Same thing?

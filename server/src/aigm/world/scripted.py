@@ -36,6 +36,7 @@ from aigm.world.curator import (
     RouteProposal,
     LookRevision,
     MotiveProposal,
+    DoomProposal,
     PlotProposal,
     PlotRequest,
     QuestProposal,
@@ -313,6 +314,18 @@ class ScriptedCurator:
         """A plain plan of the size the length asks for: a chain of quests per chapter, each giving something, ending
         at a goal place that is added under the first region. Quest counts are the low end of the range."""
         self.calls.append("plot")
+        if request.repair:  # one backup quest, and the cost of the failure it mends
+            chapter = request.chapters[0]
+            return PlotProposal(
+                goal_title="", goal_summary="", cost="The party lost time and coin finding another way.",
+                cost_kind="resource",
+                quests=[
+                    QuestProposal(
+                        "b1", chapter, "Out of the Cells" if "taken" in request.repair else "Another Way",
+                        "Get free." if "taken" in request.repair else "Find another way to the same end.", "small", "a way on",
+                    )
+                ],
+            )
         region = next((e.name for e in request.entities if e.kind == "location" and e.parent is None), None)
         goal_place = "The Sunken Seal"
         out = PlotProposal(
@@ -337,15 +350,23 @@ class ScriptedCurator:
         scale = {"short": "small", "medium": "medium", "long": "large"}[request.length]
         previous: str | None = None
         for chapter in request.chapters:
-            for i in range(request.quests[0]):
+            count = request.quests[0]
+            for i in range(count):
                 key = f"c{chapter}q{i + 1}"
+                ways = {1: 0, 2: 1 if i == 0 else 0, 3: 5 if i == count - 1 else 3}[chapter]
                 out.quests.append(
                     QuestProposal(
                         key, chapter, f"Quest {key}", f"Do what quest {key} asks.", scale, f"a boon from {key}",
                         [previous] if previous else [], True, [goal_place] if region else [],
+                        fails_if=[f"Way {w + 1} of losing {key} comes to pass." for w in range(ways)],
+                        ending="end2" if chapter == 3 else "",
                     )
                 )  # fmt: skip
                 previous = key
+        if 2 in request.chapters:
+            out.dooms.append(DoomProposal("The party abandons the region for good.", [2, 3], None, "end2"))
+        if 3 in request.chapters:
+            out.dooms += [DoomProposal(f"The endgame goes wrong in way {n}.", [3], None, "end2") for n in range(1, 3 if 2 in request.chapters else 4)]
         return out
 
     async def digest(self, request: DigestRequest) -> list[str]:

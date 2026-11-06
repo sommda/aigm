@@ -26,6 +26,7 @@ from aigm.session.state import Phase
 PACKAGED_DIR = Path(__file__).parent
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 ROLEPLAY_FILE = "/03_roleplay.md"  # a ruleset's reward for good role play: adventure mode only
+ATTEMPTS_FILE = "/04_attempts.md"  # how a ruleset reads a failed attempt (docs/ATTEMPTS.md 8): adventure mode only
 _ASPECT_LINE = re.compile(r"^- (\w+): (.+)$")
 
 
@@ -64,7 +65,7 @@ class PromptLibrary:
     def ruleset_parts(self, ruleset: str) -> list[PromptPart]:
         """The prompt files of one ruleset (its rules, then the feel of its era)."""
         rulesets.get(ruleset)  # unknown ids are an error, not an empty section
-        parts = [p for p in self._parts(f"rulesets/{ruleset}") if not p.source.endswith(ROLEPLAY_FILE)]
+        parts = [p for p in self._parts(f"rulesets/{ruleset}") if not p.source.endswith((ROLEPLAY_FILE, ATTEMPTS_FILE))]
         if not parts:
             raise ValueError(f"The ruleset {ruleset!r} has no prompt files: prompts/rulesets/{ruleset}/*.md")
         return parts
@@ -73,6 +74,11 @@ class PromptLibrary:
         """How the ruleset pays good role play (its 03_roleplay.md); used in the adventure only."""
         rulesets.get(ruleset)
         return [p for p in self._parts(f"rulesets/{ruleset}") if p.source.endswith(ROLEPLAY_FILE)]
+
+    def attempts_part(self, ruleset: str) -> list[PromptPart]:
+        """How the ruleset reads a failed attempt (its 04_attempts.md); used in the adventure only."""
+        rulesets.get(ruleset)
+        return [p for p in self._parts(f"rulesets/{ruleset}") if p.source.endswith(ATTEMPTS_FILE)]
 
     def system_parts(
         self, phase: Phase | str, ruleset: str = rulesets.DEFAULT_RULESET, structured: bool = False
@@ -86,7 +92,8 @@ class PromptLibrary:
             raise ValueError(f"The {phase.value} system prompt is empty: no prompts/system/{phase.value}/*.md files found")
         story = self._parts("system/story") if structured and phase is Phase.ADVENTURE else []
         roleplay = self.roleplay_part(ruleset) if phase is Phase.ADVENTURE else []
-        return [*common, *self.ruleset_parts(ruleset), *roleplay, *own, *story]
+        attempts = self.attempts_part(ruleset) if phase is Phase.ADVENTURE else []
+        return [*common, *self.ruleset_parts(ruleset), *roleplay, *attempts, *own, *story]
 
     def system_prompt(
         self, phase: Phase | str, ruleset: str = rulesets.DEFAULT_RULESET, structured: bool = False

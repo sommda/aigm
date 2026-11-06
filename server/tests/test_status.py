@@ -75,7 +75,10 @@ def test_the_status_names_and_describes_the_place():
     assert [p["name"] for p in loc["path"]] == ["Port Veyra"]
     assert loc["overview"] == "Gulls wheel over wet planks and tarred rope."
     assert loc["time"] == "Day 1, 08:00" and loc["period"] == "morning"
-    assert page["items"] == ["A barred cargo hatch."]
+    assert page["items"] == []  # lying there, but the party has not been shown it
+    hatch = next(f for f in state.world.facts.values() if f.aspect == "items")
+    state.world.reveal(hatch.id, 1)
+    assert build(state)["items"] == ["A barred cargo hatch."]
     assert [e["name"] for e in page["here"]] == ["Elian"]
     assert page["here"][0]["summary"] == "Elian is a merchant who needs a crate moved."
 
@@ -149,7 +152,7 @@ def test_entering_the_adventure_in_test_mode_gives_a_described_place(client):
     chat(client, "begin")
     body = client.get("/status").json()
     assert body["location"]["name"] == "Rusty Flagon" and body["location"]["overview"]
-    assert body["items"] and body["table"]["rows"][0][3].startswith("Party") and body["table"]["rows"][0][1] == "12/12"
+    assert body["table"]["rows"][0][3].startswith("Party") and body["table"]["rows"][0][1] == "12/12"
 
 
 def test_the_status_shows_the_time_to_the_nearest_five_minutes():

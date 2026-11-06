@@ -5,6 +5,7 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from aigm import hidden_view, rulesets
@@ -12,6 +13,7 @@ from aigm.compendium import unseen_totals
 from aigm.context_view import build_context
 from aigm.deps import get_session
 from aigm.errors import NotFound
+from aigm.portraits import CONTENT_TYPES
 from aigm.session.state import Phase
 from aigm.session.store import Session
 from aigm.story import needs_plan, summary_so_far
@@ -32,6 +34,25 @@ def context(
     return build_context(
         game=request.app.state.game, session=session, model=request.app.state.model_name, draft=draft
     )
+
+
+@router.get("/premade")
+def premade(request: Request, session: Annotated[Session, Depends(get_session)]) -> dict[str, Any]:
+    """The places described and pictured ahead of the party's arrival (docs/PLACES.md 6.1). They are not in the
+    compendium and their pictures are not served by `/portraits`; this is the only way to see them."""
+    service = request.app.state.portraits
+    return {"session_id": session.id, "places": service.premade(session) if service else []}
+
+
+@router.get("/premade/{file}")
+def premade_picture(
+    request: Request, session: Annotated[Session, Depends(get_session)], file: Annotated[str, Path(max_length=64)]
+) -> FileResponse:
+    service = request.app.state.portraits
+    path = service.premade_file(session, file) if service else None
+    if path is None:
+        raise NotFound("No such premade picture")
+    return FileResponse(path, media_type=CONTENT_TYPES[path.suffix[1:]])
 
 
 class ThinkingSetting(BaseModel):

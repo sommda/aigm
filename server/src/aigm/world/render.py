@@ -174,6 +174,8 @@ def render_plot(req: PlotRequest) -> str:
     ]
     members = "\n\n".join(f"### {name}\n{sheet.strip()}" for name, sheet in req.party)
     parts.append(f"## Player characters (level {req.level})\n{members}")
+    if req.now:
+        parts.append(f"## The in-world time now\n{req.now} (deadlines you set must be later than this)")
     parts.append("## Private GM notes (the player has not been told these)\n" + (req.gm_notes.strip() or "(none)"))
     parts.append("## The world so far (entities)\n" + ("\n".join(_entity(e) for e in req.entities) or "(empty)"))
     facts = [f for f in req.facts if f.active][:MAX_PLOT_FACTS]
@@ -183,8 +185,11 @@ def render_plot(req: PlotRequest) -> str:
             "## The story so far (already planned: keep the goal and the endings; write only the quests asked for)\n"
             + req.story_so_far
         )
-    which = ", ".join(str(c) for c in req.chapters)
-    parts.append(f"## Write quests for chapter(s)\n{which}. Give the title and purpose of all three chapters.")
+    if req.repair:
+        parts.append("## A quest has failed: repair the plan\n" + req.repair)
+    else:
+        which = ", ".join(str(c) for c in req.chapters)
+        parts.append(f"## Write quests for chapter(s)\n{which}. Give the title and purpose of all three chapters.")
     if req.feedback:
         parts.append(
             "## Your previous answer was rejected\nFix these and answer again:\n" + "\n".join(f"- {x}" for x in req.feedback)

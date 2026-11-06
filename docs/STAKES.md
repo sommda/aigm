@@ -1,7 +1,8 @@
 # AIGM Stakes: Design
 
-Status: **spec, not built**. Builds on the structured campaign ([STORY.md](STORY.md)), the key items
-([KEY_ITEMS.md](KEY_ITEMS.md)) and the next tale ([NEXT_TALE.md](NEXT_TALE.md)). It makes failure matter: the game
+Status: **built**: all eight build steps of section 11 are done, apart from the next-tale link (7.6, 7.8).
+Builds on the structured campaign ([STORY.md](STORY.md)), the key items ([KEY_ITEMS.md](KEY_ITEMS.md)) and the next
+tale ([NEXT_TALE.md](NEXT_TALE.md)). It makes failure matter: the game
 today fails forward so well that nothing the player does can go wrong in the end. This feature lets the cost of
 failure grow with the three chapters, up to a game that can be lost.
 
@@ -418,15 +419,117 @@ but they will never be in doubt that time is running out.
 
 ## 11. Build steps
 
-1. Data: the fields, `failure_response`, `due_failures`, save format, tests. No behaviour change yet.
-2. Costs: the `cost` field on quest reports, the briefing line, the clock move.
-3. Chapter 1 and 2 failure: repair rules, backup quests, drift, rescue prices.
-4. Chapter 3: ending on failure, forced `end_story`, the dooms.
+1. Data: the fields, `failure_response`, `due_failures`, save format, tests. No behaviour change yet. **Built**:
+   the fields are in `story.py` and `sheets.py`, the save format is 15, and `tests/test_stakes_data.py` covers them.
+2. Costs: the `cost` field on quest reports, the briefing line, the clock move. **Built**: a quest report gains
+   `cost`, `cost_kind` and (for a time cost) `cost_hours`, and the briefing lists the last three costs. The clock
+   moves in the same `set_scene` call as the report, not the next one. The curator's reports need no cost, because
+   the plotter's repair supplies it (step 3). `tests/test_stakes_costs.py` covers it.
+3. Chapter 1 and 2 failure: repair rules, backup quests, drift, rescue prices. **Built**, except the rescue prices
+   (they belong to the `defeat` tool of step 6):
+   - The repair pass of STORY.md 8.2 did not exist yet, so it is built here: `run_repair_plot` asks the plotter for
+     one or two required backup quests (`Milestone.backup_for` links them to the failed one). The failed quest stops
+     being required, whatever waited on it waits on the backups, and the background curator service applies the result.
+   - Chapter 2 repairs may add details only, and the plotter must name the cost when the GM did not. A second failure
+     of the same line tells the plotter to make it harder.
+   - A failed required quest nobody can mend is skipped after 40 player turns (`story.STALL_TURNS`; it is a
+     constant, not yet a setting).
+   - After each turn `settle_due` slides a passed chapter 1 deadline a day past the moment it was missed and writes
+     the delay as a `time` cost, and fails a chapter 2 quest whose time ran out (cost kind `position`). Deadlines of
+     chapter 3 and the dooms are step 4.
+   - The briefing carries the chapter 1 drift line and a line while a repair is being written.
+   `tests/test_stakes_repair.py` covers it.
+4. Chapter 3: ending on failure, forced `end_story`, the dooms. **Built**:
+   - `Story.fall` records a lost game (`lose`): a required quest reported `failed` in chapter 3, a passed chapter 3
+     deadline or a passed doom deadline (`settle_due`). A chapter 2 game is also lost when the GM calls `end_story`
+     with the ending of a doom the briefing lists.
+   - Once lost, no quest can be reported done, the briefing orders the ending and nothing else, `end_story` accepts
+     only that ending (or `end_custom`), and without the climax. After `STALL_TURNS` player turns the server
+     concludes the story itself (`forced_ending`). Chapter 3 has no repair.
+   - The briefing lists the current chapter's dooms and each active quest's `fails_if`, for the GM only.
+   - A lost key item does not yet fail a quest that needs it: that waits for the key-item rules.
+   `tests/test_stakes_loss.py` covers it.
 5. Death: the `fate` and `remains` fields, the status page, the briefing block, revival costs (section 7.2 to 7.4).
+   **Built**:
+   - `update_character` gains `fate` (`dead`, `revived`), `remains`, `cost`, `cost_kind` and `cost_hours`. The checks
+     of 7.2 are enforced: the last living member cannot die before chapter 3 (the refusal points to `defeat`, which
+     step 6 adds; in chapter 3 the death loses the game), a dead sheet takes no other change, and a revival needs a
+     cost, a body that is not `lost`, and a story that is not already lost. In chapter 2 a revival's cost must be more
+     than time alone. A time cost moves the clock.
+   - Every death and revival is a line in the story's `choices` log.
+   - The briefing has a "Fallen" block (when they died, where the body is, and the instruction to put the choice to
+     the player), and the party line marks the dead. The status table and the roster list them last, marked dead
+     (`fate` and `remains` are new fields of a roster row and of a character's page). Both apps show the "dead"
+     condition without a change.
+   - An unsettled death becomes `left` after `characters.LEAVE_TURNS` (20) player turns, with a living party. The
+     spec says "two scenes"; there is no scene counter, so turns stand in for it.
+   - Not built: the briefing does not yet tell the GM a body "slows the party", and `award` still counts the dead.
+   `tests/test_stakes_death.py` covers it.
 6. Defeat: the `defeat` tool, the wipe count and the price table (section 7.5), the escape quest, chapter 3 handling.
    The next-tale link (sections 7.6 and 7.8) lands with the next-tale build (NEXT_TALE.md 6), not before it.
-7. Plotter and prompts: `fails_if` lists, `deadline` and `cue`, `ending`, dooms; the hinting rules.
+   **Built** (all but the next-tale link):
+   - The `defeat` tool (`how`, `aftermath`, `cost`, `cost_kind`, `elapsed_hours`) is offered in every adventure. Chapter
+     1 accepts it with a small cost and up to 24 hours; chapter 2 counts the wipe in `story.wipes`, refuses fewer hours
+     than the table (`story.wipe_minimum`: 24, 72, 120, then 24 more each time) and takes up to 240; chapter 3 loses
+     the game. A game with no story just passes the hours.
+   - A capture (`taken`) is protected (`story.protect_capture`): deadlines people set slide by the hours held, with a
+     `time` cost for each; a fixed deadline caps the captivity to leave a reserve (a third of the time left, at least
+     12 hours). Below the minimum reserve the escape is a scene, not a quest.
+   - Otherwise a capture sets `Story.escape`, and the curator service asks the plotter for one small required escape
+     quest (`run_escape_plot`, flagged `Milestone.escape`). Chapter 1 may add places, people and factions for it;
+     chapter 2 only details. If none arrives within `STALL_TURNS` the escape is left to the scene.
+   - The result and the briefing tell the GM to narrate the captivity, not to free the party, and to update the sheets.
+   - Not built: the hint that the plotter should give the escape quest its own `fails_if` and `cost` (step 7).
+   `tests/test_stakes_defeat.py` covers it.
+7. Plotter and prompts: `fails_if` lists, `deadline` and `cue`, `ending`, dooms; the hinting rules. **Built**:
+   - A quest proposal carries `fails_if`, a `deadline` (day, hour, cue, fixed) and an `ending`; a plot proposal carries
+     `dooms`. Endings and dooms are named by the ending's title (or id) and the server numbers the dooms `d1`, `d2`.
+     The plotter is told the time now, so a deadline can be in the future (`PlotRequest.now`).
+   - `story.stakes_problems` holds a new plan to section 2.2 and sends it back once, like the other plan rules: at most
+     one way to fail in chapter 1 and two in chapter 2 (and some quests with one), at least three in every chapter 3
+     quest and five in the last, an `ending` on every chapter 3 quest and on every doom, one to three dooms in chapter
+     2 and three to six in chapter 3 (counted over the whole plan), deadlines later than now and with a cue. The rules
+     apply to the chapters just written; repairs and escape quests are not held to the counts.
+   - The briefing gains the stakes sentence of the chapter with the hinting rule (3, 8) and, for each deadline, the
+     hard-deadline instruction (chapter 3 deadlines and every doom's: the cue in every scene, the share of the time
+     gone, a mention that grows from a passing detail to a plain statement) or the soft one (a hint at half the time,
+     a plain mention at three-quarters). The share needs a start, which a `Deadline` gets when its quest opens or
+     its doom applies (`stamp_deadlines`).
+   - `plot.md` has a "Failure and stakes" section and `03_style.md` points to the notes' stakes line.
+   `tests/test_stakes_plot.py` covers it.
 8. Live check with the real plotter and GM (a short game), then playtests.
+
+### 11.1 The live check (step 8)
+
+Run against the real plotter (Sonnet) and GM (the model in `.env`) on a copy of a played save, with the plan swapped for
+a freshly plotted short one. What it showed:
+
+- **A schema bug, fixed.** Strict structured output refused the plot schema once `dooms` and the deadlines were added
+  ("compiled grammar is too large"). A deadline is now one string, `"DAY HOUR fixed|soft CUE"`, and a doom's chapters
+  another (`"2,3"`); the parser is `anthropic_curator._deadline`.
+- **The plan.** The plotter wrote valid failure data first time on both runs: `fails_if` of different kinds (an
+  object, a person, a place, a clock), chapter 3 quests with three to five, endings on chapter 3 quests and dooms
+  (all the failure ending), one doom with a deadline and cue.
+- **Chapter 1 drift.** "We pack up and head south" met an avalanche on the road and a watchman, not a refusal.
+- **Chapter 2 failure.** Smashing the shrine's keystone made the GM report the quest `failed` with an outcome, a cost
+  and a kind. The plotter then wrote a backup quest in the background (a lesser ward, with its own `fails_if`), and
+  the quests that waited on the failed one now wait on it.
+- **Hard deadline.** At 56% of the time the narration carried the cue (the thrum in the floor, louder each night);
+  at 90% the GM said that little time was left, and did not say what happens.
+- **A lost game.** With the loss recorded, the GM finished the scene and called `end_story` with the named ending in
+  one turn.
+- **A captured party.** The GM used `defeat` with `taken` and updated all four sheets. The escape quest was written
+  (a cell, with several ways out). The first version contradicted the GM's narration (it named different captors); the
+  brief now says to keep exactly to what was narrated, and the second run matched.
+- **Not shown:** a character's death (the GM would not kill one with nothing in the scene to do it: reasonable, and
+  playtest mode is the way to stage it), a revival, a passed deadline ending the game, a chapter 3 defeat, and a
+  fixed-deadline capture. These are covered by unit tests only.
+- **A wait to know about.** A repair or an escape quest is written when no other curator pass is running. Right after
+  a restore the world is being caught up, so the first turn's post-turn check can find the curator busy; the quest then
+  waits for the next turn. In normal play this costs a turn at most.
+- **Tuning to watch in play.** The GM gave a cost kind of `position` for a lost blessing, and the plotter put "the
+  drain" and "a riot" among the ways out of a cell; both are plausible. Wipe hours, `STALL_TURNS` and the chapter 3
+  counts of `fails_if` are guesses.
 
 ## 12. Left for later
 

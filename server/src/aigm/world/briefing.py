@@ -3,8 +3,11 @@
 Built from the world state by fixed rules, in priority order, within a size budget (docs/WORLD.md
 6.1). It includes hidden facts, labeled so the GM can tell what the player has not been told."""
 
+from typing import Iterable
+
+from aigm import attempts as attempt_kinds
 from aigm.looks import Look
-from aigm.world.model import SCENE_MOTIVE_HOURS, Entity, Fact, Motive, Route, World, duration_text
+from aigm.world.model import SCENE_MOTIVE_HOURS, Attempt, Entity, Fact, Motive, Route, World, duration_text
 
 CHARS_PER_TOKEN = 4  # rough; the budget is a guide, not a hard limit
 LABELS = {
@@ -69,7 +72,13 @@ def fact_line(fact: Fact, prefix: str = "") -> str:
 
 
 def build_briefing(
-    world: World, *, user_text: str = "", gm_text: str = "", budget_tokens: int = 2000, turn: int = 0
+    world: World,
+    *,
+    user_text: str = "",
+    gm_text: str = "",
+    budget_tokens: int = 2000,
+    turn: int = 0,
+    focus: Iterable[str] = (),
 ) -> str:
     """The briefing text, or "" when the world has nothing in it yet."""
     if world.is_empty:
@@ -126,6 +135,9 @@ def build_briefing(
     for line, force in item_lines(world, turn):  # what the party has and seeks is always said; the reserve can be cut
         out.add(line, force=force)
 
+    for line in attempt_lines(world, [*shown, *focus]):  # what has been tried and failed here (docs/ATTEMPTS.md 5)
+        out.add(line, force=True)
+
     relevant = _relevant(world, f"{user_text}\n{gm_text}", shown)
     if relevant:
         out.add("Also relevant:")
@@ -144,6 +156,41 @@ def build_briefing(
             out.add(f"- {note['text']}", force=True)
 
     return "\n".join(out.lines)
+
+
+MAX_ATTEMPT_LINES = 5
+
+
+def _tries(a: Attempt) -> str:
+    return f"{a.tries} {'try' if a.tries == 1 else 'tries'}"
+
+
+def attempt_lines(world: World, ids: Iterable[str]) -> list[str]:
+    """The unresolved attempts on these entities and on what the party holds, for the GM, newest first and at most a
+    handful (docs/ATTEMPTS.md 5). A closed attempt whose clock has run out is shown as open again."""
+    wanted = set(ids)
+    wanted |= {e.id for e in world.entities.values() if e.kind == "item" and e.holding is not None and e.holding.acquired}
+    found = world.attempts_about(wanted)[:MAX_ATTEMPT_LINES]
+    if not found:
+        return []
+    lines = [
+        "Attempts here (GM only). Do not roll a closed attempt again unless something has really changed: narrate in a "
+        "line why it fails, and let the player choose something new. A retry of an open one costs time and what its "
+        "failure names:"
+    ]
+    for a in found:
+        on = "" if a.about == world.scene.location else f" [{world.entities[a.about].name}]"
+        what = f"{a.who} tried to {a.task}{on} ({_tries(a)}"
+        what += f"; {a.failure.rstrip('.')})" if a.failure else ")"
+        if a.status == "closed" and a.reopens_at is not None and a.reopens_at <= world.time:
+            lines.append(f"- Closed, now open again (time has passed): {what}.")
+        elif a.status == "closed":
+            until = f" Or at {a.reopens_at}." if a.reopens_at else ""
+            to_all = " Closed to everyone." if a.scope == "anyone" else ""
+            lines.append(f"- CLOSED: {what}.{to_all} Reopens if: {a.reopens_if.rstrip('.') or 'something real changes'}.{until}")
+        else:
+            lines.append(f"- OPEN: {what}. A retry costs about {attempt_kinds.TYPES[a.kind].minutes} minutes and may repeat its failure.")
+    return lines
 
 
 def item_lines(world: World, turn: int = 0) -> list[tuple[str, bool]]:

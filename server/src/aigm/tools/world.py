@@ -76,6 +76,12 @@ def _describe(world: World, ent: Entity) -> list[str]:
         ways = world.routes_of(ent.id)
         if ways:
             lines.append("Ways from here: " + "; ".join(route_line(world, r, ent.id) for r in ways))
+    for a in world.attempts_about([ent.id], unresolved_only=False):
+        lines.append(
+            f"Attempt {a.id} ({a.status}): {a.who} tried to {a.task}, {a.tries} {'try' if a.tries == 1 else 'tries'}"
+            + (f"; {a.failure}" if a.failure else "")
+            + (f". Reopens if: {a.reopens_if.rstrip('.')}" if a.status == "closed" and a.reopens_if else "")
+        )
     if ent.look:
         lines.append(f"Look (what anyone can see; stay within it): {ent.look.summary} {ent.look.description}")
     facts = sorted(world.facts_about(ent.id), key=lambda f: (f.disclosure != "known", int(f.id[1:])))
@@ -201,6 +207,15 @@ ESTABLISH_SCHEMA: dict[str, Any] = {
                             "type": "string",
                             "enum": list(DISCLOSURES),
                             "description": "known (default): the player has been told. hidden: true but the player has not been told. hinted: the player has only heard hints.",
+                        },
+                        "aspect": {
+                            "type": "string",
+                            "enum": ["items"],
+                            "description": "`items`: a notable object lying in view at a place, as the party sees it. It is listed on the status page when known.",
+                        },
+                        "replaces": {
+                            "type": "string",
+                            "description": "Id of a known `items` fact this one improves on, when the party learns more about the object (an unmarked vial turns out to be a healing potion).",
                         },
                     },
                     "required": ["text", "about"],
@@ -420,6 +435,19 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
                     raise WorldError(f"{ref!r} is not recorded; add it under `entities` (with its kind) first")
                 about_ids.append(ent.id)
             text = raw.get("text")
+            aspect, replaces = raw.get("aspect"), raw.get("replaces")
+            if aspect not in (None, "items"):
+                raise WorldError("`aspect` can only be `items`")
+            if replaces is not None:
+                old = world.fact(str(replaces))
+                if old is None or not old.active or old.aspect != "items":
+                    raise WorldError(f"`replaces` {replaces!r} must be a recorded `items` fact that still stands")
+                fact = world.supersede(
+                    old.id, text, about=about_ids, aspect=old.aspect, disclosure=raw.get("disclosure") or "known",
+                    source="improvised", turn=state.turn, allow_known=True,
+                )
+                recorded.append(fact.id)
+                continue
             if about_ids and isinstance(text, str):
                 twin = world.similar_fact(text, about_ids[0])
                 if twin:
@@ -428,6 +456,7 @@ def establish(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
             fact = world.add_fact(
                 text,
                 about_ids,
+                aspect=aspect,
                 disclosure=raw.get("disclosure") or "known",
                 source="improvised",
                 turn=state.turn,
@@ -691,6 +720,13 @@ def set_scene(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
         return ToolOutcome(f"Scene not changed: {exc}", is_error=True)
     if location != state.world.scene.location:
         state.combat = None  # a fight does not follow the party to another place
+    if new_story is not None:
+        known = state.story.costs if state.story else []
+        for cost in (c for c in new_story.costs if c not in known):  # a time cost takes the hours it names off the clock (STAKES.md 6)
+            if cost.get("hours"):
+                world.advance_minutes(
+                    cost["hours"] * 60, reported=True, turn=state.turn, why=f"the cost of failing: {cost['text']}"
+                )
     state.world = world
     if new_story is not None:
         state.story = new_story

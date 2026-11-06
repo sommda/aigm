@@ -11,6 +11,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from aigm import attempts as attempt_kinds
 from aigm.errors import CorruptSave
 from aigm.looks import Look, LookError, look_kind, validate
 from aigm.portraits import Portrait
@@ -36,9 +37,15 @@ ASPECTS: dict[str, tuple[str, ...]] = {
     "item": ("appearance", "purpose", "whereabouts", "origin", "contents", "powers", "history", "secret", "custody"),
 }  # fmt: skip
 
+# Aspects only the server writes: a fact with one is valid about any kind of entity but is never a checklist slot for
+# the curator (docs/ATTEMPTS.md 4.2).
+SERVER_ASPECTS = ("attempts",)
+
 # Aspects the party can plainly see on arriving at a place: a fact with one of these about the place the party is
 # in is known to the player from the moment it exists, or from the moment the party gets there (docs/STATUS.md 5).
-ARRIVAL_ASPECTS = ("overview", "items")
+# `items` is not one: what lies in a place is written ahead of play with its true nature, and the party has seen it
+# only when the narration shows it, and knows what it is only when the narration says so.
+ARRIVAL_ASPECTS = ("overview",)
 
 # Motives (docs/ROLEPLAY.md 7): what an NPC wants or fears. GM-only state, never shown to the player as such.
 MOTIVE_SCOPES = ("underlying", "scene")
@@ -71,6 +78,8 @@ ROUTE_SOURCES = ("seed", "plotter", "generated", "improvised", "play")
 MAX_ROUTE_MINUTES = 24 * 60 * 365
 MAX_ROUTE_HOW = 80
 MAX_BLOCK_TEXT = 120
+MAX_ATTEMPT_TASK = 80  # docs/ATTEMPTS.md 4.1
+MAX_ATTEMPT_TEXT = 200  # failure and reopens_if
 MAX_ROUTES_PER_PLACE = 12
 HOURS_PER_DAY = 24
 MINUTES_PER_HOUR = 60
@@ -291,6 +300,39 @@ class Route:
 
 
 @dataclass
+class Attempt:
+    """A task the party tried and failed at (docs/ATTEMPTS.md 4.1). One record covers all the tries of a task: `tries`
+    counts them. `reopens_if` and `reopens_at` are for the GM only."""
+
+    id: str
+    who: str  # the party member
+    kind: str  # an action type (aigm.attempts.TYPES)
+    task: str  # "pick the vault lock"
+    about: str  # entity id
+    status: str = "open"
+    tries: int = 1
+    scope: str = "character"
+    failure: str = ""  # what failing cost or showed, completing "...and failed; ___"
+    reopens_if: str = ""
+    reopens_at: WorldTime | None = None
+    fact: str | None = None  # the fact written about it
+    turn: int = 0
+    at: WorldTime = field(default_factory=WorldTime)
+
+    @property
+    def unresolved(self) -> bool:
+        return self.status != "resolved"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id, "who": self.who, "kind": self.kind, "task": self.task, "about": self.about,
+            "status": self.status, "tries": self.tries, "scope": self.scope, "failure": self.failure,
+            "reopens_if": self.reopens_if, "reopens_at": self.reopens_at.to_dict() if self.reopens_at else None,
+            "fact": self.fact, "turn": self.turn, "at": self.at.to_dict(),
+        }  # fmt: skip
+
+
+@dataclass
 class Fact:
     id: str
     text: str
@@ -378,6 +420,9 @@ class Scene:
     present: list[str] = field(default_factory=list)
 
 
+TITLES = frozenset({"sister", "brother", "father", "mother", "lord", "lady", "sir", "dame", "captain", "master", "ser"})
+
+
 class World:
     """The knowledge base of one game. Plain data in `entities` and `facts` (insertion ordered);
     the dictionaries beginning with an underscore are indexes rebuilt by `_reindex`."""
@@ -391,8 +436,9 @@ class World:
         self.time_log: list[dict[str, Any]] = []  # why the clock moved in the last two turns: {"turn", "minutes", "why"}
         self.corrections: list[dict[str, Any]] = []  # notes for the GM's next briefing: {"text", "turn"}
         self.digests: dict[int, Digest] = {}  # turn digests by the index of the turn's first message
-        self.next_id = {"f": 1, "e": 1, "m": 1, "r": 1}
+        self.next_id = {"f": 1, "e": 1, "m": 1, "r": 1, "a": 1}
         self.routes: dict[str, Route] = {}
+        self.attempts: dict[str, Attempt] = {}  # failed tries, by id (docs/ATTEMPTS.md)
         # The one place that contains every other (docs/TIME.md 5.1). A new world has one from its bootstrap, so any two
         # places share an ancestor; a world made before this has none, and its places may lie in separate trees.
         self.root: str | None = None
@@ -400,6 +446,9 @@ class World:
         self.entities: dict[str, Entity] = {}
         self.facts: dict[str, Fact] = {}
         self.motives: dict[str, Motive] = {}
+        # The player characters, as sets of name words. Not saved: the game state keeps it in step with the campaign.
+        # A PC is never a person the party meets, so it has no compendium entry and is never "here" (see `is_party`).
+        self._party: list[frozenset[str]] = []
         self._reindex()
 
     def __eq__(self, other: object) -> bool:
@@ -472,6 +521,26 @@ class World:
         """The entity with this name or alias (ignoring case, punctuation and a leading "the")."""
         eid = self._by_name.get(normalize_name(name))
         return self.entities[eid] if eid else None
+
+    def set_party(self, names: Iterable[str]) -> None:
+        """Say who the player characters are; any of them recorded as present leaves the scene."""
+        self._party = [frozenset(normalize_name(n).split()) for n in names if normalize_name(n)]
+        self.scene.present = [e for e in self.scene.present if not self.is_party(self.entities[e])]
+
+    def is_party(self, ent: Entity) -> bool:
+        """Is this entity a player character under a shorter or fuller name ("Brannoc" for "Brannoc Ironhale")? The
+        curator records them as people from the narration; the words of a name must all be in a PC's name, and a
+        single word must be one of theirs that is not a title."""
+        if ent.kind != "npc" or not self._party:
+            return False
+        for name in (ent.name, *ent.aliases):
+            words = normalize_name(name).split()
+            if not words:
+                continue
+            for pc in self._party:
+                if set(words) <= pc and (len(words) > 1 or words[0] not in TITLES or len(pc) == 1):
+                    return True
+        return False
 
     def resolve(self, ref: str) -> Entity | None:
         """An entity by id or by name/alias."""
@@ -715,6 +784,108 @@ class World:
         self._touch()
         return route, True
 
+    # ---- attempts (docs/ATTEMPTS.md) ---------------------------------------------------------
+
+    def add_attempt(
+        self,
+        who: str,
+        kind: str,
+        task: str,
+        about: str,
+        *,
+        status: str = "open",
+        scope: str = "character",
+        failure: str = "",
+        reopens_if: str = "",
+        reopens_at: WorldTime | None = None,
+        turn: int = 0,
+    ) -> Attempt:
+        """Record a failed task. `about` is an entity id; one record is kept for all the tries of a task, so use
+        `find_attempt` first and `retry_attempt` for a later try."""
+        self._entity_or_error(about)
+        who, task = " ".join(str(who).split()), " ".join(str(task).split())
+        failure, reopens_if = " ".join(str(failure).split()), " ".join(str(reopens_if).split())
+        if not who:
+            raise WorldError("an attempt needs the character who tried it")
+        if kind not in attempt_kinds.KINDS:
+            raise WorldError(f"attempt kind must be one of {', '.join(attempt_kinds.KINDS)}")
+        if status not in (attempt_kinds.OPEN, attempt_kinds.CLOSED):
+            raise WorldError("a new attempt is open or closed")
+        if scope not in attempt_kinds.SCOPES:
+            raise WorldError(f"attempt scope must be one of {', '.join(attempt_kinds.SCOPES)}")
+        if not 3 <= len(task) <= MAX_ATTEMPT_TASK:
+            raise WorldError(f"an attempt's task must be 3 to {MAX_ATTEMPT_TASK} characters")
+        if len(failure) > MAX_ATTEMPT_TEXT or len(reopens_if) > MAX_ATTEMPT_TEXT:
+            raise WorldError(f"`failure` and `reopens_if` are at most {MAX_ATTEMPT_TEXT} characters")
+        attempt = Attempt(
+            self._new_id("a"), who, kind, task, about, status, 1, scope, failure, reopens_if, reopens_at, None, turn, self.time
+        )  # fmt: skip
+        self.attempts[attempt.id] = attempt
+        self._touch()
+        return attempt
+
+    def find_attempt(self, who: str, kind: str, about: str) -> Attempt | None:
+        """The unresolved attempt of this kind on this target that applies to this character: their own, or one closed
+        to everyone. A closed one whose clock has run out counts as open again (`reopen_due`)."""
+        self.reopen_due()
+        wanted = normalize_name(who)
+        for attempt in reversed(list(self.attempts.values())):
+            if attempt.unresolved and attempt.kind == kind and attempt.about == about and (
+                attempt.scope == "anyone" or normalize_name(attempt.who) == wanted
+            ):
+                return attempt
+        return None
+
+    def attempts_about(self, entity_ids: Iterable[str], *, unresolved_only: bool = True) -> list[Attempt]:
+        """Attempts on these entities, newest first."""
+        wanted = set(entity_ids)
+        found = [a for a in self.attempts.values() if a.about in wanted and (a.unresolved or not unresolved_only)]
+        return sorted(found, key=lambda a: a.id, reverse=True)
+
+    def reopen_due(self) -> list[Attempt]:
+        """Open again every closed attempt whose clock (`reopens_at`) has run out. Returns those it opened."""
+        opened = [
+            a for a in self.attempts.values()
+            if a.status == attempt_kinds.CLOSED and a.reopens_at is not None and a.reopens_at <= self.time
+        ]  # fmt: skip
+        for a in opened:
+            a.status, a.reopens_at = attempt_kinds.OPEN, None
+        if opened:
+            self._touch()
+        return opened
+
+    def set_attempt_status(self, attempt_id: str, status: str, *, reopens_if: str | None = None, reopens_at: WorldTime | None = None) -> Attempt:
+        """Close, reopen or resolve an attempt. Closing may say what reopens it, and when."""
+        attempt = self.attempts.get(attempt_id)
+        if attempt is None:
+            raise WorldError(f"unknown attempt {attempt_id!r}")
+        if status not in attempt_kinds.STATUSES:
+            raise WorldError(f"attempt status must be one of {', '.join(attempt_kinds.STATUSES)}")
+        attempt.status = status
+        attempt.reopens_at = reopens_at if status == attempt_kinds.CLOSED else None
+        if reopens_if is not None:
+            text = " ".join(reopens_if.split())
+            if len(text) > MAX_ATTEMPT_TEXT:
+                raise WorldError(f"`reopens_if` is at most {MAX_ATTEMPT_TEXT} characters")
+            attempt.reopens_if = text
+        self._touch()
+        return attempt
+
+    def retry_attempt(self, attempt_id: str, *, failure: str = "", turn: int = 0) -> Attempt:
+        """Another failed try of the same task: the count goes up and the failure is what the latest try cost."""
+        attempt = self.attempts.get(attempt_id)
+        if attempt is None:
+            raise WorldError(f"unknown attempt {attempt_id!r}")
+        attempt.tries += 1
+        text = " ".join(str(failure).split())
+        if text:
+            if len(text) > MAX_ATTEMPT_TEXT:
+                raise WorldError(f"`failure` is at most {MAX_ATTEMPT_TEXT} characters")
+            attempt.failure = text
+        attempt.turn, attempt.at = turn, self.time
+        self._touch()
+        return attempt
+
     def set_look(self, entity_id: str, look: Look) -> Look:
         """Give a person their Look, or replace it (docs/LOOKS.md). The Look must pass the content rules."""
         ent = self._entity_or_error(entity_id)
@@ -850,11 +1021,12 @@ class World:
         for eid in present:
             if eid not in self.entities:
                 raise WorldError(f"unknown entity {eid!r} in scene")
-            if eid != location and eid not in present_ids:
+            if eid != location and eid not in present_ids and not self.is_party(self.entities[eid]):
                 present_ids.append(eid)
         self.scene = Scene(location, present_ids)
-        if location is not None:
+        if location is not None:  # the party is standing in it, so it is known, whatever has been said about it yet
             self.entities[location].visited = True
+            self.entities[location].discovered = True
         for eid in present_ids:  # the player can see who is there, so a person has been met even with no facts yet
             if self.entities[eid].kind == "npc":
                 self.entities[eid].discovered = True
@@ -1165,7 +1337,7 @@ class World:
             raise WorldError("a fact must be about at least one entity")
         if len(about_ids) > MAX_ABOUT:
             raise WorldError(f"a fact can mention at most {MAX_ABOUT} entities")
-        if aspect is not None and aspect not in ASPECTS[self.entities[about_ids[0]].kind]:
+        if aspect is not None and aspect not in ASPECTS[self.entities[about_ids[0]].kind] + SERVER_ASPECTS:
             kind = self.entities[about_ids[0]].kind
             raise WorldError(f"aspect {aspect!r} is not valid for a {kind}; use one of {', '.join(ASPECTS[kind])}")
         return text, about_ids
@@ -1224,6 +1396,7 @@ class World:
             "learn_seq": self.learn_seq,
             "entities": [e.to_dict() for e in self.entities.values()],
             "routes": [r.to_dict() for r in self.routes.values()],
+            "attempts": [a.to_dict() for a in self.attempts.values()],
             "root": self.root,
             "facts": [f.to_dict() for f in self.facts.values()],
             "motives": [m.to_dict() for m in self.motives.values()],
@@ -1381,6 +1554,11 @@ class World:
             if route.id in world.routes:
                 raise WorldError(f"repeated route id {route.id!r}")
             world.routes[route.id] = route
+        for raw in data.get("attempts", []):  # saves from before attempts have none
+            attempt = _load_attempt(raw, world)
+            if attempt.id in world.attempts:
+                raise WorldError(f"repeated attempt id {attempt.id!r}")
+            world.attempts[attempt.id] = attempt
         root = data.get("root")  # saves from before the world had a single top have none
         if root is not None:
             if root not in world.entities or world.entities[root].kind != "location" or world.entities[root].parent:
@@ -1389,8 +1567,10 @@ class World:
         if world.scene.location in world.entities:
             world.entities[world.scene.location].visited = True
         next_id = data["next_id"]
-        for prefix, ids in (("f", world.facts), ("e", world.entities), ("m", world.motives), ("r", world.routes)):
-            n = next_id.get(prefix, 1) if prefix in ("m", "r") else next_id[prefix]
+        for prefix, ids in (
+            ("f", world.facts), ("e", world.entities), ("m", world.motives), ("r", world.routes), ("a", world.attempts)
+        ):
+            n = next_id.get(prefix, 1) if prefix in ("m", "r", "a") else next_id[prefix]
             if isinstance(n, bool) or not isinstance(n, int) or n <= max((int(i[1:]) for i in ids), default=0):
                 raise WorldError(f"next_id.{prefix} must be above every existing id")
             world.next_id[prefix] = n
@@ -1399,6 +1579,33 @@ class World:
             raise WorldError("learn_seq must be at least every fact's learned_seq")
         world._reindex()
         return world
+
+
+def _load_attempt(raw: Any, world: "World") -> Attempt:
+    """One attempt from a save: structure and references are checked, the content caps are not."""
+    if not isinstance(raw, dict) or not re.match(r"^a\d+$", str(raw.get("id"))):
+        raise WorldError("an attempt needs an id like a001")
+    text = {k: raw.get(k, "") for k in ("who", "kind", "task", "failure", "reopens_if")}
+    if not all(isinstance(v, str) for v in text.values()) or not text["who"].strip() or not text["task"].strip():
+        raise WorldError(f"attempt {raw['id']} needs a character and a task")
+    if text["kind"] not in attempt_kinds.KINDS or raw.get("status") not in attempt_kinds.STATUSES:
+        raise WorldError(f"attempt {raw['id']} has a bad kind or status")
+    if raw.get("scope", "character") not in attempt_kinds.SCOPES:
+        raise WorldError(f"attempt {raw['id']} has a bad scope")
+    if raw.get("about") not in world.entities:
+        raise WorldError(f"attempt {raw['id']} is about an unknown entity")
+    fact = raw.get("fact")
+    if fact is not None and fact not in world.facts:
+        raise WorldError(f"attempt {raw['id']} refers to an unknown fact")
+    tries = _count(raw.get("tries", 1), f"attempt {raw['id']} tries")
+    if tries < 1:
+        raise WorldError(f"attempt {raw['id']} needs at least one try")
+    return Attempt(
+        raw["id"], text["who"], text["kind"], text["task"], raw["about"], raw["status"], tries,
+        raw.get("scope", "character"), text["failure"], text["reopens_if"],
+        WorldTime.from_dict(raw["reopens_at"]) if raw.get("reopens_at") else None, fact,
+        _count(raw.get("turn", 0), f"attempt {raw['id']} turn"), WorldTime.from_dict(raw["at"]),
+    )  # fmt: skip
 
 
 def _load_route(raw: Any, world: "World") -> Route:

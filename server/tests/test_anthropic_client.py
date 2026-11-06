@@ -157,7 +157,7 @@ async def test_request_params_defaults():
     assert body["system"] == "You are the GM."
     assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert body["cache_control"] == {"type": "ephemeral"}
-    assert [t["name"] for t in body["tools"]] == ["roll_dice", "recall", "establish", "key_item", "set_scene", "pass_time", "update_character", "set_combat", "set_motive", "social_check", "award"]
+    assert [t["name"] for t in body["tools"]] == ["roll_dice", "recall", "establish", "key_item", "set_scene", "pass_time", "update_character", "set_combat", "set_motive", "social_check", "award", "defeat"]
     assert "Roll dice" in body["tools"][0]["description"]
     assert "temperature" not in body and "output_config" not in body
 
@@ -299,14 +299,53 @@ def test_upstream_failure_rolls_back_and_reports(tmp_path):
     assert client.get("/chat/history").json()["messages"] == []
 
 
-def test_truncated_tool_call_is_not_committed(tmp_path):
-    fake = FakeAnthropic(
-        message_stream([("tool_use", "toolu_1", "roll_dice", '{"expression": "1d20')], stop_reason="max_tokens")
-    )
+CUT_OFF = message_stream([("tool_use", "toolu_1", "roll_dice", '{"expression": "1d20')], stop_reason="max_tokens")
+
+
+def test_truncated_tool_call_is_not_committed_once_the_retries_are_spent(tmp_path):
+    fake = FakeAnthropic(CUT_OFF, CUT_OFF, CUT_OFF)
     client = server_with(fake, tmp_path)
     events = chat(client, "go")
     assert events[-1][0] == "error" and "cut off" in events[-1][1]["message"]
+    assert len(fake.requests) == 3  # the first try and two more
     assert client.get("/chat/history").json()["messages"] == []
+
+
+def test_a_cut_off_reply_nobody_has_seen_is_asked_for_again(tmp_path):
+    fake = FakeAnthropic(CUT_OFF, message_stream([("text", ["Steel rings on stone."])]))
+    client = server_with(fake, tmp_path)
+    events = chat(client, "go")
+    assert [e for e in events if e[0] == "error"] == []
+    assert "Steel rings on stone." in "".join(e[1]["delta"] for e in events if e[0] == "text")
+    assert len(fake.requests) == 2
+
+
+def test_a_cut_off_reply_the_player_has_already_read_is_not_asked_for_again(tmp_path):
+    fake = FakeAnthropic(
+        message_stream(
+            [("text", ["The door groans open, and a cold draught pours out of the dark beyond it. "]),
+             ("tool_use", "toolu_1", "roll_dice", '{"expression": "1d20')],
+            stop_reason="max_tokens",
+        ),
+        message_stream([("text", ["never used"])]),
+    )
+    client = server_with(fake, tmp_path)
+    events = chat(client, "go")
+    assert events[-1][0] == "error" and len(fake.requests) == 1
+
+
+def test_a_tool_call_that_arrives_with_end_turn_is_run_not_failed(tmp_path):
+    fake = FakeAnthropic(
+        message_stream(
+            [("tool_use", "toolu_1", "roll_dice", '{"expression": "1d20+5", "narration": "The blade flashes."}')],
+            stop_reason="end_turn",
+        ),
+        message_stream([("text", ["A solid hit!"])]),
+    )
+    client = server_with(fake, tmp_path)
+    events = chat(client, "go")
+    assert [e for e in events if e[0] == "error"] == []
+    assert any(e[0] == "dice_roll" for e in events) and len(fake.requests) == 2
 
 
 async def test_tool_input_is_streamed_as_fragments_with_the_call_id():

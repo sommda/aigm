@@ -46,6 +46,8 @@ from aigm.world.service import BOOTSTRAP_LOOKS, CuratorService
 
 log = logging.getLogger(__name__)
 
+MAX_GARBLED_RETRIES = 2  # times one turn asks the model again after a reply it could not use
+
 
 SILENT_TOOLS = frozenset({"recall", "establish", "set_scene", "set_motive"})  # bookkeeping: text written beside these is dropped
 HELD_CHARS = 240  # text this long before any tool call is story, not a remark about bookkeeping; it is shown at once
@@ -178,9 +180,11 @@ async def run_turn(
         ruleset=state.ruleset,
         ruleset_name=rulesets.get(state.ruleset).short,
     )
+    garbled_retries = 0
     try:
         for _ in range(max_iters):
             completed: Completed | None = None
+            shown = False  # has any of this reply reached the player (a retry would then repeat it)
             think_started: float | None = None
             noting = False  # a status for a tool call being written is showing
             held: list[str] = []  # opening text not shown yet: a remark before a bookkeeping call is dropped
@@ -193,7 +197,8 @@ async def run_turn(
             call_started = time.monotonic()
 
             def text_shown(text: str, first: bool = True) -> None:
-                nonlocal tail
+                nonlocal tail, shown
+                shown = True
                 now = time.monotonic()
                 if first and call.first_text_ms is None:
                     call.first_text_ms = int((now - call_started) * 1000)
@@ -207,79 +212,104 @@ async def run_turn(
                 out, held[:] = list(held), []
                 return out
 
-            async for ev in llm.stream(system=request.system, messages=request.messages, tools=request.tools):
-                if noting and isinstance(ev, ThinkingStarted | TextChunk | Completed):
-                    noting = False
-                    yield Status(stage="tool", message="", done=True)
-                if isinstance(ev, ToolInputStarted):
-                    if ev.name in SILENT_TOOLS:
-                        held.clear()
-                        dropped = True  # anything more written beside it is dropped with it
-                    else:
+            try:
+                async for ev in llm.stream(system=request.system, messages=request.messages, tools=request.tools):
+                    if noting and isinstance(ev, ThinkingStarted | TextChunk | Completed):
+                        noting = False
+                        yield Status(stage="tool", message="", done=True)
+                    if isinstance(ev, ToolInputStarted):
+                        if ev.name in SILENT_TOOLS:
+                            held.clear()
+                            dropped = True  # anything more written beside it is dropped with it
+                        else:
+                            for text in release():
+                                text_shown(text)
+                                yield TextDelta(delta=text)
+                        noting = True
+                        yield Status(stage="tool", message=tool_status(ev.name))
+                        if ev.name in STREAMED_TOOLS:
+                            narrating[ev.tool_use_id] = Narrating()
+                    elif isinstance(ev, ToolInputChunk):
+                        rec = narrating.get(ev.tool_use_id)
+                        piece = rec.stream.feed(ev.partial_json) if rec is not None else ""
+                        if rec is not None and piece:
+                            if noting:
+                                noting = False
+                                yield Status(stage="tool", message="", done=True)
+                            text = piece if rec.began else paragraph_lead(tail) + piece
+                            rec.began = True
+                            call.narration_chars += len(piece)
+                            text_shown(text)
+                            yield TextDelta(delta=text)
+                    elif isinstance(ev, ToolInputStopped):
+                        rec = narrating.get(ev.tool_use_id)
+                        if rec is not None:
+                            rec.stream.finish()
+                            if rec.began and not rec.closed:
+                                rec.closed = True
+                                text_shown("\n\n", first=False)
+                                yield TextDelta(delta="\n\n")
+                    elif isinstance(ev, ThinkingStarted):
+                        think_started = time.monotonic()
+                        yield Thinking(status="start")
+                    elif isinstance(ev, ThinkingChunk):
+                        if stream_thinking:
+                            yield Thinking(status="delta", delta=ev.text)
+                    elif isinstance(ev, ThinkingStopped):
+                        ms = int((time.monotonic() - (think_started or time.monotonic())) * 1000)
+                        think_started = None
+                        call.thinking_ms += ms
+                        yield Thinking(status="end", duration_ms=ms)
+                    elif isinstance(ev, TextChunk):
+                        if dropped:
+                            continue
+                        if holding:
+                            held.append(ev.text)
+                            if sum(map(len, held)) <= HELD_CHARS:
+                                continue
+                            pieces = release()
+                        else:
+                            pieces = [ev.text]
+                        for text in pieces:
+                            text_shown(text)
+                            yield TextDelta(delta=text)
+                    elif isinstance(ev, Completed):
                         for text in release():
                             text_shown(text)
                             yield TextDelta(delta=text)
-                    noting = True
-                    yield Status(stage="tool", message=tool_status(ev.name))
-                    if ev.name in STREAMED_TOOLS:
-                        narrating[ev.tool_use_id] = Narrating()
-                elif isinstance(ev, ToolInputChunk):
-                    rec = narrating.get(ev.tool_use_id)
-                    piece = rec.stream.feed(ev.partial_json) if rec is not None else ""
-                    if rec is not None and piece:
-                        if noting:
-                            noting = False
-                            yield Status(stage="tool", message="", done=True)
-                        text = piece if rec.began else paragraph_lead(tail) + piece
-                        rec.began = True
-                        call.narration_chars += len(piece)
-                        text_shown(text)
-                        yield TextDelta(delta=text)
-                elif isinstance(ev, ToolInputStopped):
-                    rec = narrating.get(ev.tool_use_id)
-                    if rec is not None:
-                        rec.stream.finish()
-                        if rec.began and not rec.closed:
-                            rec.closed = True
-                            text_shown("\n\n", first=False)
-                            yield TextDelta(delta="\n\n")
-                elif isinstance(ev, ThinkingStarted):
-                    think_started = time.monotonic()
-                    yield Thinking(status="start")
-                elif isinstance(ev, ThinkingChunk):
-                    if stream_thinking:
-                        yield Thinking(status="delta", delta=ev.text)
-                elif isinstance(ev, ThinkingStopped):
-                    ms = int((time.monotonic() - (think_started or time.monotonic())) * 1000)
-                    think_started = None
-                    call.thinking_ms += ms
-                    yield Thinking(status="end", duration_ms=ms)
-                elif isinstance(ev, TextChunk):
-                    if dropped:
-                        continue
-                    if holding:
-                        held.append(ev.text)
-                        if sum(map(len, held)) <= HELD_CHARS:
-                            continue
-                        pieces = release()
-                    else:
-                        pieces = [ev.text]
-                    for text in pieces:
-                        text_shown(text)
-                        yield TextDelta(delta=text)
-                elif isinstance(ev, Completed):
-                    for text in release():
-                        text_shown(text)
-                        yield TextDelta(delta=text)
-                    completed = ev
+                        completed = ev
+            except LLMError as exc:
+                if not (exc.garbled and not shown and garbled_retries < MAX_GARBLED_RETRIES):
+                    raise
+                garbled_retries += 1
+                log.warning("asking the model again (%d): %s", garbled_retries, exc)
+                continue
             if think_started is not None:  # model stream ended mid-thinking: close the phase
                 ms = int((time.monotonic() - think_started) * 1000)
                 call.thinking_ms += ms
                 yield Thinking(status="end", duration_ms=ms)
             call.total_ms = int((time.monotonic() - call_started) * 1000)
             measured.requests.append(call)
+            tool_uses = [b for b in completed.content if b.get("type") == "tool_use"] if completed else []
+            problem = None
             if completed is None:
-                raise LLMError("The model stream ended without a final message", retryable=True)
+                problem = "The model stream ended without a final message"
+            elif not completed.content:
+                problem = "The model returned an empty response"
+            elif tool_uses and completed.stop_reason not in ("tool_use", "end_turn"):
+                # e.g. max_tokens hit mid tool call: the tool input is incomplete and cannot be run
+                problem = f"The model's response was cut off mid tool call ({completed.stop_reason})"
+            if problem is not None:
+                if not shown and garbled_retries < MAX_GARBLED_RETRIES:
+                    garbled_retries += 1
+                    log.warning("asking the model again (%d): %s", garbled_retries, problem)
+                    continue
+                raise LLMError(problem, retryable=True, garbled=True)
+            assert completed is not None
+            if tool_uses and completed.stop_reason == "end_turn":
+                # The model ended its turn with a tool call written out. Run it: the tool says if its input is unusable,
+                # and the model can then correct itself, where failing the turn would throw its work away.
+                log.warning("tool call %s came with stop_reason end_turn; running it", [b["name"] for b in tool_uses])
             if dropped and all(b["name"] in SILENT_TOOLS for b in completed.content if b.get("type") == "tool_use"):
                 completed = replace(completed, content=[b for b in completed.content if b.get("type") != "text"])
             staged.append({"role": "assistant", "content": completed.content})
@@ -291,15 +321,7 @@ async def run_turn(
             call.cache_write_tokens = completed.usage.get("cache_write_tokens", 0)
             call.stop_reason = completed.stop_reason
 
-            tool_uses = [b for b in completed.content if b.get("type") == "tool_use"]
-            if not completed.content:
-                raise LLMError("The model returned an empty response", retryable=True)
-            if tool_uses and completed.stop_reason != "tool_use":
-                # e.g. max_tokens hit mid tool call: the tool input is incomplete and cannot be run
-                raise LLMError(
-                    f"The model's response was cut off mid tool call ({completed.stop_reason})", retryable=True
-                )
-            if completed.stop_reason != "tool_use" or not tool_uses:
+            if not tool_uses:
                 state.world.clear_corrections(shown_corrections)
                 previous, session.messages[:], session.state = session.state.phase, staged, state
                 if state.phase != previous:  # announced only once committed, so it is never rolled back

@@ -60,6 +60,8 @@ the history, so a game can be saved during Session 0. Saves made before game sta
 | GET    | `/debug/context`              | The next request's context (**debug mode only**)     | JSON       |
 | GET    | `/debug/story`                | The whole story plan (**debug mode only**)           | JSON       |
 | GET    | `/debug/hidden`               | Entities with hidden facts (**debug mode only**)     | JSON       |
+| GET    | `/debug/premade`              | Places described and pictured ahead of arrival (**debug mode only**; PLACES.md 6.1) | JSON |
+| GET    | `/debug/premade/{file}`       | The picture of one of them (**debug mode only**)     | image      |
 | GET    | `/debug/hidden/{entity_id}`   | One entity's hidden facts and motives (**debug mode only**) | JSON |
 | GET    | `/characters`                 | The party's names and vitals, for the tabs           | JSON       |
 | GET    | `/characters/{name}`          | One character's sheet                                | JSON       |

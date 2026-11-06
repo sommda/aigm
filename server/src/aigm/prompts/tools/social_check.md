@@ -8,6 +8,7 @@ Roll a social skill (Persuasion, Deception, Intimidation, Diplomacy, Bluff, hagg
 - `engages`: the ids of the target's motives (from your notes) that the words touch, each `aligned` (the words serve it) or `against` (they cut across it). Be honest about it: the server reads the strengths from the record. Use each motive's `moved_by` and `resists` to judge both `quality` and `engages`; a threat to a proud man who resists threats is weak however well put.
 - `narration`: shown to the player just before the dice, as for `roll_dice`.
 - `minutes`: how long the exchange takes, when it is more than a few minutes (a hard negotiation is an hour). Leave it out for a short talk.
+- `failure`: up to 25 words completing "...and failed; ___": what a failure costs or shows (the person is offended, the guard is called). Decide it before you roll. Every social check is an attempt: the person who has heard a failed argument will not hear it again until something has changed. An optional `attempt` object sets `task`, `closes`, `reopens_if`, `after_minutes`, `scope` or `changed` (what is new, to try a person who has closed to this).
 
 The server turns the quality and the motives into the ruleset's reward (advantage, a bonus, a better reaction roll) and builds the dice itself. A motive that is held absolutely can make the words succeed with no roll, or bar the roll entirely: then the result says so and you narrate it in character. Never tell the player the DC, the reward or the motive.
 

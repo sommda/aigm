@@ -65,7 +65,11 @@ def _party_rows(state: GameState) -> list[list[str]]:
         sheet = state.sheets.get(name)
         hp = hp_text(sheet.hp, sheet.max_hp) if sheet else ""
         conditions = ", ".join(sheet.conditions) if sheet else ""
-        rows.append([name, hp or "-", conditions or "-", f"Party, level {state.hero(name).level}"])
+        who = f"Party, level {state.hero(name).level}"
+        if sheet is not None and sheet.fate == "dead":
+            conditions, who = ", ".join(["dead", *sheet.conditions]), "Fallen" + (f", {sheet.remains}" if sheet.remains else "")
+        rows.append([name, hp or "-", conditions or "-", who])
+    rows.sort(key=lambda r: r[3].startswith("Fallen"))  # the dead come last
     return rows
 
 

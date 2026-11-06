@@ -55,14 +55,18 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
             release()
 
     async def curate() -> None:  # after the response: the player is never kept waiting for the world
-        service = app.state.curator
+        service, portraits = app.state.curator, app.state.portraits
+        if portraits is not None:  # the picture of the place the party is in comes before everything else
+            await portraits.here_first(service, session)
         if service is not None:
             await service.run_if_due(session)
+            if portraits is not None:  # the pass may have made the place describable
+                await portraits.here_first(service, session)
             await service.run_looks_if_due(session)
             await service.run_place_looks_if_due(session)
             await service.run_item_looks_if_due(session)
+            await service.run_place_looks_if_due(session, ahead=True)
             await service.run_revisions_if_due(session)
-        portraits = app.state.portraits
         if portraits is not None:
             await portraits.run_if_due(session)
         await app.state.dumper.update(session)  # the turn, a tool or the pass may have changed the world

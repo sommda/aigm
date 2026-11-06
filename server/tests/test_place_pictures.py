@@ -4,7 +4,7 @@ import json
 
 from aigm import art, images
 from aigm.images import FakeImages, ImageError
-from aigm.portraits import MAX_PER_SWEEP, REGEN_TURNS, Portrait
+from aigm.portraits import MAX_PER_SWEEP, REGEN_TURNS, Portrait, _visible_places
 from tests.conftest import chat
 from tests.test_place_looks import make_place_look
 from tests.test_portraits import MODEL, add_npc, make_client, party_session, service
@@ -58,7 +58,9 @@ def test_only_places_the_player_knows_and_that_have_a_look_get_pictures(tmp_path
     hidden = session.state.world.add_entity("Hidden Hall", "location")
     session.state.world.add_fact("The hall is round.", [hidden.id], aspect="overview", disclosure="hidden")
     session.state.world.add_entity("Plain Hall", "location").discovered = True  # no Look, no facts
-    assert [n for n, _ in jobs(svc, session)] == ["Toby Reed", "Known Hall"]
+    # The vault has a Look but is not discovered: it is pictured ahead of arrival, last, and stays out of the compendium.
+    assert [n for n, _ in jobs(svc, session)] == ["Toby Reed", "Known Hall", "Secret Vault"]
+    assert [p.name for p in _visible_places(session.state.world)] == ["Known Hall"]
 
 
 async def test_a_view_is_landscape_built_from_the_place_prompt_and_stored_with_its_notes(tmp_path):
@@ -270,3 +272,108 @@ def test_without_portraits_the_status_location_has_a_look_and_no_picture(tmp_pat
     chat(client, "look around")
     loc = client.get("/status").json()["location"]
     assert loc["portrait"] is None and loc["look"] is not None
+
+
+async def test_the_current_place_is_made_alone_and_at_once(tmp_path):
+    svc, fake = service(tmp_path)
+    session = party_session(("Toby Reed",))
+    add_place(session, "Old Mill")
+    place = add_place(session, "The Flagon", here=True)
+    add_npc(session, "Old Tam")
+    assert await svc.here_first(None, session)
+    assert len(fake.prompts) == 1 and fake.sizes == [PLACE_SIZE]  # not the party, the people or the other place
+    assert session.state.world.entities[place.id].portrait.ready
+    assert session.state.world.find("Old Mill").portrait is None
+    assert not await svc.here_first(None, session)  # nothing left to make for it
+
+
+async def test_a_sweep_in_progress_does_not_hold_up_the_current_place(tmp_path):
+    svc, fake = service(tmp_path)
+    session = party_session(("Toby Reed",))
+    place = add_place(session, "The Flagon", here=True)
+    session.imaging = True  # a sweep is running
+    assert await svc.here_first(None, session)
+    assert session.state.world.entities[place.id].portrait.ready
+
+
+async def test_a_picture_being_made_is_not_made_twice(tmp_path):
+    svc, fake = service(tmp_path)
+    session = party_session(("Toby Reed",))
+    place = add_place(session, "The Flagon", here=True)
+    session.imaging_keys.add(place.id)
+    assert not await svc.here_first(None, session)
+    assert await svc.run_if_due(session)  # the sweep takes the others
+    assert session.state.world.entities[place.id].portrait is None
+    assert len(fake.prompts) == 1
+
+
+async def test_each_picture_of_a_sweep_is_applied_as_it_finishes(tmp_path):
+    svc, fake = service(tmp_path)
+    session = party_session(("Toby Reed",))
+    add_place(session, "Old Mill")
+    seen = []
+    jobs = svc.due_jobs(session.state)
+    await svc.run(jobs, art.resolve_style(None, session.state.ruleset), 1, lambda key, rec: seen.append(key))
+    assert len(seen) == len(jobs) == 2
+
+
+# ---- places the party has not reached (docs/PLACES.md 6.1) --------------------------------
+
+
+def test_a_place_made_ahead_is_pictured_but_stays_out_of_the_compendium_and_is_not_served(tmp_path):
+    from aigm.compendium import _visible
+    from aigm.portraits import _premade_places
+
+    svc, _ = service(tmp_path)
+    session = party_session(("Toby Reed",))
+    ahead = add_place(session, "Far Keep", known=False)
+    world = session.state.world
+    assert [p.name for p in _premade_places(world)] == ["Far Keep"] and not _visible(world, ahead.id)
+    assert [n for n, _ in jobs(svc, session)] == ["Toby Reed", "Far Keep"]
+
+
+async def test_the_picture_of_a_place_made_ahead_is_never_served_to_a_player_and_is_ready_on_arrival(tmp_path):
+    svc, fake = service(tmp_path)
+    session = party_session(("Toby Reed",))
+    ahead = add_place(session, "Far Keep", known=False)
+    assert await svc.run_if_due(session)
+    world = session.state.world
+    record = world.entities[ahead.id].portrait
+    assert record.ready and svc.shown(session, record.image) is None
+    assert [p["name"] for p in svc.premade(session)] == ["Far Keep"]
+    assert svc.premade_file(session, record.image) is not None
+    world.set_scene(ahead.id, [])  # the party arrives: the picture is there already
+    assert svc.shown(session, record.image) is not None and not svc.due_jobs(session.state)
+    assert svc.premade(session) == []
+
+
+def test_the_premade_places_can_be_seen_only_in_debug_mode(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from aigm.app import create_app
+    from aigm.config import Settings
+
+    def run(debug):
+        app = create_app(Settings(
+            test_mode=True, test_delay=0, save_dir=tmp_path / str(debug), debug=debug, _env_file=None
+        ))
+        client = TestClient(app)
+        chat(client, "begin")
+        chat(client, "look around")
+        session = app.state.sessions.get("default")
+        world = session.state.world
+        far = world.add_entity("Far Keep", "location")
+        world.add_fact("The keep is a black tower.", [far.id], aspect="overview", disclosure="hidden")
+        far.look = make_place_look("Far Keep")
+        return client, far
+
+    client, far = run(False)
+    assert client.get("/debug/premade").status_code == 404
+    assert client.get("/compendium/locations").json()["entries"] and far.name not in str(
+        client.get("/compendium/locations").json()
+    )
+    client, far = run(True)
+    body = client.get("/debug/premade").json()
+    assert [p["name"] for p in body["places"]] == ["Far Keep"] and "Far Keep" not in str(
+        client.get("/compendium/locations").json()
+    )

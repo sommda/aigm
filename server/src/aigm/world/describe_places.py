@@ -16,7 +16,7 @@ from aigm.compendium import _visible, known_facts
 from aigm.looks import PLACE, Look, problems
 from aigm.world.curator import Curator, CuratorError, PlaceLookRequest, PlaceSubject
 from aigm.world.describe import SIMILAR_SUMMARY, about
-from aigm.world.model import Entity, World
+from aigm.world.model import ARRIVAL_ASPECTS, Entity, World
 from aigm.world.ops import Op, SetLook
 from aigm.world.text import tokens
 
@@ -28,6 +28,8 @@ VISUAL_ASPECTS = ("overview", "items", "approach", "entry", "interior", "layout"
 BATCH = 6  # places per curator call, so the places of a call are varied
 MAX_PER_SWEEP = 12
 MAX_CONCURRENT = 4  # batches in flight at once
+PREMADE_AHEAD = 6  # places the party has not reached that have a Look made ahead of time, at most
+PREMADE_PER_SWEEP = 3
 FACTS_PER_PLACE = 12
 MENTIONS_PER_PLACE = 3  # known facts about something else that mention the place
 CONTEXT_FACTS = 2  # known facts shown for each place that contains it
@@ -67,6 +69,28 @@ def needing_places(world: World, recent_text: str = "") -> list[str]:
     return [e.name for e in places]
 
 
+def arrival_facts(world: World, ent: Entity) -> list[Any]:
+    """What the party will see the moment it arrives: the place's own facts of an arrival aspect, however they are
+    disclosed now. Arriving reveals these (`World.set_scene`), so describing a place from them tells the describer
+    nothing the player will not be told on arrival."""
+    return [f for f in world.facts_about(ent.id) if f.subject == ent.id and f.aspect in ARRIVAL_ASPECTS]
+
+
+def needing_premade(world: World) -> list[str]:
+    """The places the party has not reached that could be described ahead of arrival and have no Look: the world has
+    said what is seen there. Those one step from the party's place come first, then the newest. Never more than
+    `PREMADE_AHEAD` places are made ahead at a time, counting those already made, so the cost does not grow with the
+    size of the world (docs/PLACES.md 6.1)."""
+    here = world.scene.location
+    near = {r.other(here) for r in world.routes_of(here)} if here else set()
+    near |= world.neighbors(here) if here else set()
+    unvisited = [e for e in world.entities.values() if e.kind == "location" and not e.discovered and arrival_facts(world, e)]
+    room = PREMADE_AHEAD - sum(1 for e in unvisited if e.look is not None)
+    wanted = [e for e in unvisited if e.look is None]
+    wanted.sort(key=lambda e: (e.id not in near, -int(e.id[1:])))
+    return [e.name for e in wanted[: max(room, 0)]]
+
+
 def too_alike(a: Look, b: Look) -> bool:
     """Would a painter paint the same view twice? The same scale, setting and climate with the same architecture and
     terrain, or summaries that share most of their words."""
@@ -86,14 +110,20 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
 
 
-def _subject(world: World, name: str, recent_text: str) -> PlaceSubject:
+def _subject(world: World, name: str, recent_text: str, ahead: bool = False) -> PlaceSubject:
     """Everything the player knows about the place, and nothing else: only `known` facts are read, so a secret in the
-    world cannot reach the model however it was written."""
+    world cannot reach the model however it was written. A place made `ahead` of arrival is described from the facts
+    arriving would reveal (`arrival_facts`), and from nothing else."""
     ent = world.find(name)
     assert ent is not None
     known = known_facts(world, ent.id)
-    own = [f"[{f.aspect or 'general'}] {f.text}" for f in known if f.subject == ent.id][-FACTS_PER_PLACE:]
-    mentions = [f"[mentioned] {f.text}" for f in known if f.subject != ent.id][-MENTIONS_PER_PLACE:]
+    if ahead:
+        own = [f"[{f.aspect}] {f.text}" for f in arrival_facts(world, ent)][-FACTS_PER_PLACE:]
+        mentions = []
+        recent_text = ""
+    else:
+        own = [f"[{f.aspect or 'general'}] {f.text}" for f in known if f.subject == ent.id][-FACTS_PER_PLACE:]
+        mentions = [f"[mentioned] {f.text}" for f in known if f.subject != ent.id][-MENTIONS_PER_PLACE:]
     chain = []
     for parent in world.parent_chain(ent.id):  # nearest first; stops at the first one the player does not know
         if not _visible(world, parent.id):
@@ -119,11 +149,17 @@ async def run_place_looks(
     *,
     recent_text: str = "",
     limit: int = MAX_PER_SWEEP,
+    only: str | None = None,
+    ahead: bool = False,
 ) -> PlaceLooksResult:
-    """Write the missing Looks of describable places, up to `limit`. Never raises for a model failure."""
+    """Write the missing Looks of describable places, up to `limit` (just the place named `only`, if given). With
+    `ahead` it describes places the party has not reached (`needing_premade`). Never raises for a model failure."""
     result = PlaceLooksResult()
     write = getattr(curator, "place_look", None)
-    todo = needing_places(world, recent_text)[:limit]
+    if ahead:
+        todo = needing_premade(world)[: min(limit, PREMADE_PER_SWEEP)]
+    else:
+        todo = [n for n in needing_places(world, recent_text) if only is None or n == only][:limit]
     if write is None or not todo:
         return result
     setting = str(campaign.get("setting", ""))
@@ -133,7 +169,7 @@ async def run_place_looks(
 
     async def one(names: list[str]) -> list[Look | None]:
         async with gate:
-            subjects = [_subject(world, n, recent_text) for n in names]
+            subjects = [_subject(world, n, recent_text, ahead) for n in names]
             return await _describe_batch(write, subjects, setting, ruleset, dict(existing), result)
 
     done = await asyncio.gather(*(one(b) for b in batches))

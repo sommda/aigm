@@ -32,9 +32,11 @@ class Session:
         self.pending_revised: list[dict[str, Look]] = []  # party members' revised Looks, waiting like pending_looks
         self.pending_portraits: list[dict[str, Portrait]] = []  # party portraits made in the background (PORTRAITS.md 8.2)
         self.imaging = False  # a portrait sweep is running
+        self.imaging_keys: set[str] = set()  # pictures being made now (`Job.key`), so none is made twice
         self.revision_checked_turn = 0  # the narration of this turn has been checked against the Looks
         self.looks_retry_turn = 0  # a sweep that wrote nothing is not tried again before this turn
         self.place_looks_retry_turn = 0  # the same for the places' Looks (docs/PLACES.md 6)
+        self.premade_retry_turn = 0  # and for places described ahead of arrival (docs/PLACES.md 6.1)
         self.item_looks_retry_turn = 0  # and for the key items' Looks (docs/KEY_ITEMS.md 7)
         # Compendium marks sent while a turn ran: entity ids, or None for everything (docs/COMPENDIUM.md 4.3).
         self.pending_seen: list[list[str] | None] = []
@@ -53,6 +55,7 @@ class Session:
         self.plan_retry_turn = 0
         self.looks_retry_turn = 0
         self.place_looks_retry_turn = 0
+        self.premade_retry_turn = 0
         self.item_looks_retry_turn = 0
 
     def drain_pending(self, *, in_turn: bool = False) -> None:
@@ -115,6 +118,12 @@ class Session:
     def _apply_plan(self, plan: Any) -> None:
         """Add a later chapter's quests, if the story is still waiting for exactly that chapter."""
         story = self.state.story
+        if getattr(plan, "repair_of", None):
+            self._apply_repair(plan)
+            return
+        if getattr(plan, "escape", False):
+            self._apply_escape(plan)
+            return
         if story is None or story_rules.needs_plan(story) != plan.chapter:
             log.info("chapter plan dropped: the story has moved on")
             return
@@ -122,8 +131,41 @@ class Session:
             log.info("plot op skipped: %s", why)
         plan.rebind(self.state.world)
         story.milestones += plan.milestones
+        story.dooms += getattr(plan, "dooms", [])
         story_rules.settle_ready(story, self.state.world)
+        story_rules.stamp_deadlines(story, self.state.world)
         story.last_progress_turn = self.state.turn  # a fresh chapter is not an idle one
+
+    def _apply_repair(self, plan: Any) -> None:
+        """Put a repair's quests in place of the failed one, if it is still the quest waiting for one."""
+        story = self.state.story
+        failed = story.milestone(plan.repair_of) if story is not None else None
+        if story is None or failed is None or failed.status != "failed" or not failed.required:
+            log.info("repair dropped: the story has moved on")
+            return
+        for why in apply_ops(self.state.world, plan.ops).skipped:
+            log.info("plot op skipped: %s", why)
+        plan.rebind(self.state.world)
+        story_rules.apply_repair(story, failed.id, plan.milestones, self.state.world)
+        if plan.cost and not any(c.get("milestone") == failed.id for c in story.costs):
+            story_rules.record_cost(story, self.state.turn, failed.id, plan.cost[0], plan.cost[1], clock=False)
+        story.last_progress_turn = self.state.turn  # a fresh path is not an idle one
+
+    def _apply_escape(self, plan: Any) -> None:
+        """Add the escape quest of a captured party, if the story is still waiting for one."""
+        story = self.state.story
+        if story is None or story.escape is None or story.chapter != plan.chapter:
+            log.info("escape quest dropped: the story has moved on")
+            return
+        for why in apply_ops(self.state.world, plan.ops).skipped:
+            log.info("plot op skipped: %s", why)
+        plan.rebind(self.state.world)
+        for m in plan.milestones:
+            m.escape, m.required, m.requires, m.scale = True, True, [], "small"
+        story.milestones += plan.milestones
+        story.escape = None
+        story_rules.settle_ready(story, self.state.world)
+        story.last_progress_turn = self.state.turn
 
     def _apply_report(self, report: dict[str, Any]) -> None:
         """Quest progress the curator read from the narration. Each item counts on its own: the GM may have reported
@@ -134,7 +176,7 @@ class Session:
         if report.get("goal_revealed"):
             items.append({"goal_revealed": True})
         for item in items:
-            story, problems, _ = check_story_report(item, self.state)
+            story, problems, _ = check_story_report(item, self.state, require_cost=False)
             if story is not None:
                 self.state.story = story
             else:

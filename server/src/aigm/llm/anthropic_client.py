@@ -144,7 +144,7 @@ class AnthropicLLM:
         except ValueError as exc:
             # Tools that stream their input eagerly (`eager_input_streaming`) are not validated by the API, so the
             # SDK can meet JSON it cannot parse at all.
-            raise LLMError("The model produced an unreadable tool call", retryable=True) from exc
+            raise LLMError("The model produced an unreadable tool call", retryable=True, garbled=True) from exc
         except (anthropic.AnthropicError, TypeError) as exc:
             # TypeError: the SDK raises it when no credentials can be resolved at all.
             if isinstance(exc, TypeError) and "auth" not in str(exc).lower():

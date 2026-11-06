@@ -23,11 +23,12 @@ from aigm import rulesets
 from aigm.looks import Look
 from aigm.world.describe import Given, LooksResult, needing, revision_candidates, run_looks, run_revisions
 from aigm.world.describe_items import needing_items, run_item_looks
-from aigm.world.describe_places import needing_places, run_place_looks
+from aigm.world.describe_places import needing_places, needing_premade, run_place_looks
 from aigm.world.model import World
 from aigm.world.text import normalize_name
+from aigm import characters
 from aigm import story as story_rules
-from aigm.world.plot import PlotResult, run_chapter_plot, run_plot
+from aigm.world.plot import PlotResult, run_chapter_plot, run_escape_plot, run_plot, run_repair_plot
 
 log = logging.getLogger(__name__)
 PLAN_RETRY_TURNS = 3  # a chapter plan that failed is tried again after this many more turns
@@ -73,8 +74,13 @@ class CuratorService:
         Works on a snapshot, so the player's next turn is never blocked. The result is applied when
         the session is idle (`Session.drain_pending`); if the game was replaced meanwhile it is dropped.
         A failed pass changes nothing and leaves `processed_through` alone, so it is retried later."""
+        self.settle_story(session)
         if self.plan_due(session):
             return await self._plan_chapter(session)
+        if self.repair_due(session):
+            return await self._repair_quest(session)
+        if self.escape_due(session):
+            return await self._escape_quest(session)
         if not self.due(session):
             return False
         generation = session.generation
@@ -115,6 +121,103 @@ class CuratorService:
             and not session.busy
             and session.state.turn >= session.plan_retry_turn
         )
+
+    def settle_story(self, session: Session) -> None:
+        """Act on the clock and on quests that have waited too long for a repair (docs/STAKES.md 3, STORY.md 8.2), and
+        on deaths the player never settled (7.3)."""
+        if session.state.phase is Phase.ADVENTURE and not session.busy:
+            for name in characters.settle_remains(session.state):
+                log.info("stakes: %s was left behind; the player never decided", name)
+        story = session.state.story
+        if session.state.phase is not Phase.ADVENTURE or story is None or session.busy or story.concluded:
+            return
+        if story.escape is not None and session.state.turn - story.escape["turn"] >= story_rules.STALL_TURNS:
+            story.escape = None  # the escape was never written: it is a scene after all
+            log.info("stakes: no escape quest came; the party's escape is left to the scene")
+        story_rules.stamp_deadlines(story, session.state.world)
+        for note in story_rules.settle_due(story, session.state.world, session.state.turn):
+            log.info("stakes: %s", note)
+        for quest in story_rules.expire_failed(story, session.state.turn):
+            log.info("stakes: %s was given up; no repair arrived", quest)
+        if story_rules.forced_ending(story, session.state.turn) is not None:
+            log.info("stakes: the GM never ended the lost story; the server did")
+
+    def repair_due(self, session: Session) -> bool:
+        """Has a required quest failed with no way round written for it yet?"""
+        story = session.state.story
+        failed = story_rules.needs_repair(story) if story is not None else None
+        return (
+            session.state.phase is Phase.ADVENTURE
+            and failed is not None
+            and not session.curating
+            and not session.busy
+            and session.state.turn >= session.plan_retry_turn
+            and not any(getattr(p, "repair_of", None) == failed.id for p in session.pending_plans)
+        )
+
+    def escape_due(self, session: Session) -> bool:
+        """Is a captured party waiting for its escape quest?"""
+        story = session.state.story
+        return (
+            session.state.phase is Phase.ADVENTURE
+            and story is not None
+            and story.escape is not None
+            and not session.curating
+            and not session.busy
+            and session.state.turn >= session.plan_retry_turn
+            and not any(getattr(p, "escape", False) for p in session.pending_plans)
+        )
+
+    async def _escape_quest(self, session: Session) -> bool:
+        """Write the quest that gets a captured party out, in the background (docs/STAKES.md 7.5)."""
+        story = session.state.story
+        assert story is not None
+        generation = session.generation
+        session.curating = True
+        try:
+            result = await run_escape_plot(
+                session.state.world, session.state.campaign or {}, story.copy(), self.curator, turn=session.state.turn
+            )  # fmt: skip
+        except Exception:
+            log.exception("writing the escape quest failed; will retry")
+            session.plan_retry_turn = session.state.turn + PLAN_RETRY_TURNS
+            return False
+        finally:
+            session.curating = False
+        if session.generation != generation:
+            return False
+        for note in result.notes:
+            log.info("plot: %s", note)
+        session.pending_plans.append(result)
+        session.drain_pending()
+        return True
+
+    async def _repair_quest(self, session: Session) -> bool:
+        """Write the quests that replace a failed one, in the background (docs/STAKES.md 4, 5)."""
+        story = session.state.story
+        assert story is not None
+        failed = story_rules.needs_repair(story)
+        assert failed is not None
+        generation = session.generation
+        session.curating = True
+        try:
+            result = await run_repair_plot(
+                session.state.world, session.state.campaign or {}, story.copy(), failed, self.curator,
+                turn=session.state.turn,
+            )  # fmt: skip
+        except Exception:
+            log.exception("repairing %s failed; will retry", failed.id)
+            session.plan_retry_turn = session.state.turn + PLAN_RETRY_TURNS
+            return False
+        finally:
+            session.curating = False
+        if session.generation != generation:
+            return False
+        for note in result.notes:
+            log.info("plot: %s", note)
+        session.pending_plans.append(result)
+        session.drain_pending()
+        return True
 
     async def _plan_chapter(self, session: Session) -> bool:
         """Write the quests of the chapter the story has reached, in the background (docs/STORY.md 5)."""
@@ -235,22 +338,29 @@ class CuratorService:
         session.drain_pending()
         return True
 
-    def place_looks_due(self, session: Session) -> bool:
-        """Is any place the player knows well enough to picture without a Look, and is this a quiet moment?"""
+    def place_looks_due(self, session: Session, ahead: bool = False) -> bool:
+        """Is any place the player knows well enough to picture without a Look, and is this a quiet moment? With
+        `ahead`, is any place the party has not reached waiting for one made ahead of arrival?"""
         state = session.state
+        retry = session.premade_retry_turn if ahead else session.place_looks_retry_turn
         return (
             state.phase is Phase.ADVENTURE
             and not session.curating
             and not session.busy
-            and state.turn >= session.place_looks_retry_turn
+            and state.turn >= retry
             and getattr(self.curator, "place_look", None) is not None
-            and bool(needing_places(state.world))
+            and bool((needing_premade if ahead else needing_places)(state.world))
         )
 
-    async def run_place_looks_if_due(self, session: Session) -> bool:
+    async def run_place_looks_if_due(self, session: Session, here_only: bool = False, ahead: bool = False) -> bool:
         """Describe the places that need it, in the background, after the turn (docs/PLACES.md 6). The results wait for
-        the session to be idle, like a curator pass; a sweep that wrote nothing backs off for a few turns."""
-        if not self.place_looks_due(session):
+        the session to be idle, like a curator pass; a sweep that wrote nothing backs off for a few turns. `here_only`
+        describes just the place the party is in, so its picture can start at once (docs/PLACES.md 8.4). `ahead`
+        describes places the party has not reached, from what arriving would show (docs/PLACES.md 6.1)."""
+        if not self.place_looks_due(session, ahead):
+            return False
+        here = session.state.world.entities.get(session.state.world.scene.location or "")
+        if here_only and (here is None or here.name not in needing_places(session.state.world)):
             return False
         generation = session.generation
         state = session.state
@@ -258,11 +368,11 @@ class CuratorService:
         try:
             result = await run_place_looks(
                 state.world.copy(), state.campaign or {}, rulesets.get(state.ruleset).name, self.curator,
-                recent_text=_last_narration(session.messages),
+                recent_text=_last_narration(session.messages), only=here.name if here_only and here else None, ahead=ahead,
             )  # fmt: skip
         except Exception:
             log.exception("describing places failed; will retry")
-            session.place_looks_retry_turn = state.turn + LOOK_RETRY_TURNS
+            self._back_off_places(session, ahead)
             return False
         finally:
             session.curating = False
@@ -271,11 +381,19 @@ class CuratorService:
         if session.generation != generation:
             return False
         if not result.ops:
-            session.place_looks_retry_turn = state.turn + LOOK_RETRY_TURNS
+            self._back_off_places(session, ahead)
             return False
         session.pending.append(result.ops)
         session.drain_pending()
         return True
+
+    @staticmethod
+    def _back_off_places(session: Session, ahead: bool) -> None:
+        retry = session.state.turn + LOOK_RETRY_TURNS
+        if ahead:
+            session.premade_retry_turn = retry
+        else:
+            session.place_looks_retry_turn = retry
 
     def item_looks_due(self, session: Session) -> bool:
         """Is any key item the party has had in hand without a Look, and is this a quiet moment?"""

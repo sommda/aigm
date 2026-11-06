@@ -27,6 +27,15 @@ STORY_PROPERTY: dict[str, Any] = {
                             "type": "string",
                             "description": "One or two sentences: what happened and what the party chose.",
                         },
+                        "cost": {
+                            "type": "string",
+                            "description": "With status failed: one sentence on what the failure cost the party.",
+                        },
+                        "cost_kind": {"type": "string", "enum": list(story_rules.COST_KINDS)},
+                        "cost_hours": {
+                            "type": "integer",
+                            "description": "With cost_kind time: the whole hours the failure took from the party.",
+                        },
                     },
                     "required": ["id", "status", "outcome"],
                 },
@@ -47,8 +56,11 @@ CARRY_ON = (
 )
 
 
-def check_story_report(report: Any, state: GameState) -> tuple[Story | None, list[str], list[str]]:
-    """Check the `story` field of a set_scene call against `state.story`.
+def check_story_report(
+    report: Any, state: GameState, *, require_cost: bool = True
+) -> tuple[Story | None, list[str], list[str]]:
+    """Check the `story` field of a set_scene call against `state.story`. A quest the GM reports `failed` must say what
+    it cost (docs/STAKES.md 6) when the chapter asks for that; the curator's reports (`require_cost` false) need not.
 
     Returns (the story with the report applied, problems, notes for the GM). The state is not changed: the caller
     keeps the new story only if the rest of the call is fine too, so a call is all or nothing."""
@@ -73,11 +85,28 @@ def check_story_report(report: Any, state: GameState) -> tuple[Story | None, lis
             continue
         outcome = q.get("outcome")
         outcome = outcome.strip()[:MAX_OUTCOME] if isinstance(outcome, str) else ""
+        needs = story_rules.failure_response(work).cost_required and require_cost
         result = story_rules.report(work, str(q.get("id")), str(q.get("status")), outcome, state.turn, state.world)
         if not result.ok:
             problems.append(f"{q.get('id')}: {result.message}")
             continue
+        if q.get("cost") is not None and q.get("status") != "failed":
+            problems.append(f"{q.get('id')}: a cost goes only with a failed quest")
+            continue
+        if q.get("status") == "failed" and (needs or q.get("cost")):
+            problem = story_rules.record_cost(
+                work, state.turn, str(q.get("id")), str(q.get("cost_kind")), q.get("cost") or "", q.get("cost_hours") or 0
+            )
+            if problem:
+                problems.append(f"{q.get('id')}: {problem}")
+                continue
+            notes.append(cost_note(work.costs[-1]))
         notes.append(result.message + ".")
+        if work.fall is not None and state.story is not None and state.story.fall is None:
+            notes.append(
+                "That ends the story in failure. Finish the scene you are in, then play out the ending and call "
+                "`end_story`; your next notes name it."
+            )
         reward = work.milestone(str(q.get("id")))
         if q.get("status") == "done" and reward is not None and reward.gives:
             notes.append(f"Its reward: {reward.gives}. Hand it out now, with the `award` tool for any XP or level.")
@@ -92,6 +121,13 @@ def check_story_report(report: Any, state: GameState) -> tuple[Story | None, lis
     if notes:
         notes.append(CARRY_ON)
     return (None, problems, []) if problems else (work, [], notes)
+
+
+def cost_note(cost: dict[str, Any]) -> str:
+    note = f"Cost recorded: {cost['text']}"
+    if cost.get("hours"):
+        note += f" The clock moves on {cost['hours']} hours; narrate what filled them."
+    return note + " Keep it alive in later scenes."
 
 
 def chapter_note(story: Story, chapter: int) -> str:
@@ -136,7 +172,13 @@ def end_story(tool_use_id: str, tool_input: dict[str, Any], state: GameState) ->
     if not isinstance(ending, str) or not isinstance(epilogue, str) or not epilogue.strip():
         return ToolOutcome("Give the ending id and an epilogue.", is_error=True)
     defeated = tool_input.get("party_defeated") is True
-    if not defeated:
+    if story.fall is not None:  # the game is lost: only its ending, or a custom one for what the plan did not foresee
+        wanted = story.fall["ending"]
+        if wanted and ending not in (wanted, "end_custom"):
+            return ToolOutcome(
+                f"The story is lost, and its ending is {wanted}. Play that ending: do not choose another.", is_error=True
+            )
+    elif not defeated and story_rules.doom_ending(story, ending) is None:  # a doom's ending needs no climax
         climax = story.chapter == 3 and all(m.status in SETTLED | {"failed"} for m in story.in_chapter(3) if m.required)
         if not climax:
             return ToolOutcome(

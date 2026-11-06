@@ -460,3 +460,64 @@ async def test_a_half_that_fails_too_is_not_split_forever():
     curator = Never()
     result = await sweep(w, curator)
     assert result.ops == [] and len(curator.requests) == 3  # the batch and its two halves, and no more
+
+
+# ---- places the party has not reached (docs/PLACES.md 6.1) --------------------------------
+
+
+def unreached():
+    w = World()
+    start = w.add_entity("Start Inn", "location")
+    far = w.add_entity("Far Keep", "location")
+    cave = w.add_entity("Deep Cave", "location")
+    w.add_fact("The keep is a black tower on a crag.", [far.id], aspect="overview", disclosure="hidden")
+    w.add_fact("The keep's well hides a tunnel.", [far.id], aspect="secret", disclosure="hidden")
+    w.add_fact("The keep's lord is a vampire.", [far.id], aspect="inhabitants", disclosure="hidden")
+    w.add_fact("The cave glitters with wet stone.", [cave.id], aspect="overview", disclosure="hinted")
+    w.set_scene(start.id, [])
+    return w, start, far, cave
+
+
+def test_places_not_reached_are_described_from_arrival_facts_only_never_a_secret():
+    from aigm.world.describe_places import needing_premade
+
+    w, start, far, cave = unreached()
+    assert sorted(needing_premade(w)) == ["Deep Cave", "Far Keep"]
+    sub = _subject(w, "Far Keep", "The keep is mentioned in the narration.", ahead=True)
+    assert sub.facts == ["[overview] The keep is a black tower on a crag."] and sub.narration == []
+    assert "vampire" not in json.dumps(sub.__dict__) and "tunnel" not in json.dumps(sub.__dict__)
+
+
+def test_a_place_without_an_arrival_fact_or_one_already_reached_is_not_made_ahead():
+    from aigm.world.describe_places import needing_premade
+
+    w, start, far, cave = unreached()
+    w.add_entity("Bare Hill", "location")
+    w.set_scene(far.id, [])  # the party arrives
+    assert needing_premade(w) == ["Deep Cave"]
+
+
+def test_only_a_few_places_are_made_ahead_nearest_first():
+    from aigm.world.describe_places import PREMADE_AHEAD, needing_premade
+
+    w, start, far, cave = unreached()
+    for i in range(10):
+        p = w.add_entity(f"Hill {i}", "location")
+        w.add_fact(f"Hill {i} is round.", [p.id], aspect="overview", disclosure="hidden")
+    w.set_route(start.id, cave.id, 30, "a path")
+    names = needing_premade(w)
+    assert len(names) == PREMADE_AHEAD and names[0] == "Deep Cave"
+
+
+async def test_the_sweep_ahead_writes_looks_for_unreached_places_and_a_visited_one_keeps_it():
+    w, start, far, cave = unreached()
+    result = await sweep(w, ahead=True)
+    assert sorted(op.entity for op in result.ops) == ["Deep Cave", "Far Keep"]
+    from aigm.world.ops import apply_ops
+
+    apply_ops(w, result.ops)
+    assert far.look is not None and not far.discovered  # nothing about it is learned
+    assert await sweep(w, ahead=True) is not None and not (await sweep(w, ahead=True)).ops
+    assert needing_places(w) == []
+    w.set_scene(far.id, [])
+    assert far.look is not None and far.discovered

@@ -13,7 +13,7 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote
 
 from aigm import art
@@ -199,6 +199,16 @@ def _visible_items(world: Any, *, any_look: bool = False) -> list[Any]:
     return sorted(items, key=lambda e: (-acquired(e), -int(e.id[1:])))
 
 
+def _premade_places(world: Any) -> list[Any]:
+    """The places the party has not reached that already have a Look, made ahead of arrival (docs/PLACES.md 6.1). They
+    are never in the compendium and their pictures are never served to a player: they are pictured so the picture is
+    there on arrival, the nearest first."""
+    here = world.scene.location
+    near = {r.other(here) for r in world.routes_of(here)} | world.neighbors(here) if here else set()
+    places = [e for e in world.entities.values() if e.kind == "location" and not e.discovered and e.look is not None]
+    return sorted(places, key=lambda e: (e.id not in near, -int(e.id[1:])))
+
+
 def _visible_places(world: Any, *, any_look: bool = False) -> list[Any]:
     """The locations the player can see in the compendium that have a Look and are wanted, in the order they are given
     pictures: the party's current location first, then the rest newest first."""
@@ -284,6 +294,8 @@ class PortraitService:
         jobs += [Job(i.name, i.look, i.portrait, i.names(), i.id, "item") for i in items]
         jobs += [Job(e.name, e.look, e.portrait, e.names(), e.id) for e in people if e.id not in scene]
         jobs += [Job(p.name, p.look, p.portrait, p.names(), p.id, "place") for p in places if p not in here]
+        ahead = [p for p in _premade_places(state.world) if is_due(p.look, p.portrait, style, state.turn, self.store)]
+        jobs += [Job(p.name, p.look, p.portrait, p.names(), p.id, "place") for p in ahead]  # last: nobody is looking yet
         return jobs[:MAX_PER_SWEEP]
 
     def view(self, session: Any, name: str) -> dict[str, Any] | None:
@@ -347,6 +359,23 @@ class PortraitService:
             return {"state": "pending", "style": style.id, "shape": shape}
         return None
 
+    def premade(self, session: Any) -> list[dict[str, Any]]:
+        """The places made ahead of arrival with their Look and picture, for debug mode only (docs/PLACES.md 6.1)."""
+        out = []
+        for e in _premade_places(session.state.world):
+            ready = e.portrait is not None and self.store.has(e.portrait.image)
+            url = f"/debug/premade/{e.portrait.image}?session_id={quote(session.id, safe='')}" if ready else None
+            out.append({
+                "id": e.id, "name": e.name, "summary": e.look.summary, "description": e.look.description,
+                "picture": url,
+            })  # fmt: skip
+        return out
+
+    def premade_file(self, session: Any, file: str) -> Path | None:
+        """The file of a premade place's picture, for debug mode only."""
+        wanted = {e.portrait.image for e in _premade_places(session.state.world) if e.portrait}
+        return self.store.path(file) if file in wanted else None
+
     def shown(self, session: Any, file: str) -> Path | None:
         """The file of an image this session may show its player: a party member's current portrait, or the picture of a
         person or place the player has discovered (the compendium's rule), or None."""
@@ -366,35 +395,97 @@ class PortraitService:
         state = session.state
         return state.phase.value == "adventure" and not session.imaging and bool(self.due_jobs(state))
 
+    def here_job(self, state: Any) -> Job | None:
+        """The job for the picture of the place the party is in, if it needs one. The status tab shows it first, so it is
+        made on its own, as soon as it can be, and never waits for a sweep (docs/PLACES.md 8.4)."""
+        style = art.resolve_style(state.art_style, state.ruleset)
+        if style is None or self.disabled:
+            return None
+        place = state.world.entities.get(state.world.scene.location or "")
+        if place is None or place.look is None or not place_wanted(place) or place not in _visible_places(state.world):
+            return None
+        if not is_due(place.look, place.portrait, style, state.turn, self.store):
+            return None
+        return Job(place.name, place.look, place.portrait, place.names(), place.id, "place")
+
+    async def run_here_if_due(self, session: Any) -> bool:
+        """Make the picture of the current place right away, alongside any sweep that is running. Never raises."""
+        state, generation = session.state, session.generation
+        job = self.here_job(state)
+        if job is None or job.key in session.imaging_keys:
+            return False
+        style = art.resolve_style(state.art_style, state.ruleset)
+        session.imaging_keys.add(job.key)
+        try:
+            made = await self.run(
+                [job], style, state.turn, lambda key, rec: self._apply(session, generation, {key: rec}, {job.key})
+            )
+        except Exception:
+            log.exception("picture of the current place failed")
+            return False
+        finally:
+            session.imaging_keys.discard(job.key)
+        return bool(made)
+
     async def run_if_due(self, session: Any) -> bool:
-        """Make the missing pictures in the background, after the turn. The results wait for the session to be idle
-        and are applied with the other pending work. Never raises."""
+        """Make the missing pictures in the background, after the turn. Each result waits for the session to be idle
+        and is applied with the other pending work as soon as that picture is done, not when the sweep is. Never
+        raises."""
         if not self.due(session):
             return False
         state, generation = session.state, session.generation
         style = art.resolve_style(state.art_style, state.ruleset)
-        jobs, turn = self.due_jobs(state), state.turn
+        jobs = [j for j in self.due_jobs(state) if j.key not in session.imaging_keys]  # one is already being made
+        if not jobs:
+            return False
+        turn = state.turn
+        people = {job.key for job in jobs if job.entity}
         session.imaging = True
+        session.imaging_keys.update(job.key for job in jobs)
         try:
-            made = await self.run(jobs, style, turn)
+            made = await self.run(
+                jobs, style, turn, lambda key, rec: self._apply(session, generation, {key: rec}, people)
+            )
         except Exception:  # run() already guards each picture; this is the last net
             log.exception("portrait sweep failed")
             return False
         finally:
             session.imaging = False
-        if session.generation != generation or not made:
-            return False
+            session.imaging_keys.difference_update(job.key for job in jobs)
+        return bool(made) and session.generation == generation
+
+    @staticmethod
+    def _apply(session: Any, generation: int, made: dict[str, Portrait], people: set[str]) -> None:
+        """Queue finished pictures and apply them if the session is idle. Dropped if the game was replaced meanwhile."""
+        if session.generation != generation:
+            return
         from aigm.world.ops import SetPortrait  # not at the top: the world imports this module
 
-        people = {job.key for job in jobs if job.entity}
-        session.pending_portraits.append({k: v for k, v in made.items() if k not in people})
+        party = {k: v for k, v in made.items() if k not in people}
+        if party:
+            session.pending_portraits.append(party)
         if people & made.keys():
             session.pending.append([SetPortrait(k, v) for k, v in made.items() if k in people])
         session.drain_pending()
-        return True
 
-    async def run(self, jobs: list[Job], style: Style, turn: int) -> dict[str, Portrait]:
-        """Make the pictures, two at a time. Returns the new record of each character it got an answer for, by `Job.key`."""
+    async def here_first(self, curator: Any, session: Any) -> bool:
+        """Describe the place the party is in, if it has no Look, and make its picture, before anything else the
+        background does. Run it before the world pass and again after it, which may be what made the place describable.
+        Never raises."""
+        made = False
+        try:
+            if curator is not None:
+                made = await curator.run_place_looks_if_due(session, here_only=True)
+            return await self.run_here_if_due(session) or made
+        except Exception:
+            log.exception("the current place's picture failed")
+            return made
+
+    async def run(
+        self, jobs: list[Job], style: Style, turn: int, on_done: Callable[[str, Portrait], None] | None = None
+    ) -> dict[str, Portrait]:
+        """Make the pictures, two at a time. Returns the new record of each character it got an answer for, by `Job.key`.
+        `on_done` is called with each one as soon as it is made."""
         gate = asyncio.Semaphore(MAX_CONCURRENT)
 
         async def one(job: Job) -> tuple[str, Portrait | None]:
@@ -402,10 +493,13 @@ class PortraitService:
                 if self.disabled:
                     return job.key, None
                 try:
-                    return job.key, await self._make(job, style, turn)
+                    record = await self._make(job, style, turn)
                 except Exception:
                     log.exception("making the portrait of %s failed", job.name)
                     return job.key, None
+                if record is not None and on_done is not None:
+                    on_done(job.key, record)
+                return job.key, record
 
         return {name: rec for name, rec in await asyncio.gather(*(one(j) for j in jobs)) if rec is not None}
 

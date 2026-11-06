@@ -1,9 +1,10 @@
 # AIGM Attempts: Design
 
-Status: **spec, not built**. Second of two prerequisites to the stakes feature ([STAKES.md](STAKES.md)); the first is
-the clock ([TIME.md](TIME.md)), which this spec relies on. It decides what a failed action means: a bad try that can be
-repeated at a price, or a task the character simply could not do. It also keeps a record of every failed attempt. It
-adds **no new tool**: an attempt is declared in the die roll itself.
+Status: **built** (all seven steps of section 10; the live check is section 13). Second of two prerequisites to the
+stakes feature ([STAKES.md](STAKES.md)); the first is the clock ([TIME.md](TIME.md)), which this spec relies on. It
+decides what a failed action means: a bad try that can be repeated at a price, or a task the character simply could
+not do. It also keeps a record of every failed attempt. It adds **no new tool**: an attempt is declared in the die
+roll itself.
 
 ## 1. Goal
 
@@ -131,7 +132,6 @@ A failed attempt is stored on the world (`World.attempts`) as:
   "about": "e017",
   "status": "closed",
   "tries": 2,
-  "chain": "a003",
   "scope": "character",
   "failure": "a pick snapped and the clatter woke the guard",
   "reopens_if": "Better picks, a locksmith's help, or the key",
@@ -145,7 +145,8 @@ A failed attempt is stored on the world (`World.attempts`) as:
 - `status` is `open`, `closed` or `resolved` (the task was done in the end).
 - `about` is the entity the attempt concerns: a place, a person, an item, a faction. It defaults to the place the party
   is in. The server resolves it as `establish` and `key_item` resolve names.
-- `chain` joins the tries of one task: the first failure starts a chain and each retry adds to it (`tries`).
+- One record covers all the tries of a task (a chain): the first failure creates it and each retry adds to `tries`, so
+  there is no `chain` field and the GM never passes an id.
 - `failure`, `reopens_if` and `reopens_at` are as in section 3. Only the GM sees `reopens_if` and `reopens_at`.
 
 ### 4.2 The fact
@@ -250,7 +251,10 @@ values, a random table, damage, hit points, initiative. They are unchanged. A re
      only a failure leaves a mark.
 4. **Time and the player.** A closed result narrates in the fiction. The roll appears to the player as any roll does.
 
-The chain is found by the server, so the GM never passes an id. A roll that carries no `attempt` is not recorded.
+The chain is found by the server, so the GM never passes an id. A roll that carries no `attempt` is not recorded, with
+one exception found in the live check (section 13): a roll with a `dc` whose `# label` names a task (a lock, a search,
+a climb, a trap, a recall, a first aid; never an attack, a save or damage) and no `attempt` is refused before the dice,
+so a failure is never lost for want of a mark.
 
 ### 6.3 Social checks
 
@@ -325,13 +329,33 @@ The base prompt carries the common reasoning in a few lines, the three questions
 
 Needs the clock first (TIME.md 10, step 2: `minutes` on rolls and `pass_time`).
 
-1. The model: `Attempt`, the ops, save and load, the `attempts` aspect, the type table in `aigm/attempts.py`.
-2. `dc` and `dc_mode` on `roll_dice`, the verdict in the result, and the roll's minutes. Useful on its own.
-3. The `attempt` object: validation, the lookup, the chain, the fact, the closed result, the time default.
-4. `social_check`: the implied attempt and its `failure` clause.
-5. The briefing block and the reopening clock.
-6. Prompts: the roll tools' descriptions, the base reasoning, and the ruleset files (section 8).
-7. A live check with the real GM: a lock, a lie, a search, a retry, a changed approach.
+1. The model: `Attempt`, save and load, the `attempts` aspect, the type table in `aigm/attempts.py`. **Built.** The
+   tool changes the world directly, as `set_route` does, so no curator op is needed yet. The aspect is valid on every
+   kind (`SERVER_ASPECTS`) but is not a checklist slot, so the curator never tries to fill it. The save format is 14.
+2. `dc` and `dc_mode` on `roll_dice`, the verdict in the result, and the roll's minutes. Useful on its own. **Built.**
+   `dc` is a whole number from 1 to 100, checked before the dice are rolled. The result then reads, for example,
+   "Failure by 4 (DC 18)." before any time that passed; the player sees none of it. A roll with no `dc` is as before.
+3. The `attempt` object: validation, the lookup, the chain, the fact, the closed result, the time default. **Built**
+   for `roll_dice` (`tools/attempt.py`). A closed attempt rolled with nothing changed returns "No roll." with the GM's
+   narration and no time. The fact reads "Kit tried to pick the vault lock twice and failed; the lock jams" and is
+   cut to 40 words if need be. A `social` kind is refused on a roll: it belongs to `social_check` (step 4). `attempt` is
+   ignored in Session 0.
+4. `social_check`: the implied attempt and its `failure` clause. **Built.** Every social check is an attempt of kind
+   `social` on the person addressed, taking 10 minutes unless `minutes` says otherwise. `failure` is optional (it
+   defaults to "the person was not moved"; the prompt asks for it). An optional `attempt` object carries `task`,
+   `closes`, `reopens_if`, `after_minutes`, `scope` and `changed`. The failing reaction total is `reaction_fail` in
+   `aigm/rulesets.py`, 5 for all five reaction rulesets for now.
+5. The briefing block and the reopening clock. **Built** (`attempt_lines` in `world/briefing.py`). The block covers the
+   place, the people present, items in hand and the places of active quests, at most five lines. A closure whose
+   clock has run out shows as "now open again" and is opened for real the next time the attempt is looked up. `recall`
+   and the readable world dump list every attempt, with `reopens_if`; the dump leaves them out of the player's view.
+6. Prompts: the roll tools' descriptions, the base reasoning, and the ruleset files (section 8). **Built.**
+   `prompts/system/adventure/04c_attempts.md` carries the common reasoning, and each ruleset has a
+   `04_attempts.md` (adventure mode only, after its role play file, loaded by `PromptLibrary.attempts_part`) that maps
+   its skills onto the types, states its retry rules and says whether it rolls over or under. The old editions' files
+   say to give `dc_mode: under`. Playtest mode leaves both out. The retry rules are written from the editions as
+   remembered and hedged where unsure; tune them with the prompts after play tests.
+7. A live check with the real GM: a lock, a lie, a search, a retry, a changed approach. **Done** (section 13).
 
 A **curator safety net** for a GM that forgot to mark a roll as an attempt is deferred until the playtests, as for key
 items.
@@ -346,3 +370,43 @@ items.
 ## 12. Open questions
 
 None at the moment.
+
+## 13. Findings from the live check
+
+The real GM (the configured model, `claude-haiku-5-5`) played a copy of the Icehold save on a separate server, with
+images off: a locked vault door, a suspicious guard, then a lock, a lie, searches, a recall and a retry.
+
+What worked:
+
+- **Lock (costly):** the party's climber picked at the lock with improvised tools. The first failure was recorded as an
+  open attempt with its failure clause and a known fact; the retry raised `tries` to 2 and replaced the fact; each
+  try took its minutes and the clock moved.
+- **Recall (once):** a failed `lore` roll closed the attempt for that character. When the player tried the same recall
+  again, the GM read the "Attempts here" note, **made no roll**, narrated in a line that the memory would not come and
+  named a way back (the ledgers in the long hall). A different character then tried and was not blocked.
+- **Validation:** a call whose `task` was over twelve words was refused before the dice, and the GM corrected it and
+  called again the same turn.
+- **Social:** the lie to the guard went through `social_check` with a `failure` clause and succeeded, so nothing was
+  recorded, as intended.
+- **Playtest mode** set the scene up (a vault door and a guard) in one message and left cleanly.
+
+What did not, and was left for the playtests:
+
+- The GM sometimes leaves `attempt` off a roll that is a task (a search of a wall, a study of a trapdoor). It only
+  matters for a failure, which then leaves no record. The deferred curator safety net is the cure.
+- After two failed tries at the lock the GM narrated the lock as seized and refused a third try in the story, but it
+  did not close the attempt (no `closes: true`), so the record stayed open. A later search by another character then
+  narrated the lock opening of itself. The prompt could say that when the story shuts a way it should close the attempt.
+- A GM that narrates a closure, a change of scene or time with no tool call is not caught by the server; that gap is
+  the same as the one TIME.md names (section 13 there) and the same post-turn check would help.
+
+
+### 13.1 Fixes made after the check
+
+- The base prompt now says to keep the record true to the story: a way narrated as shut is closed in the same call
+  (`closes: true` and a `reopens_if`), and a shut way never opens of itself.
+- A roll with a `dc` and a task label but no `attempt` is refused before the dice (`task_kind` in `aigm/attempts.py`).
+  A second live run showed a wall search and a forced door both recorded.
+- The `failure` clause is asked for in the third person with names, since it becomes a line of the record; the first
+  run's facts sometimes said "you".
+- Not done: the curator safety net and the post-turn check for narration that moves the story with no tool call.

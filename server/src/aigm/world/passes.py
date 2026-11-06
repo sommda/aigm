@@ -846,11 +846,13 @@ async def _plan_extraction(
         if isinstance(fid, str):
             ops.append(Reveal(fid, turn))
     if ex.location:
-        ops.append(SetScene(ex.location, tuple(ex.present) if ex.present is not None else None))
+        ops.append(
+            SetScene(ex.location, tuple(ex.present) if ex.present is not None else None, guard=True, origin=world.scene.location)
+        )
     elif ex.present is not None:
         loc = world.entity(world.scene.location) if world.scene.location else None
         if loc:
-            ops.append(SetScene(loc.name, tuple(ex.present)))
+            ops.append(SetScene(loc.name, tuple(ex.present), guard=True, origin=world.scene.location))
     ops += _motive_report_ops(world, ex, turn, result)
     ops.append(SettleTime(ex.elapsed_minutes))
     return ops

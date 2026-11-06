@@ -141,6 +141,28 @@ most places the world creates ahead of play are never reached, so describing the
   for later).
 - **The campaign opening** is known from the start, so the first location is described after the first turn.
 
+### 6.1 Places the party has not reached
+
+So that a new place has its picture on arrival, places the party has **not yet reached** are described and pictured
+ahead of time, as if the party were already there, and kept out of sight until it arrives.
+
+- **What is described.** An undiscovered location the world has said something visible about: it has a fact of an
+  arrival aspect (`ARRIVAL_ASPECTS`, today `overview`), whatever that fact's disclosure. Arriving reveals those facts
+  (`World.set_scene`), so the describer is told nothing the player will not be told on arrival. It is shown those
+  facts only: no other aspect, no hidden or hinted fact of any other kind, no narration. A place with no arrival fact
+  waits until it has one.
+- **How many.** At most `PREMADE_AHEAD` (6) places are made ahead at a time, counting those already made, and
+  `PREMADE_PER_SWEEP` (3) Looks per sweep. Places one step from the party's place (a route, its parent or children, a
+  shared fact) come first, then the newest. The set rolls forward as the party moves.
+- **Pictures** are the last jobs of the picture sweep, after everything a player can see, with the same size and
+  rules.
+- **Never visible.** The Look and picture sit on the entity, but the entity is not discovered, so the compendium, the
+  status tab and `/portraits` do not show or serve them (`shown` serves only visible entities' pictures). Nothing is
+  marked as seen. When the party arrives the place becomes discovered, and its Look and picture are already there; the
+  GM's briefing carries the Look from then on.
+- **Debug mode.** `GET /debug/premade` lists them (id, name, summary, description, picture address) and
+  `GET /debug/premade/{file}` serves a picture. The routes exist only with `--debug`.
+
 ## 7. Staying consistent
 
 - **The GM sees the summary** of the place the party is in in **every request** (a line in the world briefing, with the
@@ -191,6 +213,18 @@ locations; a prompt of the place kind and the place size are used; failures, sta
 replacements are unchanged, except that a refused view is not retried with a softer prompt (there is none), only
 recorded. Pictures are made after the Look, so a place needs its description first, and so only describable places
 (5.1) are pictured.
+
+**The current place is not batched.** The picture of the place the party is in is made as its own job, as soon as the
+place has a Look, so a new place gets its picture at the earliest moment possible:
+
+- After each turn the background does this first, before the world pass: describe the current place if it is
+  describable and has no Look (only that place, not a sweep), then make its picture. It runs again after the world
+  pass, which may be what made the place describable.
+- It does not wait for a running sweep (the sweep skips a picture already in progress, tracked in
+  `Session.imaging_keys`), and it is not held back by the two-at-a-time limit of the sweep.
+- Sweep pictures are applied one by one as each is done, not when the whole sweep is.
+- Making places ready in advance is unchanged: any visible place with a Look is pictured by the sweeps, so a place the
+  party has heard of is usually ready when they arrive.
 
 ## 9. The API
 

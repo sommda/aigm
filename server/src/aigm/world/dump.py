@@ -112,6 +112,14 @@ def dump_world(world: World, *, known_only: bool = False, session_id: str | None
             entry["motives"] = [motive_line(m, world.motive_state(m)) for m in motives]
         entities.append(entry)
     out["entities"] = entities
+    if world.attempts and not known_only:  # including what only the GM sees: how a closed attempt reopens
+        out["attempts"] = [
+            f"{a.id} {a.status} {a.kind}: {a.who} tried to {a.task} on {world.entities[a.about].name}, {a.tries} {'try' if a.tries == 1 else 'tries'}"
+            + (f"; {a.failure.rstrip('.')}" if a.failure else "")
+            + (f"; reopens if: {a.reopens_if}" if a.reopens_if else "")
+            + (f"; reopens at {a.reopens_at}" if a.reopens_at else "")
+            for a in world.attempts.values()
+        ]
     if world.routes and not known_only:  # the map the GM works from; the player has not been told it (docs/TIME.md 5)
         out["routes"] = [route_text(world, r) for r in world.routes.values()]
     if world.digests and not known_only:

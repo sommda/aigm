@@ -8,6 +8,7 @@ from aigm.tools.award import AWARD
 from aigm.tools.begin_adventure import BEGIN_ADVENTURE
 from aigm.tools.combat import SET_COMBAT
 from aigm.tools.character import UPDATE_CHARACTER
+from aigm.tools.defeat import DEFEAT
 from aigm.tools.motive import SET_MOTIVE
 from aigm.tools.pass_time import PASS_TIME
 from aigm.tools.playtest import END_PLAYTEST, PLAYTEST_HERO, PLAYTEST_STORY, PLAYTEST_TIME
@@ -18,7 +19,7 @@ from aigm.tools.story import END_STORY
 from aigm.tools.structure import SET_STRUCTURE
 from aigm.tools.world import ESTABLISH, KEY_ITEM, RECALL, SET_SCENE
 
-REGISTRY: dict[str, Tool] = {t.schema["name"]: t for t in (ROLL_DICE, SET_RULESET, SET_ART_STYLE, SET_STRUCTURE, BEGIN_ADVENTURE, RECALL, ESTABLISH, KEY_ITEM, SET_SCENE, PASS_TIME, UPDATE_CHARACTER, SET_COMBAT, SET_MOTIVE, SOCIAL_CHECK, AWARD, END_STORY, END_PLAYTEST, PLAYTEST_TIME, PLAYTEST_HERO, PLAYTEST_STORY)}
+REGISTRY: dict[str, Tool] = {t.schema["name"]: t for t in (ROLL_DICE, SET_RULESET, SET_ART_STYLE, SET_STRUCTURE, BEGIN_ADVENTURE, RECALL, ESTABLISH, KEY_ITEM, SET_SCENE, PASS_TIME, UPDATE_CHARACTER, SET_COMBAT, SET_MOTIVE, SOCIAL_CHECK, AWARD, DEFEAT, END_STORY, END_PLAYTEST, PLAYTEST_TIME, PLAYTEST_HERO, PLAYTEST_STORY)}
 
 
 def tool_schemas(

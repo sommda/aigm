@@ -46,6 +46,13 @@ when a game is reloaded.
 Every request's world notes start with `Party: Maren Holt level 3 (Paladin 2, Rogue 1), 450 XP; Ilyr Wren level 1.` In
 a story game the story section also gives the party's average level and the level the chapter needs.
 
+## The sheet's headline
+
+A sheet's headline ("Human Fighter 1") is text the GM wrote once, and a level gained later changes `Hero.classes`, not
+that text. So wherever the headline is shown (the roster, the character page and the sheets in the GM's notes), the
+number after each class the server records for the character is replaced by its current level
+(`characters.headline_of`). A class the headline does not name is left alone, and the stored text is not changed.
+
 ## Chapters and the average level
 
 A story chapter has a target level (docs/STORY.md). `Story.party_level` keeps the party's average, updated by every

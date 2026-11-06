@@ -7,9 +7,10 @@ from typing import Any, Protocol
 
 
 class LLMError(Exception):
-    def __init__(self, message: str, retryable: bool = False) -> None:
+    def __init__(self, message: str, retryable: bool = False, garbled: bool = False) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.garbled = garbled  # the model's reply was unusable (cut off, empty, unparseable): asking again usually works
 
 
 @dataclass

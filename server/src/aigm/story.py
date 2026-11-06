@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from aigm.errors import CorruptSave
-from aigm.world import World
+from aigm.world import World, WorldTime
 
 ENDLESS = "endless"
 SCALES = ("small", "medium", "large")
@@ -39,6 +39,71 @@ LENGTHS: dict[str, Length] = {
 STRUCTURES = (ENDLESS, *LENGTHS)
 
 
+# ---- failure (docs/STAKES.md) -------------------------------------------------------------
+
+COST_KINDS = ("time", "resource", "ally", "knowledge", "position")
+SMALL_COST_KINDS = ("time", "resource")  # chapter 1 costs are small
+MAX_COSTS = 40  # the costs log keeps this many recent entries
+MAX_COST_TEXT = 300
+MAX_COST_HOURS = {1: 24, 2: 72, 3: 72}  # the longest a time cost may be, by chapter
+COSTS_SHOWN = 3  # the briefing lists this many recent costs
+STALL_TURNS = 40  # player turns a failed required quest may wait for its repair before it is given up (STORY.md 8.2)
+MOVE_HOURS = 24  # a chapter 1 deadline that passes slides this far past the moment it was missed
+MAX_BACKUPS = 2  # a repair adds one or two quests
+
+
+@dataclass(frozen=True)
+class FailureResponse:
+    """What happens when something fails in one chapter (docs/STAKES.md 3). Held as data beside `LENGTHS`."""
+
+    quest: str  # a failed required quest: "repair" (the plan is mended) or "end" (the game ends)
+    deadline: str  # a passed quest deadline: "move" (the deadline slides), "repair" or "end"
+    doom: str  # a doom: "none" (not used) or "end"
+    cost_required: bool  # a `failed` report needs a cost
+    cost_kinds: tuple[str, ...]
+    backup_quest: bool  # the repair must add a backup quest inside the existing world
+
+
+RESPONSES: dict[int, FailureResponse] = {
+    1: FailureResponse("repair", "move", "none", True, SMALL_COST_KINDS, False),
+    2: FailureResponse("repair", "repair", "end", True, COST_KINDS, True),
+    3: FailureResponse("end", "end", "end", False, COST_KINDS, False),
+}
+
+
+def failure_response(story: "Story", chapter: int | None = None) -> FailureResponse:
+    """What failure does in a chapter (the story's current one by default). An endless or concluded story has none:
+    a failed quest there only means the reward is not earned."""
+    chapter = story.chapter if chapter is None else chapter
+    if story.length == ENDLESS or story.concluded or chapter not in RESPONSES:
+        return FailureResponse("none", "none", "none", False, (), False)
+    return RESPONSES[chapter]
+
+
+def record_cost(
+    story: "Story", turn: int, milestone: str, kind: str, text: str, hours: int = 0, *, clock: bool = True
+) -> str | None:
+    """Write a cost into the story's log (docs/STAKES.md 6). Returns what is wrong with it, or None when it was kept.
+    A `time` cost carries the hours the clock must move; the caller moves it. With `clock` false the cost only notes
+    the lost time (a plotter's account of a failure whose hours were not reported)."""
+    allowed = failure_response(story).cost_kinds
+    text = " ".join(text.split())[:MAX_COST_TEXT] if isinstance(text, str) else ""
+    if not allowed:
+        return "this game has no costs"
+    if kind not in allowed:
+        return f"a cost here is one of: {', '.join(allowed)}"
+    if not text:
+        return "say in one sentence what the failure cost the party"
+    entry: dict[str, Any] = {"turn": turn, "chapter": story.chapter, "milestone": milestone, "kind": kind, "text": text}
+    if kind == "time" and clock:
+        limit = MAX_COST_HOURS[story.chapter]
+        if isinstance(hours, bool) or not isinstance(hours, int) or not 1 <= hours <= limit:
+            return f"a time cost needs `cost_hours`, a whole number from 1 to {limit}"
+        entry["hours"] = hours
+    story.costs = [*story.costs, entry][-MAX_COSTS:]
+    return None
+
+
 # ---- the plan -----------------------------------------------------------------------------
 
 
@@ -50,6 +115,26 @@ class Chapter:
 
     def to_dict(self) -> dict[str, Any]:
         return {"title": self.title, "purpose": self.purpose, "target_level": self.target_level}
+
+
+@dataclass
+class Deadline:
+    """A moment on the in-world clock by which a quest or doom must be settled (docs/STAKES.md 2)."""
+
+    at: WorldTime
+    cue: str = ""  # the sign in the world that shows how near it is
+    fixed: bool = False  # nothing in the story can move it (a conjunction, a tide)
+    start: WorldTime | None = None  # when the clock began to run on it, to tell how much of the time is gone
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"at": self.at.to_dict(), "cue": self.cue, "fixed": self.fixed,
+                "start": self.start.to_dict() if self.start else None}  # fmt: skip
+
+    def used(self, now: WorldTime) -> float | None:
+        """The share of the time that has gone, from 0 to 1 (None while the start is not known)."""
+        if self.start is None or self.at <= self.start:
+            return None
+        return min(1.0, max(0.0, (now.total_minutes - self.start.total_minutes) / (self.at.total_minutes - self.start.total_minutes)))
 
 
 @dataclass
@@ -70,6 +155,12 @@ class Milestone:
     # hand before the quest is offered. Entity ids.
     finds: str | None = None
     needs: list[str] = field(default_factory=list)
+    # Failure (docs/STAKES.md 2): the ways the quest is lost, a time limit, and the ending that follows a failure.
+    fails_if: list[str] = field(default_factory=list)
+    deadline: Deadline | None = None
+    ending: str | None = None
+    escape: bool = False  # the quest that gets a captured party out (docs/STAKES.md 7.5)
+    backup_for: str | None = None  # a repair quest: the id of the failed quest it replaces (docs/STAKES.md 5)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -77,6 +168,8 @@ class Milestone:
             "gives": self.gives, "requires": list(self.requires), "required": self.required,
             "entities": list(self.entities), "status": self.status, "done_turn": self.done_turn,
             "outcome": self.outcome, "finds": self.finds, "needs": list(self.needs),
+            "fails_if": list(self.fails_if), "deadline": self.deadline.to_dict() if self.deadline else None,
+            "ending": self.ending, "backup_for": self.backup_for, "escape": self.escape,
         }  # fmt: skip
 
 
@@ -106,6 +199,23 @@ class Ending:
 
 
 @dataclass
+class Doom:
+    """A way to lose that belongs to no one quest (docs/STAKES.md 2.1)."""
+
+    id: str
+    when: str  # the situation, for the GM only
+    chapters: list[int] = field(default_factory=list)  # the chapters it applies in (never 1)
+    deadline: Deadline | None = None
+    ending: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id, "when": self.when, "chapters": list(self.chapters),
+            "deadline": self.deadline.to_dict() if self.deadline else None, "ending": self.ending,
+        }  # fmt: skip
+
+
+@dataclass
 class Story:
     length: str
     goal: Goal | None = None  # None until the plotter has written the plan
@@ -119,6 +229,13 @@ class Story:
     ending: str | None = None  # the id of the ending reached
     epilogue: str | None = None
     party_level: float = 1.0  # the party's average level, kept current by the `award` tool (docs/PROGRESSION.md)
+    dooms: list[Doom] = field(default_factory=list)
+    costs: list[dict[str, Any]] = field(default_factory=list)  # {"turn", "chapter", "milestone", "kind", "text"}
+    wipes: int = 0  # chapter 2 total party defeats so far (docs/STAKES.md 7.5)
+    # A captured party's way out is waiting to be written: {"turn", "held" (where and by whom), "hours" (the time they
+    # have, or None when it does not matter)} (docs/STAKES.md 7.5)
+    escape: dict[str, Any] | None = None
+    fall: dict[str, Any] | None = None  # the game is lost: {"turn", "ending" (id or None), "why"} (docs/STAKES.md 3)
 
     @property
     def planned(self) -> bool:
@@ -127,6 +244,9 @@ class Story:
     @property
     def concluded(self) -> bool:
         return self.chapter == CONCLUDED
+
+    def has_ending(self, ending_id: str) -> bool:
+        return any(e.id == ending_id for e in self.endings)
 
     def milestone(self, milestone_id: str) -> Milestone | None:
         return next((m for m in self.milestones if m.id == milestone_id), None)
@@ -151,6 +271,11 @@ class Story:
             "ending": self.ending,
             "epilogue": self.epilogue,
             "party_level": self.party_level,
+            "dooms": [d.to_dict() for d in self.dooms],
+            "costs": [dict(c) for c in self.costs],
+            "wipes": self.wipes,
+            "fall": dict(self.fall) if self.fall else None,
+            "escape": dict(self.escape) if self.escape else None,
         }
 
     @classmethod
@@ -207,6 +332,62 @@ def _objects(raw: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return value
 
 
+def _read_deadline(raw: Any) -> Deadline | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("'deadline' must be an object or null")
+    fixed = raw.get("fixed", False)
+    if not isinstance(fixed, bool):
+        raise ValueError("'fixed' must be true or false")
+    try:
+        at = WorldTime.from_dict(raw.get("at"))
+    except ValueError as exc:  # WorldError is a ValueError
+        raise ValueError(f"the deadline's time is invalid: {exc}") from None
+    start = WorldTime.from_dict(raw["start"]) if raw.get("start") is not None else None
+    return Deadline(at, _text(raw, "cue", optional=True), fixed, start)
+
+
+def _read_doom(raw: dict[str, Any]) -> Doom:
+    chapters = raw.get("chapters", [])
+    if not isinstance(chapters, list) or not all(c in (2, 3) and not isinstance(c, bool) for c in chapters):
+        raise ValueError("a doom's 'chapters' must be a list of 2 and 3")
+    ending = raw.get("ending")
+    if ending is not None and not isinstance(ending, str):
+        raise ValueError("'ending' must be a string or null")
+    return Doom(_text(raw, "id"), _text(raw, "when"), list(chapters), _read_deadline(raw.get("deadline")), ending)
+
+
+def _read_fall(raw: Any) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("'fall' must be an object or null")
+    ending = raw.get("ending")
+    if ending is not None and not isinstance(ending, str):
+        raise ValueError("'ending' must be a string or null")
+    return {"turn": _int(raw, "turn"), "ending": ending, "why": _text(raw, "why")}
+
+
+def _read_escape(raw: Any) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("'escape' must be an object or null")
+    return {"turn": _int(raw, "turn"), "held": _text(raw, "held"), "hours": _opt_int(raw, "hours")}
+
+
+def _read_cost(raw: dict[str, Any]) -> dict[str, Any]:
+    kind = raw.get("kind")
+    if kind not in COST_KINDS:
+        raise ValueError(f"unknown cost kind {kind!r}")
+    return {
+        "turn": _int(raw, "turn"), "chapter": _int(raw, "chapter", 1),
+        "milestone": _text(raw, "milestone", optional=True), "kind": kind, "text": _text(raw, "text"),
+        **({"hours": _int(raw, "hours", 1)} if raw.get("hours") is not None else {}),
+    }  # fmt: skip
+
+
 def _read_milestone(raw: dict[str, Any]) -> Milestone:
     scale, status = raw.get("scale", "small"), raw.get("status", "pending")
     if scale not in SCALES:
@@ -225,11 +406,17 @@ def _read_milestone(raw: dict[str, Any]) -> Milestone:
     finds = raw.get("finds")
     if finds is not None and not isinstance(finds, str):
         raise ValueError("'finds' must be a string or null")
+    ending, backup_for = raw.get("ending"), raw.get("backup_for")
+    for name, value in (("ending", ending), ("backup_for", backup_for)):
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"'{name}' must be a string or null")
     return Milestone(
         id=_text(raw, "id"), chapter=chapter, title=_text(raw, "title"), brief=_text(raw, "brief"), scale=scale,
         gives=_text(raw, "gives", optional=True), requires=_strings(raw, "requires"), required=required,
         entities=_strings(raw, "entities"), status=status, done_turn=_opt_int(raw, "done_turn"), outcome=outcome,
-        finds=finds, needs=_strings(raw, "needs"),
+        finds=finds, needs=_strings(raw, "needs"), fails_if=_strings(raw, "fails_if"),
+        deadline=_read_deadline(raw.get("deadline")), ending=ending, backup_for=backup_for,
+        escape=raw.get("escape") is True,
     )  # fmt: skip
 
 
@@ -269,6 +456,10 @@ def _read_story(raw: Any) -> Story:
     choices = []
     for c in _objects(raw, "choices"):
         choices.append({"turn": _int(c, "turn"), "milestone": _text(c, "milestone", optional=True), "note": _text(c, "note")})
+    dooms = [_read_doom(d) for d in _objects(raw, "dooms")]
+    if len({d.id for d in dooms}) != len(dooms):
+        raise ValueError("doom ids must be unique")
+    costs = [_read_cost(c) for c in _objects(raw, "costs")]
     chapter = _int(raw, "chapter", 1)
     if chapter > CONCLUDED:
         raise ValueError(f"chapter must be 1 to {CONCLUDED}")
@@ -280,7 +471,8 @@ def _read_story(raw: Any) -> Story:
         length=length, goal=goal, chapters=chapters, milestones=milestones, endings=endings, choices=choices,
         chapter=chapter, chapter_started_turn=_int(raw, "chapter_started_turn"),
         last_progress_turn=_int(raw, "last_progress_turn"), ending=ending, epilogue=epilogue,
-        party_level=_level(raw.get("party_level")),
+        party_level=_level(raw.get("party_level")), dooms=dooms, costs=costs, wipes=_int(raw, "wipes") if "wipes" in raw else 0,
+        fall=_read_fall(raw.get("fall")), escape=_read_escape(raw.get("escape")),
     )  # fmt: skip
 
 
@@ -323,6 +515,48 @@ def validate_plan(story: Story, world: World | None = None) -> list[str]:
             for entity_id in ids:
                 if world.entity(entity_id) is None:
                     problems.append(f"{label} names {entity_id}, which is not in the world")
+    return problems
+
+
+def stakes_problems(story: Story, chapters: tuple[int, ...], now: WorldTime | None = None) -> list[str]:
+    """What is wrong with the failure side of a plan the plotter wrote (docs/STAKES.md 2.2): how many ways each quest can
+    fail, the endings of chapter 3, the dooms, and deadlines that are not in the future. Only the `chapters` just
+    written are checked."""
+    problems: list[str] = []
+    for chapter in chapters:
+        required = [m for m in story.in_chapter(chapter) if m.required]
+        for m in required:
+            n = len(m.fails_if)
+            if chapter == 1 and n > 1:
+                problems.append(f"{m.id}: chapter 1 quests have at most one way to fail, not {n}")
+            if chapter == 2 and n > 2:
+                problems.append(f"{m.id}: chapter 2 quests have one or two ways to fail, not {n}")
+            if chapter == 3:
+                want = 5 if m is required[-1] else 3
+                if n < want:
+                    problems.append(
+                        f"{m.id}: chapter 3 is a gauntlet: give it at least {want} different ways to fail "
+                        f"(a person, an object, a place, a rival, a clock, a choice), not {n}"
+                    )
+                if not m.ending:
+                    problems.append(f"{m.id}: every chapter 3 quest needs an `ending` that follows its failure")
+        if chapter == 2 and required and not any(m.fails_if for m in required):
+            problems.append("chapter 2 needs some quests with ways to fail: give about half of them one or two")
+        low, high = {2: (1, 3), 3: (3, 6)}.get(chapter, (0, 0))
+        n = sum(chapter in d.chapters for d in story.dooms)
+        if chapter > 1 and not low <= n <= high:
+            problems.append(f"chapter {chapter} needs {low} to {high} dooms (ways the whole game is lost), not {n}")
+    for d in story.dooms:
+        if not d.ending:
+            problems.append(f"doom {d.id} needs an `ending` that follows it")
+    if now is not None:
+        for title, dl in [(m.id, m.deadline) for m in story.milestones if m.deadline] + [
+            (d.id, d.deadline) for d in story.dooms if d.deadline
+        ]:
+            if dl.at <= now:
+                problems.append(f"{title}: its deadline ({dl.at}) is not after the time now ({now})")
+            if not dl.cue.strip():
+                problems.append(f"{title}: a deadline needs a `cue`, the sign in the world of how near it is")
     return problems
 
 
@@ -437,11 +671,224 @@ def settle_ready(story: Story, world: World | None = None) -> list[str]:
         ):
             m.status = "active"
             opened.append(m.id)
+    if world is not None:
+        stamp_deadlines(story, world)
     return opened
+
+
+def stamp_deadlines(story: Story, world: World) -> None:
+    """Start the clock on every live deadline that has none (an active quest's, a current doom's), so the briefing can
+    say how much of the time is gone."""
+    for _title, dl in _live_deadlines(story):
+        if dl.start is None:
+            dl.start = world.time
 
 
 def active(story: Story) -> list[Milestone]:
     return [m for m in story.in_chapter(story.chapter) if m.status == "active"]
+
+
+@dataclass(frozen=True)
+class Due:
+    """Something that has failed on the clock (docs/STAKES.md 10). `kind` is "quest" or "doom"."""
+
+    kind: str
+    id: str
+    text: str  # the quest's title or the doom's situation
+    ending: str | None
+    action: str  # what the chapter does about it: "move", "repair" or "end"
+    fixed: bool
+    deadline: Deadline
+
+
+def due_failures(story: Story, world: World) -> list[Due]:
+    """Every active quest and every doom of the current chapter whose deadline the clock has passed. Pure: the caller
+    decides what to do about each. A quest already settled, and a story without stakes, report nothing."""
+    response = failure_response(story)
+    if response.deadline == "none" and response.doom == "none":
+        return []
+    out: list[Due] = []
+    if response.deadline != "none":
+        for m in active(story):
+            if m.deadline is not None and m.deadline.at <= world.time:
+                out.append(Due("quest", m.id, m.title, m.ending, response.deadline, m.deadline.fixed, m.deadline))
+    if response.doom != "none":
+        for d in story.dooms:
+            if story.chapter in d.chapters and d.deadline is not None and d.deadline.at <= world.time:
+                out.append(Due("doom", d.id, d.when, d.ending, response.doom, d.deadline.fixed, d.deadline))
+    return out
+
+
+# ---- losing the game (docs/STAKES.md 3, 5, 10) -----------------------------------------------
+
+
+def lose(story: Story, turn: int, why: str, ending: str | None = None) -> bool:
+    """The game is lost: the GM must play out the ending and call `end_story`. Only the first loss counts, and only
+    where failure ends the game; returns whether this call set it."""
+    if story.fall is not None or story.concluded or not story.planned:
+        return False
+    story.fall = {"turn": turn, "ending": ending if ending and story.has_ending(ending) else None, "why": why.strip()}
+    return True
+
+
+def doom_ending(story: Story, ending_id: str) -> Doom | None:
+    """The doom of this chapter whose ending this is, if any (the GM may end a chapter 2 game with one)."""
+    return next((d for d in story.dooms if story.chapter in d.chapters and d.ending == ending_id), None)
+
+
+def forced_ending(story: Story, turn: int, stall: int = STALL_TURNS) -> "Progress | None":
+    """A lost game whose GM never called `end_story` is ended by the server after `stall` player turns."""
+    if story.fall is None or story.concluded or turn - story.fall["turn"] < stall:
+        return None
+    return conclude(story, story.fall["ending"] or "end_custom", f"The story ended in failure: {story.fall['why']}")
+
+
+# ---- defeat of the whole party (docs/STAKES.md 7.5) --------------------------------------
+
+DEFEAT_HOWS = ("taken", "left", "routed")
+WIPE_HOURS = (24, 72, 120)  # the least a chapter 2 wipe takes, by the number of wipes so far; then 24 more each time
+WIPE_PRICES = (
+    "gear taken, or a day or two lost",
+    "a companion lost or captured, or a key item put out of reach",
+    "a major ally or item gone for good, the enemy well ahead",
+)
+MAX_DEFEAT_HOURS = {1: 24, 2: 240}
+CAPTURE_RESERVE_SHARE = 1 / 3  # of the time left when the party was taken, kept for the escape and the way back
+CAPTURE_RESERVE_MIN = 12  # hours
+
+
+def wipe_minimum(wipes: int) -> int:
+    """The least hours a chapter 2 defeat takes, given how many wipes there have been including this one."""
+    return WIPE_HOURS[wipes - 1] if wipes <= len(WIPE_HOURS) else WIPE_HOURS[-1] + 24 * (wipes - len(WIPE_HOURS))
+
+
+def _live_deadlines(story: Story) -> list[tuple[str, Deadline]]:
+    found = [(m.title, m.deadline) for m in active(story) if m.deadline is not None]
+    found += [(d.when, d.deadline) for d in story.dooms if story.chapter in d.chapters and d.deadline is not None]
+    return found
+
+
+def protect_capture(story: Story, world: World, turn: int, hours: int) -> tuple[int, list[str], int | None]:
+    """A capture never costs the party the game (docs/STAKES.md 7.5.2). A deadline people set is pushed back by the
+    captivity; a fixed one cannot move, so the captivity is shortened to leave a reserve before it. Changes the story's
+    deadlines and costs. Returns the hours the captivity may last, notes for the GM, and the hours the party will have
+    left for the escape (None: no fixed deadline limits it)."""
+    notes: list[str] = []
+    cap = hours
+    fixed = []  # the hours left before each fixed deadline, now
+    for _title, dl in _live_deadlines(story):
+        remaining = (dl.at.total_minutes - world.time.total_minutes) // 60
+        if remaining <= 0 or not dl.fixed:
+            continue
+        reserve = max(CAPTURE_RESERVE_MIN, int(remaining * CAPTURE_RESERVE_SHARE))
+        cap = min(cap, max(0, remaining - reserve))
+        fixed.append(remaining)
+    left = [r - cap for r in fixed]
+    shift = cap
+    for title, dl in _live_deadlines(story):
+        if dl.fixed or dl.at.total_minutes <= world.time.total_minutes:
+            continue
+        dl.at = dl.at.plus(shift)
+        text = f"The enemy's plan for {title} was held up while the party was held, so its time slid {shift} hours too."
+        story.costs = [*story.costs, {"turn": turn, "chapter": story.chapter, "milestone": "", "kind": "time",
+                                      "text": text}][-MAX_COSTS:]  # fmt: skip
+        notes.append(f"{title}: its time limit slid {shift} hours; show in the fiction why the enemy was held up too.")
+    if cap < hours:
+        notes.append(f"The captivity was cut to {cap} hours so a fixed deadline still leaves the party time.")
+    return cap, notes, (min(left) if left else None)
+
+
+# ---- repairing a plan (docs/STORY.md 8.2, docs/STAKES.md 4, 5) ---------------------------
+
+
+def needs_repair(story: Story) -> Milestone | None:
+    """A required quest of the current chapter that failed and has not been mended: the chapter cannot end while it
+    stands, so the plotter is asked for a way round. A repaired quest stops being required (the backup takes its
+    place in the chapter's count)."""
+    if story.concluded or not story.planned or failure_response(story).quest != "repair":
+        return None
+    return next((m for m in story.in_chapter(story.chapter) if m.required and m.status == "failed"), None)
+
+
+def repair_depth(story: Story, quest: Milestone) -> int:
+    """How many times this line of the story has failed, the quest itself included (1 for a first failure)."""
+    depth, seen = 1, {quest.id}
+    while quest.backup_for and quest.backup_for not in seen and (earlier := story.milestone(quest.backup_for)):
+        seen.add(earlier.id)
+        quest, depth = earlier, depth + 1
+    return depth
+
+
+def apply_repair(story: Story, failed_id: str, backups: list[Milestone], world: World | None = None) -> list[str]:
+    """Put the backup quests in the failed one's place. They inherit what it required; whatever required it requires
+    them instead (the ones nothing else among them waits on). The failed quest stays in the log, no longer counted.
+    Returns the ids that became active."""
+    failed = story.milestone(failed_id)
+    if failed is None or not backups:
+        return []
+    inside = {b.id for b in backups}
+    for b in backups:
+        b.backup_for, b.required, b.chapter = failed.id, True, failed.chapter
+        if not any(r in inside for r in b.requires):
+            b.requires = list(dict.fromkeys([*failed.requires, *b.requires]))
+    leaves = [b.id for b in backups if not any(b.id in o.requires for o in backups)]
+    for m in story.milestones:
+        if failed.id in m.requires:
+            m.requires = list(dict.fromkeys(x for r in m.requires for x in (leaves if r == failed.id else [r])))
+    failed.required = False
+    story.milestones += backups
+    story.last_progress_turn = max(story.last_progress_turn, failed.done_turn or 0)
+    return settle_ready(story, world)
+
+
+def expire_failed(story: Story, turn: int, stall: int = STALL_TURNS) -> list[str]:
+    """A failed required quest that no repair has mended for `stall` player turns is given up as skipped, so a game can
+    never stick for good. Returns the ids given up."""
+    gone = []
+    for m in story.in_chapter(story.chapter):
+        if m.required and m.status == "failed" and m.done_turn is not None and turn - m.done_turn >= stall:
+            m.status = "skipped"
+            m.outcome = f"{m.outcome or 'It failed.'} (No way round was found; the story moved on.)"
+            gone.append(m.id)
+    if gone:
+        settle_ready(story)
+        if chapter_complete(story, turn):
+            advance_chapter(story, turn)
+            settle_ready(story)
+    return gone
+
+
+def settle_due(story: Story, world: World, turn: int) -> list[str]:
+    """Act on the clock after a turn (docs/STAKES.md 3): a deadline whose passing ends the game (any in chapter 3, a
+    doom's in chapter 2) loses it; in chapter 1 a deadline that has passed slides a day past the
+    moment it was missed and the delay is written down; in chapter 2 a quest whose time ran out fails, at a cost, and
+    waits for its repair. Returns notes for the log."""
+    notes = []
+    for due in due_failures(story, world):
+        if due.action == "end":
+            why = f"the time for {due.text} ran out" if due.kind == "quest" else f"{due.text}: the time is up"
+            if lose(story, turn, why, due.ending):
+                notes.append(why)
+            continue
+        if due.kind != "quest":
+            continue
+        quest = story.milestone(due.id)
+        if quest is None:
+            continue
+        if due.action == "move":
+            assert quest.deadline is not None
+            quest.deadline = Deadline(world.time.plus(MOVE_HOURS), quest.deadline.cue, quest.deadline.fixed)
+            text = f"The time for {quest.title} ran out, but the world was delayed too: its limit slid a day."
+            story.costs = [*story.costs, {"turn": turn, "chapter": story.chapter, "milestone": quest.id,
+                                          "kind": "time", "text": text}][-MAX_COSTS:]  # fmt: skip
+            notes.append(text)
+        elif due.action == "repair":
+            quest.status, quest.done_turn, quest.deadline = "failed", turn, None
+            quest.outcome = f"The time for {quest.title} ran out."
+            story.last_progress_turn = turn
+            record_cost(story, turn, quest.id, "position", f"The time for {quest.title} ran out and the enemy gained ground.")
+            notes.append(quest.outcome)
+    return notes
 
 
 def level_short(story: Story, turn: int | None = None) -> bool:
@@ -491,12 +938,17 @@ def report(
         return Progress(False, f"{milestone_id} is {milestone.status}, not active")
     if not outcome.strip():
         return Progress(False, "an outcome is required: say in a sentence what happened")
+    if story.fall is not None and status != "failed":
+        return Progress(False, "the story is ending in failure, and no quest can be finished now")
     milestone.status, milestone.outcome, milestone.done_turn = status, outcome.strip(), turn
     story.last_progress_turn = turn
     if status == "done" and outcome.strip():
         story.choices = [*story.choices, {"turn": turn, "milestone": milestone_id, "note": outcome.strip()}][
             -MAX_CHOICES:
         ]
+    if status == "failed" and milestone.required and failure_response(story, milestone.chapter).quest == "end":
+        lose(story, turn, f"{milestone.title} failed: {milestone.outcome}", milestone.ending)
+        return Progress(True, f"{milestone_id} is now failed")
     opened = settle_ready(story, world)
     advanced = None
     if chapter_complete(story, turn):
@@ -550,6 +1002,8 @@ def summary_so_far(story: Story) -> str:
         lines.append(f"- {m.id} (chapter {m.chapter}, {m.scale}) {m.title} [{done}]. Gave: {m.gives or 'nothing'}.")
     for e in story.endings:
         lines.append(f"Ending {e.id}: {e.title}. {e.when}")
+    for d in story.dooms:
+        lines.append(f"Doom {d.id} (chapters {', '.join(map(str, d.chapters))}): {d.when} -> {d.ending or 'no ending'}.")
     return "\n".join(lines)
 
 
@@ -623,6 +1077,72 @@ def _item_note(world: World, m: Milestone) -> str:
     return f" Finding: {item.name} ({stand})."
 
 
+def _fall_block(story: Story, turn: int) -> str:
+    fall = story.fall
+    assert fall is not None
+    ending = next((e for e in story.endings if e.id == fall["ending"]), None)
+    play = (
+        f'the ending "{ending.title}" ({ending.id}): {ending.when}'
+        if ending
+        else "the failure ending that fits best (the ones listed below), or `end_custom` if none does"
+    )
+    left = max(0, STALL_TURNS - (turn - fall["turn"]))
+    lines = [
+        f"THE STORY IS LOST: {fall['why']}",
+        f"Finish the scene the party is in, then play out {play} and call `end_story` with it. Do not soften the result, "
+        "choose a kinder ending or let the party undo it. No quest can be finished now.",
+    ]
+    if not ending:
+        lines += [f"- {e.id}: {e.title}. {e.when}" for e in story.endings]
+    lines.append(f"If you do not end it within {left} turns, the server will.")
+    return "\n".join(lines)
+
+
+STAKES_LINES = {
+    1: "Stakes are low. A failure costs something small (time, coin, supplies) and never blocks the story; if a loss "
+    "would, bend the narrative around it. The party cannot lose the game in this chapter.",
+    2: "Stakes are real. A failed quest costs something real and the story finds another way; the whole game is lost "
+    "only through neglect or an extremely foolish act, never through an honest attempt that goes badly.",
+    3: "Stakes are final. Failure now ends the story, and there are many ways to fail. A party that notices them and "
+    "chooses well wins; one that does not, loses.",
+}
+HINT_RULE = (
+    "Hint at danger through the world (an omen, a changed guard, a frightened ally, a burned bridge). Never state the "
+    "stakes, never say what would end the game or that something would be a failure."
+)
+
+
+def _deadline_lines(story: Story, world: World) -> list[str]:
+    """What the GM must do about the clock this turn (docs/STAKES.md 8). A hard deadline is one whose passing ends the
+    game; the player must be reminded of it in every scene, through its cue."""
+    out = []
+    rows = [(m.title, m.deadline, False) for m in active(story) if m.deadline is not None]
+    rows += [(d.when, d.deadline, True) for d in story.dooms if story.chapter in d.chapters and d.deadline is not None]
+    for title, dl, is_doom in rows:
+        if dl.at <= world.time:
+            continue
+        used = dl.used(world.time)
+        pct = f" About {round(used * 100)}% of the time is gone." if used is not None else ""
+        cue = dl.cue or "the sign you invent for it"
+        if is_doom or story.chapter == 3:
+            if used is None or used < 0.34:
+                how = "a passing detail"
+            elif used < 0.67:
+                how = "a remark from a companion"
+            elif used < 0.9:
+                how = "an urgent line"
+            else:
+                how = "a plain statement of how little time is left"
+            out.append(
+                f"Hard deadline ({title}): the player must never lose track of it. Work its cue into this turn's "
+                f"narration: {cue}.{pct} Use {how}. Never say what happens when time runs out."
+            )
+        elif used is not None and used >= 0.5:
+            how = "say it plainly" if used >= 0.75 else "give one hint"
+            out.append(f"Time limit on {title} (cue: {cue}).{pct} When it fits, {how}.")
+    return out
+
+
 def briefing_block(story: Story, world: World, turn: int, nudge_turns: int = NUDGE_TURNS) -> str:
     """The private story section of the world notes (docs/STORY.md 10), or "" before the plan is written."""
     if not story.planned or story.goal is None:
@@ -638,6 +1158,10 @@ def briefing_block(story: Story, world: World, turn: int, nudge_turns: int = NUD
     n = story.chapter
     info = story.chapters[n - 1] if n <= len(story.chapters) else Chapter("", "")
     lines = ["## Story (private)", f'Chapter {n} of 3, "{info.title}": {info.purpose}'.rstrip(": ")]
+    if story.fall is not None:
+        return "\n".join(lines + [_fall_block(story, turn)])
+    if story.length != ENDLESS and n in STAKES_LINES:
+        lines.append(f"{STAKES_LINES[n]} {HINT_RULE}")
     group = story.in_chapter(n)
     if n == 1 and not goal.revealed:
         lines.append(
@@ -664,6 +1188,8 @@ def briefing_block(story: Story, world: World, turn: int, nudge_turns: int = NUD
             tail = f"; {m.scale}" + (f"; at/with {where}" if where else "")
             gives = f" Finishing it builds: {m.gives}." if m.gives else ""
             lines.append(f"- [{m.id}] {m.title} ({tail[2:]}): {m.brief}{gives}{_item_note(world, m)}")
+            if m.fails_if:
+                lines.append("  It is lost if: " + "; ".join(f.rstrip(". ") for f in m.fails_if) + ". Report it failed when one happens.")
     elif not group:
         lines.append("The quests for this chapter are not planned yet: keep the story moving with ordinary play.")
     waiting = [
@@ -682,6 +1208,36 @@ def briefing_block(story: Story, world: World, turn: int, nudge_turns: int = NUD
         lines += [f"- {e.id}: {e.title}. {e.when}" for e in story.endings]
     if story.choices and n >= 2:
         lines.append("Choices that matter for the ending: " + " ".join(c["note"] for c in story.choices[-CHOICES_SHOWN:]))
+    if story.escape is not None:
+        lines.append(
+            f"The party is held: {story.escape['held']} The quest that gets them out is being written. Until it "
+            "appears, narrate the captivity and let the party act and look for a way; do not free them yourself."
+        )
+    broken = needs_repair(story)
+    if broken is not None:
+        lines.append(
+            f"[{broken.id}] {broken.title} has failed and a way round is being written. Until it appears, keep the "
+            "story moving with ordinary play and the consequences of the failure; do not invent the new quest yourself."
+        )
+    if n == 1 and shown and any(m.entities for m in shown):
+        lines.append(
+            "Drift: if the party tries to leave the area before the quests are done, bend the narrative back (a storm "
+            "closes the pass, a stranger's plea arrives, the road loops to the same fork). Never say they cannot go; "
+            "the world just does not let them get far."
+        )
+    lines += _deadline_lines(story, world)
+    dooms = [d for d in story.dooms if n in d.chapters]
+    if dooms:
+        lines.append(
+            "Ways the whole game is lost (for you alone: hint at them as the party draws near, never read them out; "
+            "when one comes to pass, finish the scene and call `end_story` with its ending):"
+        )
+        lines += [f"- {d.id}: {d.when}" + (f" (ending {d.ending})" if d.ending else "") for d in dooms]
+    if story.costs:
+        lines.append(
+            "What failure has cost the party so far (keep it alive in the scenes that follow; the people involved "
+            "react to it): " + " ".join(f"({c['kind']}) {c['text']}" for c in story.costs[-COSTS_SHOWN:])
+        )
     required = [m for m in group if m.required]
     left = [m for m in required if m.status not in SETTLED]
     if n == 1 and not goal.revealed and required:

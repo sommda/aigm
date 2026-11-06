@@ -379,3 +379,29 @@ def test_set_scene_refuses_a_bad_number_of_minutes(state, bad):
     s = state
     out = run(s, "set_scene", elapsed_minutes=bad)
     assert out.is_error and "elapsed_minutes" in out.content and s.world.time == WorldTime(1, 8, 0)
+
+
+def test_establish_can_list_an_object_in_view_and_later_replace_it_with_what_it_turned_out_to_be(state):
+    mine = state.world.find("Harrow Mine")
+    state.world.set_scene(mine.id)
+    out = run(state, "establish", facts=[
+        {"text": "Two stoppered vials stand in a cracked urn.", "about": ["Harrow Mine"], "aspect": "items"},
+    ])
+    assert not out.is_error, out.content
+    vials = next(f for f in state.world.facts.values() if f.aspect == "items")
+    assert vials.disclosure == "known"
+    out = run(state, "establish", facts=[
+        {"text": "Two Potions of Healing stand in a cracked urn.", "about": ["Harrow Mine"], "replaces": vials.id},
+    ])
+    assert not out.is_error, out.content
+    now = [f for f in state.world.facts_about(mine.id) if f.aspect == "items"]
+    assert [f.text for f in now] == ["Two Potions of Healing stand in a cracked urn."]
+    assert state.world.fact(vials.id).superseded_by == now[0].id
+
+
+def test_establish_refuses_an_items_aspect_misuse_and_replacing_other_facts(state):
+    known = next(f for f in state.world.facts.values() if f.disclosure == "known")
+    out = run(state, "establish", facts=[{"text": "Wren is a fine liar indeed.", "about": ["Wren"], "replaces": known.id}])
+    assert out.is_error and "items" in out.content
+    out = run(state, "establish", facts=[{"text": "Wren is a fine liar indeed.", "about": ["Wren"], "aspect": "secret"}])
+    assert out.is_error and "items" in out.content
